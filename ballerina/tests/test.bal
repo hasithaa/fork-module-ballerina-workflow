@@ -16,6 +16,16 @@
 
 import ballerina/test;
 
+// Record types for events in test processes
+type MultiEventRecord record {|
+    future<string> approvalEvent;
+    future<int> paymentEvent;
+|};
+
+type SingleEventRecord record {|
+    future<boolean> confirmationEvent;
+|};
+
 // Test process function for workflow registration tests.
 @Process
 function testProcessFunction(string input) returns string|error {
@@ -145,4 +155,266 @@ function testMultipleProcessRegistration() returns error? {
     test:assertEquals(registry.length(), 2, "Should have 2 processes");
     test:assertTrue(registry.hasKey("multi-process-1"), "Should have process 1");
     test:assertTrue(registry.hasKey("multi-process-2"), "Should have process 2");
+}
+// Test process with events for event extraction tests.
+// Events are modeled as a record with future fields.
+@Process
+function processWithEvents(Context ctx, string input, MultiEventRecord events) returns string|error {
+    // This would normally wait for events
+    return "processed with events: " + input;
+}
+
+// Test process with only optional Context and events (no separate input).
+@Process
+function processWithContextAndEvents(Context ctx, SingleEventRecord events) returns boolean|error {
+    return true;
+}
+
+@test:Config {}
+function testRegisterProcessWithEvents() returns error? {
+    // Register process with events
+    boolean result = check registerProcess(processWithEvents, "process-with-events");
+    test:assertTrue(result, "Process registration with events should succeed");
+    
+    // Verify the process is registered with events
+    WorkflowRegistry registry = check getRegisteredWorkflows();
+    test:assertTrue(registry.hasKey("process-with-events"), "Process should be in registry");
+    
+    ProcessRegistration? processInfo = registry["process-with-events"];
+    test:assertTrue(processInfo is ProcessRegistration, "Process info should exist");
+    
+    if processInfo is ProcessRegistration {
+        test:assertEquals(processInfo.name, "process-with-events");
+        test:assertEquals(processInfo.events.length(), 2, "Should have 2 events");
+        
+        // Check that both events are present
+        boolean hasApproval = false;
+        boolean hasPayment = false;
+        foreach string event in processInfo.events {
+            if event == "approvalEvent" {
+                hasApproval = true;
+            }
+            if event == "paymentEvent" {
+                hasPayment = true;
+            }
+        }
+        test:assertTrue(hasApproval, "Should have approvalEvent");
+        test:assertTrue(hasPayment, "Should have paymentEvent");
+    }
+}
+
+@test:Config {}
+function testRegisterProcessWithSingleEvent() returns error? {
+    // Register process with a single event
+    boolean result = check registerProcess(processWithContextAndEvents, "process-single-event");
+    test:assertTrue(result, "Process registration with single event should succeed");
+    
+    // Verify the process is registered with the event
+    WorkflowRegistry registry = check getRegisteredWorkflows();
+    test:assertTrue(registry.hasKey("process-single-event"), "Process should be in registry");
+    
+    ProcessRegistration? processInfo = registry["process-single-event"];
+    test:assertTrue(processInfo is ProcessRegistration, "Process info should exist");
+    
+    if processInfo is ProcessRegistration {
+        test:assertEquals(processInfo.events.length(), 1, "Should have 1 event");
+        test:assertEquals(processInfo.events[0], "confirmationEvent", "Should have confirmationEvent");
+    }
+}
+
+@test:Config {}
+function testProcessWithoutEventsHasEmptyEventList() returns error? {
+    // Register a process without events
+    boolean result = check registerProcess(testProcessFunction, "no-events-process");
+    test:assertTrue(result, "Process registration should succeed");
+    
+    // Verify the process has empty events array
+    WorkflowRegistry registry = check getRegisteredWorkflows();
+    ProcessRegistration? processInfo = registry["no-events-process"];
+    
+    if processInfo is ProcessRegistration {
+        test:assertEquals(processInfo.events.length(), 0, "Should have 0 events");
+    }
+}
+
+@test:Config {}
+function testProcessWithActivitiesAndEvents() returns error? {
+    // Create a map of activities
+    map<function> activities = {
+        "testActivityFunction": testActivityFunction
+    };
+    
+    // Register process with both activities and events
+    boolean result = check registerProcess(processWithEvents, "process-activities-events", activities);
+    test:assertTrue(result, "Process registration with activities and events should succeed");
+    
+    // Verify the process has both activities and events
+    WorkflowRegistry registry = check getRegisteredWorkflows();
+    ProcessRegistration? processInfo = registry["process-activities-events"];
+    
+    if processInfo is ProcessRegistration {
+        test:assertEquals(processInfo.activities.length(), 1, "Should have 1 activity");
+        test:assertEquals(processInfo.events.length(), 2, "Should have 2 events");
+    }
+}
+
+// ============================================================================
+// Inline Record Tests - Testing event extraction with anonymous record types
+// ============================================================================
+
+// Test process with inline record for events (multiple events).
+@Process
+function processWithInlineEvents(Context ctx, string input, record {|
+    future<string> approvalEvent;
+    future<int> paymentEvent;
+|} events) returns string|error {
+    // This would normally wait for events
+    return "processed with inline events: " + input;
+}
+
+// Test process with inline record for single event.
+@Process
+function processWithSingleInlineEvent(Context ctx, record {|
+    future<boolean> confirmEvent;
+|} events) returns boolean|error {
+    return true;
+}
+
+// Test process with inline record having different future types.
+@Process
+function processWithMixedInlineEvents(Context ctx, string input, record {|
+    future<string> textEvent;
+    future<int> numberEvent;
+    future<boolean> flagEvent;
+|} events) returns string|error {
+    return "mixed events: " + input;
+}
+
+// Test process with inline record without Context parameter.
+@Process
+function processWithInlineEventsNoContext(string input, record {|
+    future<string> simpleEvent;
+|} events) returns string|error {
+    return "no context: " + input;
+}
+
+@test:Config {}
+function testInlineRecordWithMultipleEvents() returns error? {
+    // Register process with inline record events
+    boolean result = check registerProcess(processWithInlineEvents, "inline-multi-events");
+    test:assertTrue(result, "Process registration with inline events should succeed");
+    
+    // Verify the process is registered with events
+    WorkflowRegistry registry = check getRegisteredWorkflows();
+    test:assertTrue(registry.hasKey("inline-multi-events"), "Process should be in registry");
+    
+    ProcessRegistration? processInfo = registry["inline-multi-events"];
+    test:assertTrue(processInfo is ProcessRegistration, "Process info should exist");
+    
+    if processInfo is ProcessRegistration {
+        test:assertEquals(processInfo.name, "inline-multi-events");
+        test:assertEquals(processInfo.events.length(), 2, "Should have 2 events from inline record");
+        
+        // Check that both events are present
+        boolean hasApproval = false;
+        boolean hasPayment = false;
+        foreach string event in processInfo.events {
+            if event == "approvalEvent" {
+                hasApproval = true;
+            }
+            if event == "paymentEvent" {
+                hasPayment = true;
+            }
+        }
+        test:assertTrue(hasApproval, "Should have approvalEvent");
+        test:assertTrue(hasPayment, "Should have paymentEvent");
+    }
+}
+
+@test:Config {}
+function testInlineRecordWithSingleEvent() returns error? {
+    // Register process with single inline event
+    boolean result = check registerProcess(processWithSingleInlineEvent, "inline-single-event");
+    test:assertTrue(result, "Process registration with single inline event should succeed");
+    
+    // Verify the process is registered with the event
+    WorkflowRegistry registry = check getRegisteredWorkflows();
+    ProcessRegistration? processInfo = registry["inline-single-event"];
+    
+    if processInfo is ProcessRegistration {
+        test:assertEquals(processInfo.events.length(), 1, "Should have 1 event");
+        test:assertEquals(processInfo.events[0], "confirmEvent", "Should have confirmEvent");
+    }
+}
+
+@test:Config {}
+function testInlineRecordWithThreeEvents() returns error? {
+    // Register process with three inline events of different types
+    boolean result = check registerProcess(processWithMixedInlineEvents, "inline-mixed-events");
+    test:assertTrue(result, "Process registration with mixed inline events should succeed");
+    
+    // Verify the process is registered with all events
+    WorkflowRegistry registry = check getRegisteredWorkflows();
+    ProcessRegistration? processInfo = registry["inline-mixed-events"];
+    
+    if processInfo is ProcessRegistration {
+        test:assertEquals(processInfo.events.length(), 3, "Should have 3 events");
+        
+        // Check all events are present
+        boolean hasText = false;
+        boolean hasNumber = false;
+        boolean hasFlag = false;
+        foreach string event in processInfo.events {
+            if event == "textEvent" {
+                hasText = true;
+            }
+            if event == "numberEvent" {
+                hasNumber = true;
+            }
+            if event == "flagEvent" {
+                hasFlag = true;
+            }
+        }
+        test:assertTrue(hasText, "Should have textEvent");
+        test:assertTrue(hasNumber, "Should have numberEvent");
+        test:assertTrue(hasFlag, "Should have flagEvent");
+    }
+}
+
+@test:Config {}
+function testInlineRecordWithoutContext() returns error? {
+    // Register process with inline events but no Context parameter
+    boolean result = check registerProcess(processWithInlineEventsNoContext, "inline-no-context");
+    test:assertTrue(result, "Process registration with inline events (no context) should succeed");
+    
+    // Verify the process is registered with the event
+    WorkflowRegistry registry = check getRegisteredWorkflows();
+    ProcessRegistration? processInfo = registry["inline-no-context"];
+    
+    if processInfo is ProcessRegistration {
+        test:assertEquals(processInfo.events.length(), 1, "Should have 1 event");
+        test:assertEquals(processInfo.events[0], "simpleEvent", "Should have simpleEvent");
+    }
+}
+
+@test:Config {}
+function testInlineRecordWithActivities() returns error? {
+    // Create a map of activities
+    map<function> activities = {
+        "testActivityFunction": testActivityFunction,
+        "testActivityFunction2": testActivityFunction2
+    };
+    
+    // Register process with inline events and activities
+    boolean result = check registerProcess(processWithInlineEvents, "inline-with-activities", activities);
+    test:assertTrue(result, "Process registration with inline events and activities should succeed");
+    
+    // Verify the process has both activities and events
+    WorkflowRegistry registry = check getRegisteredWorkflows();
+    ProcessRegistration? processInfo = registry["inline-with-activities"];
+    
+    if processInfo is ProcessRegistration {
+        test:assertEquals(processInfo.activities.length(), 2, "Should have 2 activities");
+        test:assertEquals(processInfo.events.length(), 2, "Should have 2 events");
+    }
 }

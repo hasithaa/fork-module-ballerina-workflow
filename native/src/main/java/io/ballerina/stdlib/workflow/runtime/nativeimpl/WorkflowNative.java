@@ -31,10 +31,14 @@ import io.ballerina.runtime.api.values.BMap;
 import io.ballerina.runtime.api.values.BString;
 import io.ballerina.stdlib.workflow.ModuleUtils;
 import io.ballerina.stdlib.workflow.registry.ActivityRegistry;
+import io.ballerina.stdlib.workflow.registry.EventInfo;
+import io.ballerina.stdlib.workflow.registry.EventRegistry;
 import io.ballerina.stdlib.workflow.registry.ProcessRegistry;
 import io.ballerina.stdlib.workflow.runtime.WorkflowRuntime;
+import io.ballerina.stdlib.workflow.utils.EventExtractor;
 import io.ballerina.stdlib.workflow.utils.TypesUtil;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -225,6 +229,16 @@ public final class WorkflowNative {
                 }
             }
 
+            // Extract events from process function signature and register them
+            List<EventInfo> events = EventExtractor.extractEvents(processFunction, name);
+            if (!events.isEmpty()) {
+                // Add events to the process in ProcessRegistry
+                ProcessRegistry.getInstance().addEventsToProcess(name, events);
+                
+                // Also register in EventRegistry for quick lookup
+                EventRegistry.getInstance().registerEvents(name, events);
+            }
+
             return true;
 
         } catch (Exception e) {
@@ -239,7 +253,7 @@ public final class WorkflowNative {
      * Returns information about all registered workflow processes and their activities.
      * This is useful for testing and introspection.
      *
-     * @return a map of process names to their information including activities
+     * @return a map of process names to their information including activities and events
      */
     public static Object getRegisteredWorkflows() {
         try {
@@ -271,6 +285,14 @@ public final class WorkflowNative {
                 BArray activitiesBalArray = ValueCreator.createArrayValue(activityArray);
                 processRecord.put(StringUtils.fromString("activities"), activitiesBalArray);
 
+                // Add events as an array of strings
+                List<String> eventNames = processInfo.getEventNames();
+                BString[] eventArray = eventNames.stream()
+                        .map(StringUtils::fromString)
+                        .toArray(BString[]::new);
+                BArray eventsBalArray = ValueCreator.createArrayValue(eventArray);
+                processRecord.put(StringUtils.fromString("events"), eventsBalArray);
+
                 resultMap.put(StringUtils.fromString(processName), processRecord);
             }
 
@@ -285,7 +307,7 @@ public final class WorkflowNative {
     /**
      * Native implementation for clearRegistry function.
      * <p>
-     * Clears all registered processes and activities.
+     * Clears all registered processes, activities, and events.
      * This is primarily used for testing.
      *
      * @return true if clearing was successful
@@ -294,6 +316,7 @@ public final class WorkflowNative {
         try {
             ProcessRegistry.getInstance().clear();
             ActivityRegistry.getInstance().clear();
+            EventRegistry.getInstance().clear();
             return true;
         } catch (Exception e) {
             return ErrorCreator.createError(

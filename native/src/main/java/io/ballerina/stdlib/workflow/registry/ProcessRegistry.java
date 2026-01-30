@@ -20,7 +20,9 @@ package io.ballerina.stdlib.workflow.registry;
 
 import io.ballerina.runtime.api.values.BFunctionPointer;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -142,17 +144,63 @@ public final class ProcessRegistry {
     }
 
     /**
+     * Adds events to a process.
+     *
+     * @param processName the name of the process
+     * @param events the events to add
+     * @return true if the events were added, false if the process doesn't exist
+     */
+    public boolean addEventsToProcess(String processName, List<EventInfo> events) {
+        ProcessInfo info = processes.get(processName);
+        if (info != null) {
+            info.addEvents(events);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Gets the events for a process.
+     *
+     * @param processName the name of the process
+     * @return list of events, or empty list if process not found
+     */
+    public List<EventInfo> getEventsForProcess(String processName) {
+        ProcessInfo info = processes.get(processName);
+        if (info != null) {
+            return info.getEvents();
+        }
+        return Collections.emptyList();
+    }
+
+    /**
+     * Gets the event names (signal names) for a process.
+     *
+     * @param processName the name of the process
+     * @return list of event names, or empty list if process not found
+     */
+    public List<String> getEventNamesForProcess(String processName) {
+        ProcessInfo info = processes.get(processName);
+        if (info != null) {
+            return info.getEventNames();
+        }
+        return Collections.emptyList();
+    }
+
+    /**
      * Information about a registered process.
      */
     public static class ProcessInfo {
         private final String name;
         private final BFunctionPointer functionPointer;
         private final Set<String> activityNames;
+        private final List<EventInfo> events;
 
         public ProcessInfo(String name, BFunctionPointer functionPointer) {
             this.name = name;
             this.functionPointer = functionPointer;
             this.activityNames = ConcurrentHashMap.newKeySet();
+            this.events = new ArrayList<>();
         }
 
         public String getName() {
@@ -169,6 +217,66 @@ public final class ProcessRegistry {
 
         public void addActivity(String activityName) {
             activityNames.add(activityName);
+        }
+
+        /**
+         * Gets the list of events (signals) for this process.
+         *
+         * @return an unmodifiable list of events
+         */
+        public List<EventInfo> getEvents() {
+            return Collections.unmodifiableList(events);
+        }
+
+        /**
+         * Gets the event names (signal names) for this process.
+         *
+         * @return list of event field names
+         */
+        public List<String> getEventNames() {
+            List<String> names = new ArrayList<>();
+            for (EventInfo event : events) {
+                names.add(event.getFieldName());
+            }
+            return names;
+        }
+
+        /**
+         * Adds an event to this process.
+         *
+         * @param eventInfo the event to add
+         */
+        public void addEvent(EventInfo eventInfo) {
+            events.add(eventInfo);
+        }
+
+        /**
+         * Adds multiple events to this process.
+         *
+         * @param eventInfos the events to add
+         */
+        public void addEvents(List<EventInfo> eventInfos) {
+            if (eventInfos != null) {
+                events.addAll(eventInfos);
+            }
+        }
+
+        /**
+         * Checks if this process has any events defined.
+         *
+         * @return true if events are present
+         */
+        public boolean hasEvents() {
+            return !events.isEmpty();
+        }
+
+        /**
+         * Gets the count of events for this process.
+         *
+         * @return the number of events
+         */
+        public int getEventCount() {
+            return events.size();
         }
     }
 }

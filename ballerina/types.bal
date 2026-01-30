@@ -30,11 +30,13 @@ public type Context record {|
 #
 # + name - The name of the registered process
 # + activities - Array of activity names associated with this process
-public type ProcessRegistration record {
+# + events - Array of event names (signals) this process can receive
+type ProcessRegistration record {
     string name;
     string[] activities;
+    string[] events;
 };
 
 # Information about all registered workflows.
 # This is a map where keys are process names and values are their registration info.
-public type WorkflowRegistry map<ProcessRegistration>;
+type WorkflowRegistry map<ProcessRegistration>;

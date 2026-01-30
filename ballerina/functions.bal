@@ -86,7 +86,7 @@ public isolated function registerProcess(function processFunction, string proces
 # that workflow processes have been properly registered with their activities.
 #
 # + return - A map of process names to their registration information, or an error
-public isolated function getRegisteredWorkflows() returns WorkflowRegistry|error {
+isolated function getRegisteredWorkflows() returns WorkflowRegistry|error {
     return getRegisteredWorkflowsNative();
 }
 
