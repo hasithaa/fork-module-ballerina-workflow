@@ -25,17 +25,18 @@ type OrderResult record {|
     string status;
 |};
 
-// Regular function WITHOUT @Activity annotation
-function regularFunction(OrderInput input) returns boolean|error {
-    return input.quantity > 0;
+// Activity function with single parameter
+@workflow:Activity
+function processOrder(string orderId) returns boolean|error {
+    return orderId.length() > 0;
 }
 
-// Invalid: Process function calling ctx->callActivity() with a non-activity function
-// This should produce WORKFLOW_107 error
+// Invalid: Process function calling ctx->callActivity() with extra parameter
+// This should produce WORKFLOW_110 error
 @workflow:Process
 function orderProcess(workflow:Context ctx, OrderInput input) returns OrderResult|error {
-    // ERROR: regularFunction does not have @Activity annotation
-    boolean isValid = check ctx->callActivity(regularFunction, {"input": input});
+    // ERROR: Extra parameter 'quantity' - not in activity function signature
+    boolean isValid = check ctx->callActivity(processOrder, {"orderId": input.orderId, "quantity": input.quantity});
     if !isValid {
         return error("Invalid order");
     }

@@ -58,13 +58,13 @@ function sendNotification(EmailRequest request) returns boolean|error {
 @workflow:Process
 function orderProcess(workflow:Context ctx, OrderInput input) returns OrderResult|error {
     // Call activity to validate order
-    boolean isValid = check ctx->callActivity(validateOrder, input);
+    boolean isValid = check ctx->callActivity(validateOrder, {"input": input});
     if !isValid {
         return error("Invalid order");
     }
     
     // Call activity to process payment
-    string paymentId = check ctx->callActivity(processPayment, input.orderId, 100.0d);
+    string paymentId = check ctx->callActivity(processPayment, {"orderId": input.orderId, "amount": 100.0d});
     
     // Call activity to send notification
     EmailRequest emailReq = {
@@ -72,7 +72,7 @@ function orderProcess(workflow:Context ctx, OrderInput input) returns OrderResul
         subject: "Order Confirmed",
         body: "Your order " + input.orderId + " has been confirmed."
     };
-    _ = check ctx->callActivity(sendNotification, emailReq);
+    _ = check ctx->callActivity(sendNotification, {"request": emailReq});
     
     return {
         status: "COMPLETED",

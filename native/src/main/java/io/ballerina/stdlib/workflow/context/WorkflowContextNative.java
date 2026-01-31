@@ -19,13 +19,20 @@
 package io.ballerina.stdlib.workflow.context;
 
 import io.ballerina.runtime.api.creators.ErrorCreator;
+import io.ballerina.runtime.api.types.Type;
 import io.ballerina.runtime.api.utils.StringUtils;
 import io.ballerina.runtime.api.values.BFunctionPointer;
+import io.ballerina.runtime.api.values.BMap;
+import io.ballerina.runtime.api.values.BObject;
+import io.ballerina.runtime.api.values.BString;
+import io.ballerina.runtime.api.values.BTypedesc;
 import io.ballerina.stdlib.workflow.utils.TypesUtil;
 import io.temporal.workflow.Workflow;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -53,16 +60,21 @@ public final class WorkflowContextNative {
     /**
      * Execute an activity function within the workflow context.
      * <p>
-     * This is the remote method implementation for ctx.callActivity().
+     * This is the remote method implementation for ctx->callActivity().
      * Activities are non-deterministic operations that should only be executed
      * once during workflow execution (not during replay).
+     * <p>
+     * The method uses dependent typing - the return type is determined by the typedesc
+     * parameter and the result is converted using cloneWithType.
      *
-     * @param contextHandle the workflow context handle
+     * @param self the Context BObject (self reference from Ballerina)
      * @param activityFunction the activity function to execute
-     * @param args the arguments to pass to the activity
-     * @return the result of the activity execution or an error
+     * @param args the Parameters record containing arguments to pass to the activity
+     * @param typedesc the expected return type descriptor for dependent typing
+     * @return the result of the activity execution converted to the expected type, or an error
      */
-    public static Object callActivity(Object contextHandle, BFunctionPointer activityFunction, Object[] args) {
+    public static Object callActivity(BObject self, BFunctionPointer activityFunction, 
+            BMap<BString, Object> args, BTypedesc typedesc) {
         try {
             // Get the activity name from the function pointer
             String simpleActivityName = activityFunction.getType().getName();
@@ -72,13 +84,14 @@ public final class WorkflowContextNative {
             String workflowType = Workflow.getInfo().getWorkflowType();
             String fullActivityName = workflowType + "." + simpleActivityName;
 
-            // Convert arguments to Java types for Temporal
-            Object[] javaArgs = new Object[args == null ? 0 : args.length];
-            if (args != null) {
-                for (int i = 0; i < args.length; i++) {
-                    javaArgs[i] = TypesUtil.convertBallerinaToJavaType(args[i]);
-                }
+            // Convert Parameters record (BMap) to Java array for Temporal
+            // Extract values from the record in order
+            List<Object> argsList = new ArrayList<>();
+            for (BString key : args.getKeys()) {
+                Object value = args.get(key);
+                argsList.add(TypesUtil.convertBallerinaToJavaType(value));
             }
+            Object[] javaArgs = argsList.toArray();
 
             // Use Temporal's activity stub to execute the activity
             io.temporal.activity.ActivityOptions activityOptions = io.temporal.activity.ActivityOptions.newBuilder()
@@ -92,7 +105,11 @@ public final class WorkflowContextNative {
             Object result = activityStub.execute(fullActivityName, Object.class, javaArgs);
 
             // Convert result back to Ballerina type
-            return TypesUtil.convertJavaToBallerinaType(result);
+            Object ballerinaResult = TypesUtil.convertJavaToBallerinaType(result);
+            
+            // Use cloneWithType to convert to the expected type from typedesc
+            Type targetType = typedesc.getDescribingType();
+            return TypesUtil.cloneWithType(ballerinaResult, targetType);
 
         } catch (io.temporal.failure.ActivityFailure e) {
             // Activity failed - extract the cause

@@ -25,17 +25,19 @@ type OrderResult record {|
     string status;
 |};
 
-// Regular function WITHOUT @Activity annotation
-function regularFunction(OrderInput input) returns boolean|error {
-    return input.quantity > 0;
+// Invalid: Activity function with rest parameters - not supported
+// This should produce WORKFLOW_111 error when called
+@workflow:Activity
+function processOrder(string orderId, string... additionalParams) returns boolean|error {
+    return orderId.length() > 0;
 }
 
-// Invalid: Process function calling ctx->callActivity() with a non-activity function
-// This should produce WORKFLOW_107 error
+// Process function calling ctx->callActivity() with rest params activity
+// This should produce WORKFLOW_111 error
 @workflow:Process
 function orderProcess(workflow:Context ctx, OrderInput input) returns OrderResult|error {
-    // ERROR: regularFunction does not have @Activity annotation
-    boolean isValid = check ctx->callActivity(regularFunction, {"input": input});
+    // ERROR: Activity function has rest parameters which are not supported
+    boolean isValid = check ctx->callActivity(processOrder, {"orderId": input.orderId});
     if !isValid {
         return error("Invalid order");
     }

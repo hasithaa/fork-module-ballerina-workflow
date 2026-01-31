@@ -16,19 +16,6 @@
 
 import ballerina/jballerina.java;
 
-# Internal function to execute an activity. 
-# Users should use the callActivity remote method on the Context client instead.
-# 
-# Activities are non-deterministic operations (I/O, database calls, external APIs)
-# that should only be executed once during workflow execution and not during replay.
-# The workflow runtime ensures exactly-once execution semantics for activities.
-#
-# + activityFunction - The activity function to execute (must be annotated with @Activity)
-# + args - Variable arguments to pass to the activity function
-# + return - The result of the activity execution, or an error if execution fails
-isolated function callActivity(function activityFunction, anydata... args) returns anydata|error = @java:Method {
-    'class: "io.ballerina.stdlib.workflow.runtime.nativeimpl.WorkflowNative"
-} external;
 
 # Starts a new workflow process with the given input.
 #

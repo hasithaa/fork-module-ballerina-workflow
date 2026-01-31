@@ -76,14 +76,11 @@ function getTimestampActivity() returns string|error {
 # + return - A map with all activity results or error
 @workflow:Process
 function multiActivityWorkflow(workflow:Context ctx, MultiActivityInput input) returns map<anydata>|error {
-    anydata greetingResult = check ctx->callActivity(multiGreetActivity, input.name);
-    string greeting = <string>greetingResult;
+    string greeting = check ctx->callActivity(multiGreetActivity, {"name": input.name});
     
-    anydata productResult = check ctx->callActivity(multiplyActivity, 5, 7);
-    int product = <int>productResult;
+    int product = check ctx->callActivity(multiplyActivity, {"a": 5, "b": 7});
     
-    anydata timestampResult = check ctx->callActivity(getTimestampActivity);
-    string timestamp = <string>timestampResult;
+    string timestamp = check ctx->callActivity(getTimestampActivity, {});
     
     return {
         "greeting": greeting,

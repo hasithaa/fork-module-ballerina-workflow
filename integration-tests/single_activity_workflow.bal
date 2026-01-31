@@ -59,6 +59,6 @@ function greetActivity(string name) returns string|error {
 # + return - The greeting result or error
 @workflow:Process
 function singleActivityWorkflow(workflow:Context ctx, GreetInput input) returns string|error {
-    anydata greeting = check ctx->callActivity(greetActivity, input.name);
-    return <string>greeting;
+    string greeting = check ctx->callActivity(greetActivity, {"name": input.name});
+    return greeting;
 }

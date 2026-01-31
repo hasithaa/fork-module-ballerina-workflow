@@ -52,10 +52,10 @@ function testActivityFunction2(int value) returns int|error {
 // Test process that calls activities using Context client.
 @Process
 function processWithActivities(Context ctx, string input) returns string|error {
-    // Use Context client's callActivity remote method
-    anydata result1 = check ctx->callActivity(testActivityFunction, input);
-    anydata result2 = check ctx->callActivity(testActivityFunction2, 10);
-    return <string>result1 + " - " + (<int>result2).toString();
+    // Use Context client's callActivity remote method with Parameters record
+    string result1 = check ctx->callActivity(testActivityFunction, {"input": input});
+    int result2 = check ctx->callActivity(testActivityFunction2, {"value": 10});
+    return result1 + " - " + result2.toString();
 }
 
 // Note: Removed @test:BeforeEach that cleared registry globally.

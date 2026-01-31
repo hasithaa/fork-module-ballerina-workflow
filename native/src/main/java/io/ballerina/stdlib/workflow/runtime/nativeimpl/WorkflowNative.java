@@ -68,66 +68,6 @@ public final class WorkflowNative {
     }
 
     /**
-     * Native implementation for callActivity function.
-     * <p>
-     * Executes an activity function within the workflow context.
-     * Activities are non-deterministic operations that should only be executed
-     * once during workflow execution (not during replay).
-     * <p>
-     * This function uses Temporal's activity scheduling mechanism to ensure
-     * proper execution and replay behavior.
-     *
-     * @param env the Ballerina runtime environment
-     * @param activityFunction the activity function to execute
-     * @param args the arguments to pass to the activity
-     * @return the result of the activity execution or an error
-     */
-    public static Object callActivity(Environment env, BFunctionPointer activityFunction, Object[] args) {
-        try {
-            // Get the activity name from the function pointer
-            String simpleActivityName = activityFunction.getType().getName();
-            
-            // Get the current workflow type from Temporal context to build the full activity name
-            // Activities are registered as "workflowType.activityName"
-            String workflowType = io.temporal.workflow.Workflow.getInfo().getWorkflowType();
-            String fullActivityName = workflowType + "." + simpleActivityName;
-
-            // Convert arguments to Java types for Temporal
-            Object[] javaArgs = new Object[args == null ? 0 : args.length];
-            if (args != null) {
-                for (int i = 0; i < args.length; i++) {
-                    javaArgs[i] = TypesUtil.convertBallerinaToJavaType(args[i]);
-                }
-            }
-
-            // Use Temporal's activity stub to execute the activity
-            io.temporal.activity.ActivityOptions activityOptions = io.temporal.activity.ActivityOptions.newBuilder()
-                    .setStartToCloseTimeout(java.time.Duration.ofMinutes(5))
-                    .build();
-
-            io.temporal.workflow.ActivityStub activityStub =
-                    io.temporal.workflow.Workflow.newUntypedActivityStub(activityOptions);
-
-            // Execute the activity through Temporal's activity mechanism with the full name
-            Object result = activityStub.execute(fullActivityName, Object.class, javaArgs);
-
-            // Convert result back to Ballerina type
-            Object ballerinaResult = TypesUtil.convertJavaToBallerinaType(result);
-            return ballerinaResult;
-
-        } catch (io.temporal.failure.ActivityFailure e) {
-            // Activity failed - extract the cause
-            Throwable cause = e.getCause();
-            String errorMsg = cause != null ? cause.getMessage() : e.getMessage();
-            return ErrorCreator.createError(
-                    StringUtils.fromString("Activity execution failed: " + errorMsg));
-        } catch (Exception e) {
-            return ErrorCreator.createError(
-                    StringUtils.fromString("Activity execution failed: " + e.getMessage()));
-        }
-    }
-
-    /**
      * Native implementation for startProcess function.
      * <p>
      * Starts a new workflow process with the given input.

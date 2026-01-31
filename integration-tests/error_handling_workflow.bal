@@ -69,13 +69,13 @@ function successActivity(string name) returns string|error {
 @workflow:Process
 function errorHandlingWorkflow(workflow:Context ctx, ErrorHandlingInput input) returns string|error {
     if input.shouldFail {
-        anydata|error result = ctx->callActivity(failingActivity, "Intentional failure");
+        string|error result = ctx->callActivity(failingActivity, {"reason": "Intentional failure"});
         if result is error {
             return "Activity error caught: " + result.message();
         }
-        return <string>result;
+        return result;
     } else {
-        anydata result = check ctx->callActivity(successActivity, "World");
-        return <string>result;
+        string result = check ctx->callActivity(successActivity, {"name": "World"});
+        return result;
     }
 }

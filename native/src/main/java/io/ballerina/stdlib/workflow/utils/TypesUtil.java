@@ -23,7 +23,9 @@ import io.ballerina.runtime.api.creators.TypeCreator;
 import io.ballerina.runtime.api.creators.ValueCreator;
 import io.ballerina.runtime.api.types.ArrayType;
 import io.ballerina.runtime.api.types.PredefinedTypes;
+import io.ballerina.runtime.api.types.Type;
 import io.ballerina.runtime.api.utils.StringUtils;
+import io.ballerina.runtime.api.utils.ValueUtils;
 import io.ballerina.runtime.api.values.BArray;
 import io.ballerina.runtime.api.values.BDecimal;
 import io.ballerina.runtime.api.values.BError;
@@ -235,5 +237,38 @@ public final class TypesUtil {
     public static BError deserializeError(Map<String, Object> errorMap) {
         String message = (String) errorMap.getOrDefault(ERROR_MESSAGE, "Unknown error");
         return ErrorCreator.createError(StringUtils.fromString(message));
+    }
+
+    /**
+     * Clones a Ballerina value with a target type.
+     * <p>
+     * This is used for dependent typing support - converting the activity result
+     * to the expected type specified by the typedesc parameter.
+     *
+     * @param value the value to clone/convert
+     * @param targetType the target type to convert to
+     * @return the value converted to the target type, or an error if conversion fails
+     */
+    public static Object cloneWithType(Object value, Type targetType) {
+        if (value == null) {
+            return null;
+        }
+        
+        // If value is already an error, return it as-is
+        if (value instanceof BError) {
+            return value;
+        }
+        
+        try {
+            // Use ValueUtils.convert to convert the value to the target type
+            // This is the proper way to do cloneWithType in native code
+            return ValueUtils.convert(value, targetType);
+        } catch (BError e) {
+            // If conversion fails, return the error
+            return e;
+        } catch (Exception e) {
+            return ErrorCreator.createError(
+                    StringUtils.fromString("Type conversion failed: " + e.getMessage()));
+        }
     }
 }

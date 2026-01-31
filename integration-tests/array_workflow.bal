@@ -62,6 +62,6 @@ function sumArrayActivity(int[] numbers) returns int|error {
 # + return - The sum result or error
 @workflow:Process
 function arrayProcessingWorkflow(workflow:Context ctx, ArrayProcessInput input) returns int|error {
-    anydata result = check ctx->callActivity(sumArrayActivity, input.numbers);
-    return <int>result;
+    int result = check ctx->callActivity(sumArrayActivity, {"numbers": input.numbers});
+    return result;
 }

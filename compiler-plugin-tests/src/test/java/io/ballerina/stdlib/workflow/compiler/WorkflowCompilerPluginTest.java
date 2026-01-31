@@ -154,6 +154,33 @@ public class WorkflowCompilerPluginTest {
         assertDiagnosticContains(diagnosticResult, WorkflowConstants.WORKFLOW_108);
     }
 
+    @Test(groups = "invalid")
+    public void testInvalidCallActivityMissingParam() {
+        String packagePath = "invalid_call_activity_missing_param";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertTrue(diagnosticResult.errorCount() > 0,
+                "Expected validation error for callActivity with missing required parameter");
+        assertDiagnosticContains(diagnosticResult, WorkflowConstants.WORKFLOW_109);
+    }
+
+    @Test(groups = "invalid")
+    public void testInvalidCallActivityExtraParam() {
+        String packagePath = "invalid_call_activity_extra_param";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertTrue(diagnosticResult.errorCount() > 0,
+                "Expected validation error for callActivity with extra parameter");
+        assertDiagnosticContains(diagnosticResult, WorkflowConstants.WORKFLOW_110);
+    }
+
+    @Test(groups = "invalid")
+    public void testInvalidCallActivityRestParams() {
+        String packagePath = "invalid_call_activity_rest_params";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertTrue(diagnosticResult.errorCount() > 0,
+                "Expected validation error for callActivity with activity having rest parameters");
+        assertDiagnosticContains(diagnosticResult, WorkflowConstants.WORKFLOW_111);
+    }
+
     /**
      * Get diagnostic result for the given package path.
      * Uses runCodeGenAndModifyPlugins() to run the code modifier.

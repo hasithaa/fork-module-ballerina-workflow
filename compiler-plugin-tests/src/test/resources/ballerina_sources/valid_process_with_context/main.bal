@@ -44,12 +44,12 @@ function getTrackingNumberActivity(string orderId) returns string|error {
 @workflow:Process
 function orderProcessWithContext(workflow:Context ctx, OrderInput input) returns OrderResult|error {
     // Call activity through context using ctx->callActivity() pattern
-    boolean isValid = check ctx->callActivity(validateOrderActivity, input);
+    boolean isValid = check ctx->callActivity(validateOrderActivity, {"input": input});
     if !isValid {
         return error("Invalid order");
     }
     
-    string trackingNo = check ctx->callActivity(getTrackingNumberActivity, input.orderId);
+    string trackingNo = check ctx->callActivity(getTrackingNumberActivity, {"orderId": input.orderId});
     
     return {
         status: "COMPLETED",

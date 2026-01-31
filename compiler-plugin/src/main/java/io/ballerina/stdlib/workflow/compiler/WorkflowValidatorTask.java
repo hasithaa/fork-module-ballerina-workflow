@@ -23,6 +23,7 @@ import io.ballerina.compiler.api.symbols.AnnotationSymbol;
 import io.ballerina.compiler.api.symbols.FunctionSymbol;
 import io.ballerina.compiler.api.symbols.FunctionTypeSymbol;
 import io.ballerina.compiler.api.symbols.ModuleSymbol;
+import io.ballerina.compiler.api.symbols.ParameterKind;
 import io.ballerina.compiler.api.symbols.ParameterSymbol;
 import io.ballerina.compiler.api.symbols.Symbol;
 import io.ballerina.compiler.api.symbols.SymbolKind;
@@ -35,20 +36,26 @@ import io.ballerina.compiler.syntax.tree.ExpressionNode;
 import io.ballerina.compiler.syntax.tree.FunctionArgumentNode;
 import io.ballerina.compiler.syntax.tree.FunctionCallExpressionNode;
 import io.ballerina.compiler.syntax.tree.FunctionDefinitionNode;
+import io.ballerina.compiler.syntax.tree.MappingConstructorExpressionNode;
+import io.ballerina.compiler.syntax.tree.MappingFieldNode;
 import io.ballerina.compiler.syntax.tree.MetadataNode;
 import io.ballerina.compiler.syntax.tree.NodeList;
 import io.ballerina.compiler.syntax.tree.NodeVisitor;
 import io.ballerina.compiler.syntax.tree.PositionalArgumentNode;
 import io.ballerina.compiler.syntax.tree.RemoteMethodCallActionNode;
 import io.ballerina.compiler.syntax.tree.SeparatedNodeList;
+import io.ballerina.compiler.syntax.tree.SpecificFieldNode;
+import io.ballerina.compiler.syntax.tree.SyntaxKind;
 import io.ballerina.projects.plugins.AnalysisTask;
 import io.ballerina.projects.plugins.SyntaxNodeAnalysisContext;
 import io.ballerina.tools.diagnostics.DiagnosticFactory;
 import io.ballerina.tools.diagnostics.DiagnosticInfo;
 import io.ballerina.tools.diagnostics.DiagnosticSeverity;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Validation task for workflow @Process and @Activity function signatures.
@@ -273,6 +280,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
     /**
      * Node visitor that validates ctx->callActivity() calls.
      * Ensures the first argument is a function with @Activity annotation.
+     * Validates that the Parameters record keys match the activity function parameters.
      */
     private static class CallActivityValidator extends NodeVisitor {
         private final SyntaxNodeAnalysisContext context;
@@ -301,6 +309,12 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                         // Check if the function reference has @Activity annotation
                         if (!hasActivityAnnotation(expression)) {
                             reportCallActivityDiagnostic(remoteCallNode);
+                        } else {
+                            // Validate parameters match if second argument is provided
+                            if (arguments.size() >= 2) {
+                                FunctionArgumentNode secondArg = arguments.get(1);
+                                validateParametersMatch(remoteCallNode, expression, secondArg);
+                            }
                         }
                     }
                 }
@@ -308,6 +322,116 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
 
             // Continue visiting child nodes
             remoteCallNode.arguments().forEach(arg -> arg.accept(this));
+        }
+
+        /**
+         * Validates that the Parameters record keys match the activity function's parameter names.
+         */
+        private void validateParametersMatch(RemoteMethodCallActionNode callNode,
+                                             ExpressionNode activityFuncExpr,
+                                             FunctionArgumentNode paramsArg) {
+            // Get the activity function symbol to extract parameters
+            Optional<Symbol> funcSymbolOpt = semanticModel.symbol(activityFuncExpr);
+            if (funcSymbolOpt.isEmpty() || funcSymbolOpt.get().kind() != SymbolKind.FUNCTION) {
+                return;
+            }
+
+            FunctionSymbol functionSymbol = (FunctionSymbol) funcSymbolOpt.get();
+            FunctionTypeSymbol funcTypeSymbol = functionSymbol.typeDescriptor();
+            
+            // Check if the function has rest parameters
+            if (funcTypeSymbol.restParam().isPresent()) {
+                reportRestParamsNotSupported(callNode);
+                return;
+            }
+
+            // Get expected parameters from activity function
+            Optional<List<ParameterSymbol>> paramsOpt = funcTypeSymbol.params();
+            if (paramsOpt.isEmpty()) {
+                return;
+            }
+
+            List<ParameterSymbol> expectedParams = paramsOpt.get();
+            Set<String> expectedParamNames = new HashSet<>();
+            Set<String> requiredParamNames = new HashSet<>();
+            
+            for (ParameterSymbol param : expectedParams) {
+                Optional<String> nameOpt = param.getName();
+                if (nameOpt.isPresent()) {
+                    expectedParamNames.add(nameOpt.get());
+                    // Required if not default-able
+                    if (param.paramKind() == ParameterKind.REQUIRED) {
+                        requiredParamNames.add(nameOpt.get());
+                    }
+                }
+            }
+
+            // Extract parameter names from the Parameters record argument
+            Set<String> providedParamNames = extractProvidedParamNames(paramsArg);
+
+            // Check for missing required parameters
+            for (String required : requiredParamNames) {
+                if (!providedParamNames.contains(required)) {
+                    reportMissingRequiredParam(callNode, required);
+                }
+            }
+
+            // Check for extra parameters not in the function signature
+            for (String provided : providedParamNames) {
+                if (!expectedParamNames.contains(provided)) {
+                    reportExtraParam(callNode, provided);
+                }
+            }
+        }
+
+        /**
+         * Extracts parameter names from the Parameters record (second argument).
+         */
+        private Set<String> extractProvidedParamNames(FunctionArgumentNode paramsArg) {
+            Set<String> paramNames = new HashSet<>();
+            
+            if (!(paramsArg instanceof PositionalArgumentNode)) {
+                return paramNames;
+            }
+
+            PositionalArgumentNode posArg = (PositionalArgumentNode) paramsArg;
+            ExpressionNode expr = posArg.expression();
+            
+            // Check if it's a mapping constructor expression like {"param1": value1, "param2": value2}
+            if (expr.kind() == SyntaxKind.MAPPING_CONSTRUCTOR) {
+                MappingConstructorExpressionNode mappingExpr = (MappingConstructorExpressionNode) expr;
+                SeparatedNodeList<MappingFieldNode> fields = mappingExpr.fields();
+                
+                for (MappingFieldNode field : fields) {
+                    if (field instanceof SpecificFieldNode) {
+                        SpecificFieldNode specificField = (SpecificFieldNode) field;
+                        String fieldName = extractFieldName(specificField);
+                        if (fieldName != null) {
+                            paramNames.add(fieldName);
+                        }
+                    }
+                }
+            }
+            
+            return paramNames;
+        }
+
+        /**
+         * Extracts the field name from a SpecificFieldNode.
+         * Handles both string literal keys ("fieldName") and identifier keys (fieldName).
+         */
+        private String extractFieldName(SpecificFieldNode field) {
+            var fieldName = field.fieldName();
+            if (fieldName.kind() == SyntaxKind.STRING_LITERAL) {
+                // String literal like "fieldName" - remove quotes
+                String text = fieldName.toString().trim();
+                if (text.startsWith("\"") && text.endsWith("\"")) {
+                    return text.substring(1, text.length() - 1);
+                }
+            } else if (fieldName.kind() == SyntaxKind.IDENTIFIER_TOKEN) {
+                return fieldName.toString().trim();
+            }
+            return null;
         }
 
         /**
@@ -357,6 +481,33 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                     DiagnosticSeverity.ERROR);
             context.reportDiagnostic(DiagnosticFactory.createDiagnostic(diagnosticInfo,
                     node.methodName().location()));
+        }
+
+        private void reportMissingRequiredParam(RemoteMethodCallActionNode node, String paramName) {
+            DiagnosticInfo diagnosticInfo = new DiagnosticInfo(
+                    WorkflowConstants.WORKFLOW_109,
+                    String.format(WorkflowConstants.CALL_ACTIVITY_MISSING_REQUIRED_PARAM, paramName),
+                    DiagnosticSeverity.ERROR);
+            context.reportDiagnostic(DiagnosticFactory.createDiagnostic(diagnosticInfo,
+                    node.arguments().get(1).location()));
+        }
+
+        private void reportExtraParam(RemoteMethodCallActionNode node, String paramName) {
+            DiagnosticInfo diagnosticInfo = new DiagnosticInfo(
+                    WorkflowConstants.WORKFLOW_110,
+                    String.format(WorkflowConstants.CALL_ACTIVITY_EXTRA_PARAM, paramName),
+                    DiagnosticSeverity.ERROR);
+            context.reportDiagnostic(DiagnosticFactory.createDiagnostic(diagnosticInfo,
+                    node.arguments().get(1).location()));
+        }
+
+        private void reportRestParamsNotSupported(RemoteMethodCallActionNode node) {
+            DiagnosticInfo diagnosticInfo = new DiagnosticInfo(
+                    WorkflowConstants.WORKFLOW_111,
+                    WorkflowConstants.CALL_ACTIVITY_REST_PARAMS_NOT_SUPPORTED,
+                    DiagnosticSeverity.ERROR);
+            context.reportDiagnostic(DiagnosticFactory.createDiagnostic(diagnosticInfo,
+                    node.arguments().get(0).location()));
         }
     }
 

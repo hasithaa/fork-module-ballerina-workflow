@@ -17,15 +17,21 @@
 import ballerina/jballerina.java;
 import ballerina/time;
 
+# Record type for activity parameters.
+# Used to pass arguments to activity functions in a type-safe manner.
+public type Parameters record {|
+    anydata...;
+|};
+
 # Workflow execution context providing workflow APIs.
 # This is a client object that provides access to workflow operations.
 #
 # This client provides:
-# - Activity execution via `callActivity()` remote method
+# - Activity execution via `callActivity` remote method
 # - Durable sleep operations
 # - Workflow state queries (replaying status, workflow ID, workflow type)
 #
-# Use `check ctx.callActivity(myActivity, arg1, arg2)` to execute activities.
+# Use `check ctx->callActivity(myActivity, {"arg1": val1, "arg2": val2})` to execute activities.
 # Use Ballerina's `wait` action with event futures for signal handling.
 public client class Context {
     private handle nativeContext;
@@ -43,17 +49,24 @@ public client class Context {
     # that should only be executed once during workflow execution and not during replay.
     # The workflow runtime ensures exactly-once execution semantics for activities.
     #
+    # The return type is determined by the `T` typedesc parameter, allowing compile-time
+    # type checking when the expected return type is specified. The compiler plugin
+    # validates that the activity function's return type is compatible with `T`.
+    #
     # Example:
     # ```ballerina
-    # string result = check ctx.callActivity(sendEmailActivity, recipientEmail, subject);
+    # string result = check ctx->callActivity(sendEmailActivity, {"email": recipientEmail, "subject": subject});
     # ```
     #
     # + activityFunction - The activity function to execute (must be annotated with @Activity)
-    # + args - Variable arguments to pass to the activity function
-    # + return - The result of the activity execution, or an error if execution fails
-    remote isolated function callActivity(function activityFunction, anydata... args) returns anydata|error {
-        return callActivityNative(self.nativeContext, activityFunction, ...args);
-    }
+    # + args - Record containing the arguments to pass to the activity function
+    # + T - The expected return type (inferred from context or explicitly specified)
+    # + return - The result of the activity execution cast to type T, or an error if execution fails
+    remote isolated function callActivity(function activityFunction, Parameters args, typedesc<anydata> T = <>) 
+            returns T|error = @java:Method {
+        'class: "io.ballerina.stdlib.workflow.context.WorkflowContextNative",
+        name: "callActivity"
+    } external;
 
     # Durable sleep that survives workflow restarts.
     #
@@ -97,15 +110,6 @@ public client class Context {
 }
 
 // Native function declarations
-
-isolated function callActivityNative(
-        handle contextHandle,
-        function activityFunction,
-        anydata... args
-) returns anydata|error = @java:Method {
-    'class: "io.ballerina.stdlib.workflow.context.WorkflowContextNative",
-    name: "callActivity"
-} external;
 
 isolated function sleepNative(
         handle contextHandle,

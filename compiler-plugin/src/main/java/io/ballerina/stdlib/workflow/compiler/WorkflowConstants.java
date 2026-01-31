@@ -58,6 +58,9 @@ public final class WorkflowConstants {
     public static final String WORKFLOW_106 = "WORKFLOW_106";
     public static final String WORKFLOW_107 = "WORKFLOW_107";
     public static final String WORKFLOW_108 = "WORKFLOW_108";
+    public static final String WORKFLOW_109 = "WORKFLOW_109";
+    public static final String WORKFLOW_110 = "WORKFLOW_110";
+    public static final String WORKFLOW_111 = "WORKFLOW_111";
 
     // Diagnostic messages
     public static final String PROCESS_INVALID_CONTEXT_PARAM =
@@ -79,4 +82,13 @@ public final class WorkflowConstants {
     public static final String DIRECT_ACTIVITY_CALL_NOT_ALLOWED =
             "Direct calls to @Activity functions are not allowed. "
                     + "Use 'ctx->callActivity(functionName, args...)' instead";
+    public static final String CALL_ACTIVITY_MISSING_REQUIRED_PARAM =
+            "Missing required parameter '%s' in callActivity. "
+                    + "The activity function requires this parameter";
+    public static final String CALL_ACTIVITY_EXTRA_PARAM =
+            "Extra parameter '%s' in callActivity. "
+                    + "The activity function does not have a parameter with this name";
+    public static final String CALL_ACTIVITY_REST_PARAMS_NOT_SUPPORTED =
+            "Activity functions with rest parameters are not supported with callActivity. "
+                    + "Use explicit parameters instead";
 }
