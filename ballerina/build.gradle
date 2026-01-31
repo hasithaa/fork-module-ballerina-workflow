@@ -39,6 +39,7 @@ task updateTomlFiles {
         newBallerinaToml = newBallerinaToml.replace("@jackson.version@", jacksonVersion)
         newBallerinaToml = newBallerinaToml.replace("@grpc.version@", grpcVersion)
         newBallerinaToml = newBallerinaToml.replace("@protobuf.version@", protobufVersion)
+        newBallerinaToml = newBallerinaToml.replace("@proto.google.common.protos.version@", protoGoogleCommonProtosVersion)
         newBallerinaToml = newBallerinaToml.replace("@guava.version@", guavaVersion)
         newBallerinaToml = newBallerinaToml.replace("@tally.version@", tallyVersion)
         newBallerinaToml = newBallerinaToml.replace("@perfmark.version@", perfmarkVersion)

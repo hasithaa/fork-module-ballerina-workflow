@@ -16,7 +16,8 @@
 
 import ballerina/jballerina.java;
 
-# Executes an activity function within the workflow context.
+# Internal function to execute an activity. 
+# Users should use the callActivity remote method on the Context client instead.
 # 
 # Activities are non-deterministic operations (I/O, database calls, external APIs)
 # that should only be executed once during workflow execution and not during replay.
@@ -25,7 +26,7 @@ import ballerina/jballerina.java;
 # + activityFunction - The activity function to execute (must be annotated with @Activity)
 # + args - Variable arguments to pass to the activity function
 # + return - The result of the activity execution, or an error if execution fails
-public isolated function callActivity(function activityFunction, anydata... args) returns anydata|error = @java:Method {
+isolated function callActivity(function activityFunction, anydata... args) returns anydata|error = @java:Method {
     'class: "io.ballerina.stdlib.workflow.runtime.nativeimpl.WorkflowNative"
 } external;
 
@@ -118,5 +119,26 @@ isolated function getRegisteredWorkflowsNative() returns WorkflowRegistry|error 
 #
 # + return - `true` if clearing was successful, or an error
 isolated function clearRegistry() returns boolean|error = @java:Method {
+    'class: "io.ballerina.stdlib.workflow.runtime.nativeimpl.WorkflowNative"
+} external;
+
+# Gets the execution result of a workflow.
+# This function waits for the workflow to complete and returns its result.
+# Used for testing to verify workflow execution outcomes.
+#
+# + workflowId - The ID of the workflow to get the result for
+# + timeoutSeconds - Maximum time to wait for the workflow to complete
+# + return - The workflow execution info including result, or an error
+isolated function getWorkflowResult(string workflowId, int timeoutSeconds = 30) returns WorkflowExecutionInfo|error = @java:Method {
+    'class: "io.ballerina.stdlib.workflow.runtime.nativeimpl.WorkflowNative"
+} external;
+
+# Gets information about a workflow execution without waiting for completion.
+# Returns the current state including any activity invocations.
+# Used for testing to inspect workflow state during execution.
+#
+# + workflowId - The ID of the workflow to get info for
+# + return - The workflow execution info, or an error
+isolated function getWorkflowInfo(string workflowId) returns WorkflowExecutionInfo|error = @java:Method {
     'class: "io.ballerina.stdlib.workflow.runtime.nativeimpl.WorkflowNative"
 } external;

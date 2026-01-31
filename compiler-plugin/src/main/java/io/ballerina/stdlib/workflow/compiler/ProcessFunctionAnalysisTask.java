@@ -25,12 +25,16 @@ import io.ballerina.compiler.api.symbols.ModuleSymbol;
 import io.ballerina.compiler.api.symbols.Symbol;
 import io.ballerina.compiler.api.symbols.SymbolKind;
 import io.ballerina.compiler.syntax.tree.AnnotationNode;
+import io.ballerina.compiler.syntax.tree.FunctionArgumentNode;
 import io.ballerina.compiler.syntax.tree.FunctionCallExpressionNode;
 import io.ballerina.compiler.syntax.tree.FunctionDefinitionNode;
 import io.ballerina.compiler.syntax.tree.MetadataNode;
 import io.ballerina.compiler.syntax.tree.Node;
 import io.ballerina.compiler.syntax.tree.NodeList;
 import io.ballerina.compiler.syntax.tree.NodeVisitor;
+import io.ballerina.compiler.syntax.tree.PositionalArgumentNode;
+import io.ballerina.compiler.syntax.tree.RemoteMethodCallActionNode;
+import io.ballerina.compiler.syntax.tree.SeparatedNodeList;
 import io.ballerina.compiler.syntax.tree.SyntaxKind;
 import io.ballerina.projects.DocumentId;
 import io.ballerina.projects.plugins.AnalysisTask;
@@ -155,6 +159,7 @@ public class ProcessFunctionAnalysisTask implements AnalysisTask<SyntaxNodeAnaly
 
     /**
      * Node visitor that collects function calls to @Activity annotated functions.
+     * Supports both direct activity calls and ctx->callActivity(activityFunc, args) pattern.
      */
     private static class ActivityCallCollector extends NodeVisitor {
         private final SemanticModel semanticModel;
@@ -175,6 +180,47 @@ public class ProcessFunctionAnalysisTask implements AnalysisTask<SyntaxNodeAnaly
 
             // Continue visiting child nodes
             callNode.arguments().forEach(arg -> arg.accept(this));
+        }
+
+        /**
+         * Visit remote method call actions to detect ctx->callActivity(activityFunc, args) pattern.
+         */
+        @Override
+        public void visit(RemoteMethodCallActionNode remoteCallNode) {
+            // Check if this is a callActivity call
+            String methodName = remoteCallNode.methodName().name().text();
+            if (WorkflowConstants.CALL_ACTIVITY_FUNCTION.equals(methodName)) {
+                // Extract the first argument which should be the activity function reference
+                SeparatedNodeList<FunctionArgumentNode> arguments = remoteCallNode.arguments();
+                if (!arguments.isEmpty()) {
+                    FunctionArgumentNode firstArg = arguments.get(0);
+                    if (firstArg instanceof PositionalArgumentNode) {
+                        PositionalArgumentNode posArg = (PositionalArgumentNode) firstArg;
+                        Node expression = posArg.expression();
+                        
+                        // Get the function name from the expression
+                        String activityFunctionName = extractFunctionName(expression);
+                        if (activityFunctionName != null) {
+                            activityMap.put(activityFunctionName, activityFunctionName);
+                        }
+                    }
+                }
+            }
+
+            // Continue visiting child nodes
+            remoteCallNode.arguments().forEach(arg -> arg.accept(this));
+        }
+
+        /**
+         * Extracts the function name from an expression node (typically a simple name reference).
+         */
+        private String extractFunctionName(Node expression) {
+            if (expression.kind() == SyntaxKind.SIMPLE_NAME_REFERENCE) {
+                return expression.toString().trim();
+            } else if (expression.kind() == SyntaxKind.QUALIFIED_NAME_REFERENCE) {
+                return expression.toString().trim();
+            }
+            return null;
         }
 
         private String getFunctionName(FunctionCallExpressionNode callNode) {

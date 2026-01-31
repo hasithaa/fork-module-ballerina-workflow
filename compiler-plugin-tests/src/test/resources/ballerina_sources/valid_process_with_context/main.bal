@@ -27,12 +27,33 @@ type OrderResult record {|
     string workflowId;
 |};
 
-// Valid: Process function with Context as first parameter
+// Activity function to validate an order
+@workflow:Activity
+function validateOrderActivity(OrderInput input) returns boolean|error {
+    // Simulated order validation
+    return input.quantity > 0;
+}
+
+// Activity function to get tracking number
+@workflow:Activity
+function getTrackingNumberActivity(string orderId) returns string|error {
+    return "TRACK-" + orderId;
+}
+
+// Valid: Process function with Context as first parameter, using ctx->callActivity()
 @workflow:Process
 function orderProcessWithContext(workflow:Context ctx, OrderInput input) returns OrderResult|error {
+    // Call activity through context using ctx->callActivity() pattern
+    boolean isValid = check ctx->callActivity(validateOrderActivity, input);
+    if !isValid {
+        return error("Invalid order");
+    }
+    
+    string trackingNo = check ctx->callActivity(getTrackingNumberActivity, input.orderId);
+    
     return {
         status: "COMPLETED",
-        workflowId: ctx.workflowId
+        workflowId: ctx.workflowId + "-" + trackingNo
     };
 }
 

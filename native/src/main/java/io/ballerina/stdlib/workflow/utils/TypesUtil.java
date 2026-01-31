@@ -87,6 +87,12 @@ public final class TypesUtil {
             return ValueCreator.createDecimalValue((BigDecimal) javaValue);
         }
 
+        // Convert Integer to Long - Ballerina uses Long for int type
+        // JSON deserialization may return Integer for values within int32 range
+        if (javaValue instanceof Integer) {
+            return ((Integer) javaValue).longValue();
+        }
+
         // Primitive types (Long, Double, Boolean) are compatible
         return javaValue;
     }
@@ -151,7 +157,9 @@ public final class TypesUtil {
      */
     @SuppressWarnings("unchecked")
     public static BMap<BString, Object> convertMapToBMap(Map<String, Object> map) {
-        BMap<BString, Object> bMap = ValueCreator.createMapValue();
+        // Create a map<anydata> type to ensure it can be cast to anydata
+        BMap<BString, Object> bMap = ValueCreator.createMapValue(
+                TypeCreator.createMapType(PredefinedTypes.TYPE_ANYDATA));
         for (Map.Entry<String, Object> entry : map.entrySet()) {
             bMap.put(StringUtils.fromString(entry.getKey()),
                     convertJavaToBallerinaType(entry.getValue()));

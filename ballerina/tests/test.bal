@@ -49,23 +49,23 @@ function testActivityFunction2(int value) returns int|error {
     return value * 2;
 }
 
-// Test process that calls activities.
+// Test process that calls activities using Context client.
 @Process
-function processWithActivities(string input) returns string|error {
-    // This would normally call activities
-    string result1 = check testActivityFunction(input);
-    int result2 = check testActivityFunction2(10);
-    return result1 + " - " + result2.toString();
+function processWithActivities(Context ctx, string input) returns string|error {
+    // Use Context client's callActivity remote method
+    anydata result1 = check ctx->callActivity(testActivityFunction, input);
+    anydata result2 = check ctx->callActivity(testActivityFunction2, 10);
+    return <string>result1 + " - " + (<int>result2).toString();
 }
 
-@test:BeforeEach
-function beforeEach() returns error? {
-    // Clear registry before each test to ensure clean state
-    _ = check clearRegistry();
-}
+// Note: Removed @test:BeforeEach that cleared registry globally.
+// Unit tests now clear registry explicitly at the start of each test.
+// This prevents interference with integration tests that register processes
+// in @test:BeforeSuite.
 
-@test:Config {}
+@test:Config {groups: ["unit"]}
 function testRegisterProcess() returns error? {
+    _ = check clearRegistry();
     boolean result = check registerProcess(testProcessFunction, "test-process");
     test:assertTrue(result, "Process registration should succeed");
     
@@ -74,8 +74,9 @@ function testRegisterProcess() returns error? {
     test:assertTrue(registry.hasKey("test-process"), "Process should be in registry");
 }
 
-@test:Config {}
+@test:Config {groups: ["unit"]}
 function testRegisterProcessDuplicate() returns error? {
+    _ = check clearRegistry();
     // First registration should succeed
     boolean result1 = check registerProcess(testProcessFunction, "dup-process");
     test:assertTrue(result1, "First registration should succeed");
@@ -85,8 +86,9 @@ function testRegisterProcessDuplicate() returns error? {
     test:assertTrue(result2 is error, "Duplicate registration should fail");
 }
 
-@test:Config {}
+@test:Config {groups: ["unit"]}
 function testRegisterProcessWithActivities() returns error? {
+    _ = check clearRegistry();
     // Create a map of activities
     map<function> activities = {
         "testActivityFunction": testActivityFunction,
@@ -124,15 +126,17 @@ function testRegisterProcessWithActivities() returns error? {
     }
 }
 
-@test:Config {}
+@test:Config {groups: ["unit"]}
 function testGetRegisteredWorkflowsEmpty() returns error? {
+    _ = check clearRegistry();
     // Registry should be empty after clear
     WorkflowRegistry registry = check getRegisteredWorkflows();
     test:assertEquals(registry.length(), 0, "Registry should be empty");
 }
 
-@test:Config {}
+@test:Config {groups: ["unit"]}
 function testClearRegistry() returns error? {
+    _ = check clearRegistry();
     // Register a process
     _ = check registerProcess(testProcessFunction, "clear-test-process");
     
@@ -149,8 +153,9 @@ function testClearRegistry() returns error? {
     test:assertEquals(registry2.length(), 0, "Registry should be empty after clear");
 }
 
-@test:Config {}
+@test:Config {groups: ["unit"]}
 function testMultipleProcessRegistration() returns error? {
+    _ = check clearRegistry();
     // Register multiple processes
     _ = check registerProcess(testProcessFunction, "multi-process-1");
     _ = check registerProcess(processWithActivities, "multi-process-2");
@@ -175,8 +180,9 @@ function processWithContextAndEvents(Context ctx, SingleEventRecord events) retu
     return true;
 }
 
-@test:Config {}
+@test:Config {groups: ["unit"]}
 function testRegisterProcessWithEvents() returns error? {
+    _ = check clearRegistry();
     // Register process with events
     boolean result = check registerProcess(processWithEvents, "process-with-events");
     test:assertTrue(result, "Process registration with events should succeed");
@@ -208,8 +214,9 @@ function testRegisterProcessWithEvents() returns error? {
     }
 }
 
-@test:Config {}
+@test:Config {groups: ["unit"]}
 function testRegisterProcessWithSingleEvent() returns error? {
+    _ = check clearRegistry();
     // Register process with a single event
     boolean result = check registerProcess(processWithContextAndEvents, "process-single-event");
     test:assertTrue(result, "Process registration with single event should succeed");
@@ -227,8 +234,9 @@ function testRegisterProcessWithSingleEvent() returns error? {
     }
 }
 
-@test:Config {}
+@test:Config {groups: ["unit"]}
 function testProcessWithoutEventsHasEmptyEventList() returns error? {
+    _ = check clearRegistry();
     // Register a process without events
     boolean result = check registerProcess(testProcessFunction, "no-events-process");
     test:assertTrue(result, "Process registration should succeed");
@@ -242,8 +250,9 @@ function testProcessWithoutEventsHasEmptyEventList() returns error? {
     }
 }
 
-@test:Config {}
+@test:Config {groups: ["unit"]}
 function testProcessWithActivitiesAndEvents() returns error? {
+    _ = check clearRegistry();
     // Create a map of activities
     map<function> activities = {
         "testActivityFunction": testActivityFunction
@@ -303,8 +312,9 @@ function processWithInlineEventsNoContext(string input, record {|
     return "no context: " + input;
 }
 
-@test:Config {}
+@test:Config {groups: ["unit"]}
 function testInlineRecordWithMultipleEvents() returns error? {
+    _ = check clearRegistry();
     // Register process with inline record events
     boolean result = check registerProcess(processWithInlineEvents, "inline-multi-events");
     test:assertTrue(result, "Process registration with inline events should succeed");
@@ -336,8 +346,9 @@ function testInlineRecordWithMultipleEvents() returns error? {
     }
 }
 
-@test:Config {}
+@test:Config {groups: ["unit"]}
 function testInlineRecordWithSingleEvent() returns error? {
+    _ = check clearRegistry();
     // Register process with single inline event
     boolean result = check registerProcess(processWithSingleInlineEvent, "inline-single-event");
     test:assertTrue(result, "Process registration with single inline event should succeed");
@@ -352,8 +363,9 @@ function testInlineRecordWithSingleEvent() returns error? {
     }
 }
 
-@test:Config {}
+@test:Config {groups: ["unit"]}
 function testInlineRecordWithThreeEvents() returns error? {
+    _ = check clearRegistry();
     // Register process with three inline events of different types
     boolean result = check registerProcess(processWithMixedInlineEvents, "inline-mixed-events");
     test:assertTrue(result, "Process registration with mixed inline events should succeed");
@@ -386,8 +398,9 @@ function testInlineRecordWithThreeEvents() returns error? {
     }
 }
 
-@test:Config {}
+@test:Config {groups: ["unit"]}
 function testInlineRecordWithoutContext() returns error? {
+    _ = check clearRegistry();
     // Register process with inline events but no Context parameter
     boolean result = check registerProcess(processWithInlineEventsNoContext, "inline-no-context");
     test:assertTrue(result, "Process registration with inline events (no context) should succeed");
@@ -402,8 +415,9 @@ function testInlineRecordWithoutContext() returns error? {
     }
 }
 
-@test:Config {}
+@test:Config {groups: ["unit"]}
 function testInlineRecordWithActivities() returns error? {
+    _ = check clearRegistry();
     // Create a map of activities
     map<function> activities = {
         "testActivityFunction": testActivityFunction,
@@ -434,8 +448,9 @@ function simpleWorkflowProcess(string input) returns string|error {
     return "Hello, " + input;
 }
 
-@test:Config {}
+@test:Config {groups: ["unit"]}
 function testStartProcessWithUnregisteredProcess() returns error? {
+    _ = check clearRegistry();
     // Attempt to start a workflow without registering the process first
     WorkflowData input = {id: "test-workflow-001"};
     
@@ -449,8 +464,9 @@ function testStartProcessWithUnregisteredProcess() returns error? {
     }
 }
 
-@test:Config {}
+@test:Config {groups: ["unit"]}
 function testStartProcessWithMissingId() returns error? {
+    _ = check clearRegistry();
     // First register the process
     boolean registered = check registerProcess(simpleWorkflowProcess, "simple-workflow");
     test:assertTrue(registered, "Process registration should succeed");
@@ -468,8 +484,9 @@ function testStartProcessWithMissingId() returns error? {
     }
 }
 
-@test:Config {}
+@test:Config {groups: ["unit"]}
 function testStartProcessWithValidInput() returns error? {
+    _ = check clearRegistry();
     // Register the process first
     boolean registered = check registerProcess(simpleWorkflowProcess, "workflow-for-start-test");
     test:assertTrue(registered, "Process registration should succeed");

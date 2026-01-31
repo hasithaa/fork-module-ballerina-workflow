@@ -18,7 +18,6 @@
 
 package io.ballerina.stdlib.workflow.compiler;
 
-import io.ballerina.compiler.syntax.tree.FunctionCallExpressionNode;
 import io.ballerina.compiler.syntax.tree.FunctionDefinitionNode;
 import io.ballerina.compiler.syntax.tree.IdentifierToken;
 import io.ballerina.compiler.syntax.tree.ImportDeclarationNode;
@@ -26,7 +25,6 @@ import io.ballerina.compiler.syntax.tree.ImportOrgNameNode;
 import io.ballerina.compiler.syntax.tree.ModuleMemberDeclarationNode;
 import io.ballerina.compiler.syntax.tree.ModulePartNode;
 import io.ballerina.compiler.syntax.tree.ModuleVariableDeclarationNode;
-import io.ballerina.compiler.syntax.tree.Node;
 import io.ballerina.compiler.syntax.tree.NodeFactory;
 import io.ballerina.compiler.syntax.tree.NodeList;
 import io.ballerina.compiler.syntax.tree.NodeParser;
@@ -192,12 +190,12 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
     }
 
     /**
-     * Tree modifier that transforms activity function calls within process functions.
+     * Tree modifier that handles process functions.
+     * Note: Direct activity call transformation has been removed.
+     * Users must explicitly use ctx->callActivity(activityFunc, args...) pattern.
      */
     private static class WorkflowTreeModifier extends TreeModifier {
         private final WorkflowModifierContext workflowContext;
-        private boolean insideProcessFunction = false;
-        private String currentProcessName = null;
 
         WorkflowTreeModifier(WorkflowModifierContext workflowContext) {
             this.workflowContext = workflowContext;
@@ -207,81 +205,16 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
         public FunctionDefinitionNode transform(FunctionDefinitionNode functionNode) {
             String functionName = functionNode.functionName().text();
 
-            // Check if this is a process function
+            // Check if this is a process function - just apply standard transformation
             if (workflowContext.getProcessInfoMap().containsKey(functionName)) {
-                insideProcessFunction = true;
-                currentProcessName = functionName;
-
-                // Transform the function body
-                FunctionDefinitionNode transformed = (FunctionDefinitionNode) super.transform(functionNode);
-
-                insideProcessFunction = false;
-                currentProcessName = null;
-                return transformed;
+                return (FunctionDefinitionNode) super.transform(functionNode);
             }
 
             return functionNode;
         }
 
-        @Override
-        public FunctionCallExpressionNode transform(FunctionCallExpressionNode callNode) {
-            // First, transform child nodes (arguments) to handle nested activity calls
-            FunctionCallExpressionNode transformedNode = (FunctionCallExpressionNode) super.transform(callNode);
-
-            if (!insideProcessFunction || currentProcessName == null) {
-                return transformedNode;
-            }
-
-            ProcessFunctionInfo processInfo = workflowContext.getProcessInfoMap().get(currentProcessName);
-            if (processInfo == null) {
-                return transformedNode;
-            }
-
-            // Get the function name being called
-            String calledFunctionName = getFunctionName(transformedNode);
-            if (calledFunctionName == null) {
-                return transformedNode;
-            }
-
-            // Check if this is an activity function call
-            if (!processInfo.getActivityMap().containsKey(calledFunctionName)) {
-                return transformedNode;
-            }
-
-            // Build the new callActivity call
-            // Note: We use 'workflow:' prefix assuming standard import. If users use an alias,
-            // they should also import without alias or the modifier adds an unaliased import.
-            StringBuilder newCallBuilder = new StringBuilder("workflow:callActivity(");
-            newCallBuilder.append(calledFunctionName);
-
-            // Add transformed arguments (handles nested activity calls)
-            SeparatedNodeList<io.ballerina.compiler.syntax.tree.FunctionArgumentNode> args =
-                    transformedNode.arguments();
-            for (int i = 0; i < args.size(); i++) {
-                newCallBuilder.append(", ");
-                newCallBuilder.append(args.get(i).toString());
-            }
-            newCallBuilder.append(")");
-
-            // Parse and return the new call expression
-            String newCallStr = newCallBuilder.toString();
-            Node parsed = NodeParser.parseExpression(newCallStr);
-            if (parsed instanceof FunctionCallExpressionNode) {
-                return (FunctionCallExpressionNode) parsed;
-            }
-
-            return transformedNode;
-        }
-
-        private String getFunctionName(FunctionCallExpressionNode callNode) {
-            Node functionName = callNode.functionName();
-            if (functionName.kind() == SyntaxKind.SIMPLE_NAME_REFERENCE) {
-                return functionName.toString().trim();
-            } else if (functionName.kind() == SyntaxKind.QUALIFIED_NAME_REFERENCE) {
-                // For module:function calls, preserve the full qualified name
-                return functionName.toString().trim();
-            }
-            return null;
-        }
+        // Note: FunctionCallExpressionNode transformation removed.
+        // Direct activity calls are now disallowed and validated by WorkflowValidatorTask.
+        // Users must use ctx->callActivity(activityFunc, args...) pattern.
     }
 }

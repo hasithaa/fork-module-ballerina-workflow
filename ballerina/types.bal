@@ -98,3 +98,33 @@ public type WorkflowData InputData;
 # Signal input data type alias.
 # Used when sending signals. The "id" field identifies the target workflow instance.
 public type SignalData InputData;
+
+# Information about an activity invocation (for testing/introspection).
+# + activityName - The name of the activity that was invoked
+# + input - The arguments passed to the activity
+# + output - The result returned by the activity (nil if not yet completed or failed)
+# + status - The status of the activity execution ("COMPLETED", "FAILED", "RUNNING", "PENDING")
+# + errorMessage - Error message if the activity failed
+type ActivityInvocation record {
+    string activityName;
+    anydata[] input;
+    anydata? output;
+    string status;
+    string? errorMessage;
+};
+
+# Information about a workflow execution (for testing/introspection).
+# + workflowId - The unique identifier for the workflow instance
+# + workflowType - The type (process name) of the workflow
+# + status - The execution status ("RUNNING", "COMPLETED", "FAILED", "CANCELED", "TERMINATED")
+# + result - The workflow result if completed successfully
+# + errorMessage - Error message if the workflow failed
+# + activityInvocations - List of activities invoked by this workflow
+type WorkflowExecutionInfo record {
+    string workflowId;
+    string workflowType;
+    string status;
+    anydata? result;
+    string? errorMessage;
+    ActivityInvocation[] activityInvocations;
+};

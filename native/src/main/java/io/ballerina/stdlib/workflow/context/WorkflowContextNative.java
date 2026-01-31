@@ -20,6 +20,8 @@ package io.ballerina.stdlib.workflow.context;
 
 import io.ballerina.runtime.api.creators.ErrorCreator;
 import io.ballerina.runtime.api.utils.StringUtils;
+import io.ballerina.runtime.api.values.BFunctionPointer;
+import io.ballerina.stdlib.workflow.utils.TypesUtil;
 import io.temporal.workflow.Workflow;
 
 import java.time.Duration;
@@ -28,7 +30,7 @@ import java.util.Map;
 
 /**
  * Native implementation for workflow context operations.
- * Provides workflow-specific operations like sleep and state queries.
+ * Provides workflow-specific operations like sleep, state queries, and activity execution.
  *
  * <p>ARCHITECTURE NOTES:
  * <ul>
@@ -36,7 +38,7 @@ import java.util.Map;
  *       (created in WorkflowWorkerNative.createServiceInstance()) to avoid state sharing between
  *       workflow instances, including during replay scenarios.</li>
  *   <li>Context objects are created per workflow execution and hold workflow-specific information.</li>
- *   <li>Activity execution is done via module-level callActivity() function.</li>
+ *   <li>Activity execution is done via ctx.callActivity() remote method on the Context client.</li>
  *   <li>Signal handling is done via Ballerina's wait action with event futures.</li>
  * </ul>
  *
@@ -46,6 +48,62 @@ public final class WorkflowContextNative {
 
     private WorkflowContextNative() {
         // Utility class, prevent instantiation
+    }
+
+    /**
+     * Execute an activity function within the workflow context.
+     * <p>
+     * This is the remote method implementation for ctx.callActivity().
+     * Activities are non-deterministic operations that should only be executed
+     * once during workflow execution (not during replay).
+     *
+     * @param contextHandle the workflow context handle
+     * @param activityFunction the activity function to execute
+     * @param args the arguments to pass to the activity
+     * @return the result of the activity execution or an error
+     */
+    public static Object callActivity(Object contextHandle, BFunctionPointer activityFunction, Object[] args) {
+        try {
+            // Get the activity name from the function pointer
+            String simpleActivityName = activityFunction.getType().getName();
+            
+            // Get the current workflow type from Temporal context to build the full activity name
+            // Activities are registered as "workflowType.activityName"
+            String workflowType = Workflow.getInfo().getWorkflowType();
+            String fullActivityName = workflowType + "." + simpleActivityName;
+
+            // Convert arguments to Java types for Temporal
+            Object[] javaArgs = new Object[args == null ? 0 : args.length];
+            if (args != null) {
+                for (int i = 0; i < args.length; i++) {
+                    javaArgs[i] = TypesUtil.convertBallerinaToJavaType(args[i]);
+                }
+            }
+
+            // Use Temporal's activity stub to execute the activity
+            io.temporal.activity.ActivityOptions activityOptions = io.temporal.activity.ActivityOptions.newBuilder()
+                    .setStartToCloseTimeout(java.time.Duration.ofMinutes(5))
+                    .build();
+
+            io.temporal.workflow.ActivityStub activityStub =
+                    Workflow.newUntypedActivityStub(activityOptions);
+
+            // Execute the activity through Temporal's activity mechanism with the full name
+            Object result = activityStub.execute(fullActivityName, Object.class, javaArgs);
+
+            // Convert result back to Ballerina type
+            return TypesUtil.convertJavaToBallerinaType(result);
+
+        } catch (io.temporal.failure.ActivityFailure e) {
+            // Activity failed - extract the cause
+            Throwable cause = e.getCause();
+            String errorMsg = cause != null ? cause.getMessage() : e.getMessage();
+            return ErrorCreator.createError(
+                    StringUtils.fromString("Activity execution failed: " + errorMsg));
+        } catch (Exception e) {
+            return ErrorCreator.createError(
+                    StringUtils.fromString("Activity execution failed: " + e.getMessage()));
+        }
     }
 
     /**

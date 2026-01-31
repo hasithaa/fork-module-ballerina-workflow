@@ -18,15 +18,16 @@ import ballerina/jballerina.java;
 import ballerina/time;
 
 # Workflow execution context providing workflow APIs.
-# Automatically injected as first parameter of execute() method.
+# This is a client object that provides access to workflow operations.
 #
-# This class provides access to workflow operations such as:
+# This client provides:
+# - Activity execution via `callActivity()` remote method
 # - Durable sleep operations
 # - Workflow state queries (replaying status, workflow ID, workflow type)
 #
-# Note: Use module-level `callActivity()` for activity execution.
+# Use `check ctx.callActivity(myActivity, arg1, arg2)` to execute activities.
 # Use Ballerina's `wait` action with event futures for signal handling.
-public class Context {
+public client class Context {
     private handle nativeContext;
 
     # Initialize the context with native workflow context handle.
@@ -34,6 +35,24 @@ public class Context {
     # + nativeContext - Native context handle from Temporal
     public isolated function init(handle nativeContext) {
         self.nativeContext = nativeContext;
+    }
+
+    # Executes an activity function within the workflow context.
+    # 
+    # Activities are non-deterministic operations (I/O, database calls, external APIs)
+    # that should only be executed once during workflow execution and not during replay.
+    # The workflow runtime ensures exactly-once execution semantics for activities.
+    #
+    # Example:
+    # ```ballerina
+    # string result = check ctx.callActivity(sendEmailActivity, recipientEmail, subject);
+    # ```
+    #
+    # + activityFunction - The activity function to execute (must be annotated with @Activity)
+    # + args - Variable arguments to pass to the activity function
+    # + return - The result of the activity execution, or an error if execution fails
+    remote isolated function callActivity(function activityFunction, anydata... args) returns anydata|error {
+        return callActivityNative(self.nativeContext, activityFunction, ...args);
     }
 
     # Durable sleep that survives workflow restarts.
@@ -78,6 +97,15 @@ public class Context {
 }
 
 // Native function declarations
+
+isolated function callActivityNative(
+        handle contextHandle,
+        function activityFunction,
+        anydata... args
+) returns anydata|error = @java:Method {
+    'class: "io.ballerina.stdlib.workflow.context.WorkflowContextNative",
+    name: "callActivity"
+} external;
 
 isolated function sleepNative(
         handle contextHandle,

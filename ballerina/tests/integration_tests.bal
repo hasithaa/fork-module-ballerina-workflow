@@ -31,26 +31,42 @@
 // ================================================================================
 
 import ballerina/test;
+import ballerina/time;
+
+// Helper function to generate unique workflow IDs
+isolated function integrationUniqueId(string prefix) returns string {
+    time:Utc now = time:utcNow();
+    int nanoTime = now[0] * 1000000000 + <int>now[1];
+    return prefix + "-" + nanoTime.toString();
+}
+
+// Record type for integration test workflow input
+type IntegrationTestInput record {|
+    string id;
+    string name;
+|};
 
 // Integration test workflow - defined at module level
 @Process
-function integrationTestWorkflow(string input) returns string|error {
-    return "Hello from workflow: " + input;
+function integrationTestWorkflow(IntegrationTestInput input) returns string|error {
+    return "Hello from workflow: " + input.name;
 }
+
+// Note: Registration and worker startup is handled by setupIntegrationTests() 
+// in activity_integration_tests.bal which this test depends on
 
 // Test that uses the embedded Temporal test server
 @test:Config {
-    groups: ["integration"]
+    groups: ["integration", "activity"],
+    dependsOn: [setupIntegrationTests]
 }
 function testWorkflowExecutionWithTestServer() returns error? {
-    // Register the workflow
-    // Use the function name as the process name (matching how startProcess extracts the name)
-    boolean registered = check registerProcess(integrationTestWorkflow, "integrationTestWorkflow");
-    test:assertTrue(registered, "Workflow registration should succeed");
+    // Process was registered in @BeforeSuite
     
-    // Start the workflow
-    WorkflowData input = {id: "integration-test-001", "name": "IntegrationTest"};
+    // Start the workflow with unique ID using record type input
+    string testId = integrationUniqueId("integration-test");
+    IntegrationTestInput input = {id: testId, name: "IntegrationTest"};
     string workflowId = check startProcess(integrationTestWorkflow, input);
     
-    test:assertEquals(workflowId, "integration-test-001", "Workflow ID should match input id");
+    test:assertEquals(workflowId, testId, "Workflow ID should match input id");
 }

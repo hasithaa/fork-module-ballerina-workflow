@@ -31,9 +31,16 @@ import io.ballerina.compiler.api.symbols.TypeReferenceTypeSymbol;
 import io.ballerina.compiler.api.symbols.TypeSymbol;
 import io.ballerina.compiler.api.symbols.UnionTypeSymbol;
 import io.ballerina.compiler.syntax.tree.AnnotationNode;
+import io.ballerina.compiler.syntax.tree.ExpressionNode;
+import io.ballerina.compiler.syntax.tree.FunctionArgumentNode;
+import io.ballerina.compiler.syntax.tree.FunctionCallExpressionNode;
 import io.ballerina.compiler.syntax.tree.FunctionDefinitionNode;
 import io.ballerina.compiler.syntax.tree.MetadataNode;
 import io.ballerina.compiler.syntax.tree.NodeList;
+import io.ballerina.compiler.syntax.tree.NodeVisitor;
+import io.ballerina.compiler.syntax.tree.PositionalArgumentNode;
+import io.ballerina.compiler.syntax.tree.RemoteMethodCallActionNode;
+import io.ballerina.compiler.syntax.tree.SeparatedNodeList;
 import io.ballerina.projects.plugins.AnalysisTask;
 import io.ballerina.projects.plugins.SyntaxNodeAnalysisContext;
 import io.ballerina.tools.diagnostics.DiagnosticFactory;
@@ -68,6 +75,10 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         // Check if function has @Process annotation
         if (hasAnnotation(functionNode, semanticModel, WorkflowConstants.PROCESS_ANNOTATION)) {
             validateProcessFunction(functionNode, context);
+            // Validate callActivity calls within the process function
+            validateCallActivityUsage(functionNode, context);
+            // Validate no direct @Activity function calls are made
+            validateNoDirectActivityCalls(functionNode, context);
         }
 
         // Check if function has @Activity annotation
@@ -247,6 +258,188 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                 reportDiagnostic(context, functionNode, WorkflowConstants.WORKFLOW_104,
                         WorkflowConstants.ACTIVITY_INVALID_RETURN_TYPE);
             }
+        }
+    }
+
+    /**
+     * Validates that ctx->callActivity() calls have a function with @Activity annotation
+     * as the first argument.
+     */
+    private void validateCallActivityUsage(FunctionDefinitionNode functionNode, SyntaxNodeAnalysisContext context) {
+        CallActivityValidator validator = new CallActivityValidator(context);
+        functionNode.functionBody().accept(validator);
+    }
+
+    /**
+     * Node visitor that validates ctx->callActivity() calls.
+     * Ensures the first argument is a function with @Activity annotation.
+     */
+    private static class CallActivityValidator extends NodeVisitor {
+        private final SyntaxNodeAnalysisContext context;
+        private final SemanticModel semanticModel;
+
+        CallActivityValidator(SyntaxNodeAnalysisContext context) {
+            this.context = context;
+            this.semanticModel = context.semanticModel();
+        }
+
+        @Override
+        public void visit(RemoteMethodCallActionNode remoteCallNode) {
+            String methodName = remoteCallNode.methodName().name().text();
+            
+            // Check if this is a callActivity call
+            if (WorkflowConstants.CALL_ACTIVITY_FUNCTION.equals(methodName)) {
+                // Verify the expression is a Context type (optional, for better error messages)
+                // Validate the first argument has @Activity annotation
+                SeparatedNodeList<FunctionArgumentNode> arguments = remoteCallNode.arguments();
+                if (!arguments.isEmpty()) {
+                    FunctionArgumentNode firstArg = arguments.get(0);
+                    if (firstArg instanceof PositionalArgumentNode) {
+                        PositionalArgumentNode posArg = (PositionalArgumentNode) firstArg;
+                        ExpressionNode expression = posArg.expression();
+                        
+                        // Check if the function reference has @Activity annotation
+                        if (!hasActivityAnnotation(expression)) {
+                            reportCallActivityDiagnostic(remoteCallNode);
+                        }
+                    }
+                }
+            }
+
+            // Continue visiting child nodes
+            remoteCallNode.arguments().forEach(arg -> arg.accept(this));
+        }
+
+        /**
+         * Checks if the given expression references a function with @Activity annotation.
+         */
+        private boolean hasActivityAnnotation(ExpressionNode expression) {
+            Optional<Symbol> symbolOpt = semanticModel.symbol(expression);
+            if (symbolOpt.isEmpty()) {
+                return false;
+            }
+
+            Symbol symbol = symbolOpt.get();
+            if (symbol.kind() != SymbolKind.FUNCTION) {
+                return false;
+            }
+
+            FunctionSymbol functionSymbol = (FunctionSymbol) symbol;
+            List<AnnotationSymbol> annotations = functionSymbol.annotations();
+
+            for (AnnotationSymbol annotation : annotations) {
+                Optional<String> nameOpt = annotation.getName();
+                if (nameOpt.isEmpty()) {
+                    continue;
+                }
+
+                if (WorkflowConstants.ACTIVITY_ANNOTATION.equals(nameOpt.get())) {
+                    // Verify it's from the workflow module
+                    Optional<ModuleSymbol> moduleOpt = annotation.getModule();
+                    if (moduleOpt.isPresent()) {
+                        ModuleSymbol module = moduleOpt.get();
+                        Optional<String> moduleNameOpt = module.getName();
+                        if (moduleNameOpt.isPresent() &&
+                                WorkflowConstants.PACKAGE_NAME.equals(moduleNameOpt.get())) {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private void reportCallActivityDiagnostic(RemoteMethodCallActionNode node) {
+            DiagnosticInfo diagnosticInfo = new DiagnosticInfo(
+                    WorkflowConstants.WORKFLOW_107,
+                    WorkflowConstants.CALL_ACTIVITY_MISSING_ACTIVITY_ANNOTATION,
+                    DiagnosticSeverity.ERROR);
+            context.reportDiagnostic(DiagnosticFactory.createDiagnostic(diagnosticInfo,
+                    node.methodName().location()));
+        }
+    }
+
+    /**
+     * Validates that no direct @Activity function calls are made within @Process functions.
+     * Users must use ctx->callActivity(activityFunc, args...) pattern.
+     */
+    private void validateNoDirectActivityCalls(FunctionDefinitionNode functionNode, SyntaxNodeAnalysisContext context) {
+        DirectActivityCallValidator validator = new DirectActivityCallValidator(context);
+        functionNode.functionBody().accept(validator);
+    }
+
+    /**
+     * Node visitor that detects direct calls to @Activity annotated functions.
+     * Reports an error for each direct call found.
+     */
+    private static class DirectActivityCallValidator extends NodeVisitor {
+        private final SyntaxNodeAnalysisContext context;
+        private final SemanticModel semanticModel;
+
+        DirectActivityCallValidator(SyntaxNodeAnalysisContext context) {
+            this.context = context;
+            this.semanticModel = context.semanticModel();
+        }
+
+        @Override
+        public void visit(FunctionCallExpressionNode callNode) {
+            // Check if this is a call to an @Activity function
+            if (isActivityFunction(callNode)) {
+                reportDirectActivityCallError(callNode);
+            }
+
+            // Continue visiting child nodes (arguments may contain nested calls)
+            callNode.arguments().forEach(arg -> arg.accept(this));
+        }
+
+        /**
+         * Checks if the function call is to an @Activity annotated function.
+         */
+        private boolean isActivityFunction(FunctionCallExpressionNode callNode) {
+            Optional<Symbol> symbolOpt = semanticModel.symbol(callNode);
+            if (symbolOpt.isEmpty()) {
+                return false;
+            }
+
+            Symbol symbol = symbolOpt.get();
+            if (symbol.kind() != SymbolKind.FUNCTION) {
+                return false;
+            }
+
+            FunctionSymbol functionSymbol = (FunctionSymbol) symbol;
+            List<AnnotationSymbol> annotations = functionSymbol.annotations();
+
+            for (AnnotationSymbol annotation : annotations) {
+                Optional<String> nameOpt = annotation.getName();
+                if (nameOpt.isEmpty()) {
+                    continue;
+                }
+
+                if (WorkflowConstants.ACTIVITY_ANNOTATION.equals(nameOpt.get())) {
+                    // Verify it's from the workflow module
+                    Optional<ModuleSymbol> moduleOpt = annotation.getModule();
+                    if (moduleOpt.isPresent()) {
+                        ModuleSymbol module = moduleOpt.get();
+                        Optional<String> moduleNameOpt = module.getName();
+                        if (moduleNameOpt.isPresent() &&
+                                WorkflowConstants.PACKAGE_NAME.equals(moduleNameOpt.get())) {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private void reportDirectActivityCallError(FunctionCallExpressionNode callNode) {
+            DiagnosticInfo diagnosticInfo = new DiagnosticInfo(
+                    WorkflowConstants.WORKFLOW_108,
+                    WorkflowConstants.DIRECT_ACTIVITY_CALL_NOT_ALLOWED,
+                    DiagnosticSeverity.ERROR);
+            context.reportDiagnostic(DiagnosticFactory.createDiagnostic(diagnosticInfo,
+                    callNode.functionName().location()));
         }
     }
 

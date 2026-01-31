@@ -350,12 +350,38 @@ public final class EventExtractor {
      * @param type the type to check
      * @return true if it's the Context type
      */
-    private static boolean isContextType(Type type) {
+    public static boolean isContextType(Type type) {
         if (type == null) {
             return false;
         }
         // Check by type name - Context is a record type from workflow module
         String typeName = type.getName();
         return CONTEXT_TYPE_NAME.equals(typeName);
+    }
+
+    /**
+     * Checks if a process function has a Context parameter as its first parameter.
+     *
+     * @param processFunction the process function pointer
+     * @return true if the first parameter is Context
+     */
+    public static boolean hasContextParameter(BFunctionPointer processFunction) {
+        if (processFunction == null) {
+            return false;
+        }
+
+        Type funcType = processFunction.getType();
+        if (!(funcType instanceof FunctionType)) {
+            return false;
+        }
+
+        FunctionType functionType = (FunctionType) funcType;
+        Parameter[] parameters = functionType.getParameters();
+
+        if (parameters == null || parameters.length == 0) {
+            return false;
+        }
+
+        return isContextType(parameters[0].type);
     }
 }

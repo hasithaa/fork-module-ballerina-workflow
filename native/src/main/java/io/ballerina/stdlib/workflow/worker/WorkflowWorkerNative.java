@@ -696,20 +696,29 @@ public final class WorkflowWorkerNative {
                     LOGGER.info("[JWorkflowAdapter] Found registered workflow: {}", workflowType);
                 }
 
-                // Create Ballerina Context object with native workflow context handle
-                BObject contextObj = createWorkflowContext();
-
                 // Extract workflow arguments from EncodedValues
                 Object[] workflowArgs = extractWorkflowArguments(args);
 
-                // Build arguments array: first is Context, rest are workflow args
-                Object[] ballerinaArgs = new Object[workflowArgs.length + 1];
-                ballerinaArgs[0] = contextObj;
-                System.arraycopy(workflowArgs, 0, ballerinaArgs, 1, workflowArgs.length);
+                // Check if the process function expects a Context parameter
+                boolean hasContext = processFunction != null && 
+                        EventExtractor.hasContextParameter(processFunction);
+
+                // Build arguments array
+                Object[] ballerinaArgs;
+                if (hasContext) {
+                    // Create Ballerina Context object with native workflow context handle
+                    BObject contextObj = createWorkflowContext();
+                    ballerinaArgs = new Object[workflowArgs.length + 1];
+                    ballerinaArgs[0] = contextObj;
+                    System.arraycopy(workflowArgs, 0, ballerinaArgs, 1, workflowArgs.length);
+                } else {
+                    // No Context parameter - just pass workflow args
+                    ballerinaArgs = workflowArgs;
+                }
 
                 if (!isReplaying) {
-                    LOGGER.info("[JWorkflowAdapter] Invoking workflow {} with {} args",
-                            workflowType, workflowArgs.length);
+                    LOGGER.info("[JWorkflowAdapter] Invoking workflow {} with {} args (hasContext={})",
+                            workflowType, ballerinaArgs.length, hasContext);
                 }
 
                 Object result;

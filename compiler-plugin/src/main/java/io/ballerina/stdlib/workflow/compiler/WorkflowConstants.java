@@ -56,6 +56,8 @@ public final class WorkflowConstants {
     public static final String WORKFLOW_104 = "WORKFLOW_104";
     public static final String WORKFLOW_105 = "WORKFLOW_105";
     public static final String WORKFLOW_106 = "WORKFLOW_106";
+    public static final String WORKFLOW_107 = "WORKFLOW_107";
+    public static final String WORKFLOW_108 = "WORKFLOW_108";
 
     // Diagnostic messages
     public static final String PROCESS_INVALID_CONTEXT_PARAM =
@@ -72,4 +74,9 @@ public final class WorkflowConstants {
             "@Process function return type must be a subtype of 'anydata' or 'error'";
     public static final String PROCESS_TOO_MANY_PARAMS =
             "@Process function can have at most 3 parameters: Context, input, and events";
+    public static final String CALL_ACTIVITY_MISSING_ACTIVITY_ANNOTATION =
+            "The first argument of 'callActivity' must be a function with @Activity annotation";
+    public static final String DIRECT_ACTIVITY_CALL_NOT_ALLOWED =
+            "Direct calls to @Activity functions are not allowed. "
+                    + "Use 'ctx->callActivity(functionName, args...)' instead";
 }

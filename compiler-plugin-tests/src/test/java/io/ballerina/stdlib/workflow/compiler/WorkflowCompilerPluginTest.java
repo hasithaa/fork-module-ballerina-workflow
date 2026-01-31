@@ -136,6 +136,24 @@ public class WorkflowCompilerPluginTest {
         assertDiagnosticContains(diagnosticResult, WorkflowConstants.WORKFLOW_102);
     }
 
+    @Test(groups = "invalid")
+    public void testInvalidCallActivityNoAnnotation() {
+        String packagePath = "invalid_call_activity_no_annotation";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertTrue(diagnosticResult.errorCount() > 0,
+                "Expected validation error for callActivity with non-activity function");
+        assertDiagnosticContains(diagnosticResult, WorkflowConstants.WORKFLOW_107);
+    }
+
+    @Test(groups = "invalid")
+    public void testInvalidDirectActivityCall() {
+        String packagePath = "invalid_direct_activity_call";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertTrue(diagnosticResult.errorCount() > 0,
+                "Expected validation error for direct @Activity function call in @Process function");
+        assertDiagnosticContains(diagnosticResult, WorkflowConstants.WORKFLOW_108);
+    }
+
     /**
      * Get diagnostic result for the given package path.
      * Uses runCodeGenAndModifyPlugins() to run the code modifier.

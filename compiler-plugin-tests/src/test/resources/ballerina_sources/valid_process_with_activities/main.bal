@@ -54,17 +54,17 @@ function sendNotification(EmailRequest request) returns boolean|error {
     return true;
 }
 
-// Process function that calls activity functions
+// Process function that calls activity functions using ctx->callActivity() pattern
 @workflow:Process
-function orderProcess(OrderInput input) returns OrderResult|error {
+function orderProcess(workflow:Context ctx, OrderInput input) returns OrderResult|error {
     // Call activity to validate order
-    boolean isValid = check validateOrder(input);
+    boolean isValid = check ctx->callActivity(validateOrder, input);
     if !isValid {
         return error("Invalid order");
     }
     
     // Call activity to process payment
-    string paymentId = check processPayment(input.orderId, 100.0d);
+    string paymentId = check ctx->callActivity(processPayment, input.orderId, 100.0d);
     
     // Call activity to send notification
     EmailRequest emailReq = {
@@ -72,7 +72,7 @@ function orderProcess(OrderInput input) returns OrderResult|error {
         subject: "Order Confirmed",
         body: "Your order " + input.orderId + " has been confirmed."
     };
-    _ = check sendNotification(emailReq);
+    _ = check ctx->callActivity(sendNotification, emailReq);
     
     return {
         status: "COMPLETED",

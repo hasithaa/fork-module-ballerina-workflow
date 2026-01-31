@@ -98,6 +98,12 @@ groupId = "com.google.protobuf"
 artifactId = "protobuf-java-util"
 version = "@protobuf.version@"
 
+# Google proto status (required by gRPC for StatusProto)
+[[platform.java21.dependency]]
+groupId = "com.google.api.grpc"
+artifactId = "proto-google-common-protos"
+version = "@proto.google.common.protos.version@"
+
 # Jackson JSON dependencies
 [[platform.java21.dependency]]
 groupId = "com.fasterxml.jackson.core"

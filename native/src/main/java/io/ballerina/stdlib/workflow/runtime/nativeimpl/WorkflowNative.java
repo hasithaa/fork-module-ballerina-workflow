@@ -33,11 +33,18 @@ import io.ballerina.stdlib.workflow.ModuleUtils;
 import io.ballerina.stdlib.workflow.runtime.WorkflowRuntime;
 import io.ballerina.stdlib.workflow.utils.TypesUtil;
 import io.ballerina.stdlib.workflow.worker.WorkflowWorkerNative;
+import io.temporal.api.enums.v1.WorkflowExecutionStatus;
+import io.temporal.api.workflow.v1.WorkflowExecutionInfo;
+import io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionRequest;
+import io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionResponse;
+import io.temporal.client.WorkflowClient;
+import io.temporal.client.WorkflowStub;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 
 /**
@@ -66,6 +73,9 @@ public final class WorkflowNative {
      * Executes an activity function within the workflow context.
      * Activities are non-deterministic operations that should only be executed
      * once during workflow execution (not during replay).
+     * <p>
+     * This function uses Temporal's activity scheduling mechanism to ensure
+     * proper execution and replay behavior.
      *
      * @param env the Ballerina runtime environment
      * @param activityFunction the activity function to execute
@@ -73,37 +83,48 @@ public final class WorkflowNative {
      * @return the result of the activity execution or an error
      */
     public static Object callActivity(Environment env, BFunctionPointer activityFunction, Object[] args) {
-        return env.yieldAndRun(() -> {
-            CompletableFuture<Object> balFuture = new CompletableFuture<>();
+        try {
+            // Get the activity name from the function pointer
+            String simpleActivityName = activityFunction.getType().getName();
+            
+            // Get the current workflow type from Temporal context to build the full activity name
+            // Activities are registered as "workflowType.activityName"
+            String workflowType = io.temporal.workflow.Workflow.getInfo().getWorkflowType();
+            String fullActivityName = workflowType + "." + simpleActivityName;
 
-            WorkflowRuntime.getInstance().getExecutor().execute(() -> {
-                try {
-                    // Get the activity name from the function pointer
-                    String activityName = activityFunction.getType().getName();
-
-                    // Convert arguments to Java types for Temporal
-                    Object[] javaArgs = new Object[args == null ? 0 : args.length];
-                    if (args != null) {
-                        for (int i = 0; i < args.length; i++) {
-                            javaArgs[i] = TypesUtil.convertBallerinaToJavaType(args[i]);
-                        }
-                    }
-
-                    // Execute the activity through the workflow runtime
-                    Object result = WorkflowRuntime.getInstance().executeActivity(activityName, javaArgs);
-
-                    // Convert result back to Ballerina type
-                    Object ballerinaResult = TypesUtil.convertJavaToBallerinaType(result);
-                    balFuture.complete(ballerinaResult);
-
-                } catch (Exception e) {
-                    balFuture.complete(ErrorCreator.createError(
-                            StringUtils.fromString("Activity execution failed: " + e.getMessage())));
+            // Convert arguments to Java types for Temporal
+            Object[] javaArgs = new Object[args == null ? 0 : args.length];
+            if (args != null) {
+                for (int i = 0; i < args.length; i++) {
+                    javaArgs[i] = TypesUtil.convertBallerinaToJavaType(args[i]);
                 }
-            });
+            }
 
-            return getResult(balFuture);
-        });
+            // Use Temporal's activity stub to execute the activity
+            io.temporal.activity.ActivityOptions activityOptions = io.temporal.activity.ActivityOptions.newBuilder()
+                    .setStartToCloseTimeout(java.time.Duration.ofMinutes(5))
+                    .build();
+
+            io.temporal.workflow.ActivityStub activityStub =
+                    io.temporal.workflow.Workflow.newUntypedActivityStub(activityOptions);
+
+            // Execute the activity through Temporal's activity mechanism with the full name
+            Object result = activityStub.execute(fullActivityName, Object.class, javaArgs);
+
+            // Convert result back to Ballerina type
+            Object ballerinaResult = TypesUtil.convertJavaToBallerinaType(result);
+            return ballerinaResult;
+
+        } catch (io.temporal.failure.ActivityFailure e) {
+            // Activity failed - extract the cause
+            Throwable cause = e.getCause();
+            String errorMsg = cause != null ? cause.getMessage() : e.getMessage();
+            return ErrorCreator.createError(
+                    StringUtils.fromString("Activity execution failed: " + errorMsg));
+        } catch (Exception e) {
+            return ErrorCreator.createError(
+                    StringUtils.fromString("Activity execution failed: " + e.getMessage()));
+        }
     }
 
     /**
@@ -267,6 +288,161 @@ public final class WorkflowNative {
             return ErrorCreator.createError(
                     StringUtils.fromString("Failed to clear registry: " + e.getMessage()));
         }
+    }
+
+    /**
+     * Native implementation for getWorkflowResult function.
+     * <p>
+     * Gets the execution result of a workflow, waiting for completion if necessary.
+     * Returns detailed information including the workflow result and activity invocations.
+     *
+     * @param workflowId the ID of the workflow to get the result for
+     * @param timeoutSeconds maximum time to wait for workflow completion
+     * @return a WorkflowExecutionInfo record or an error
+     */
+    public static Object getWorkflowResult(BString workflowId, long timeoutSeconds) {
+        try {
+            WorkflowClient client = WorkflowWorkerNative.getWorkflowClient();
+            if (client == null) {
+                return ErrorCreator.createError(
+                        StringUtils.fromString("Workflow client not initialized"));
+            }
+
+            String wfId = workflowId.getValue();
+
+            // Create an untyped stub to get the result
+            WorkflowStub stub = client.newUntypedWorkflowStub(wfId);
+
+            // Wait for the workflow to complete and get the result
+            Object result = null;
+            String status = "RUNNING";
+            String errorMessage = null;
+
+            try {
+                // Get the result with a timeout
+                result = stub.getResult(timeoutSeconds, TimeUnit.SECONDS, Object.class);
+                status = "COMPLETED";
+            } catch (io.temporal.client.WorkflowFailedException e) {
+                status = "FAILED";
+                errorMessage = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
+            } catch (java.util.concurrent.TimeoutException e) {
+                status = "RUNNING"; // Still running after timeout
+            } catch (Exception e) {
+                status = "FAILED";
+                errorMessage = e.getMessage();
+            }
+
+            // Build the WorkflowExecutionInfo record
+            return buildWorkflowExecutionInfo(wfId, "", status, result, errorMessage);
+
+        } catch (Exception e) {
+            return ErrorCreator.createError(
+                    StringUtils.fromString("Failed to get workflow result: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Native implementation for getWorkflowInfo function.
+     * <p>
+     * Gets information about a workflow execution without waiting for completion.
+     * Returns the current state including workflow type and status.
+     *
+     * @param workflowId the ID of the workflow to get info for
+     * @return a WorkflowExecutionInfo record or an error
+     */
+    public static Object getWorkflowInfo(BString workflowId) {
+        try {
+            WorkflowClient client = WorkflowWorkerNative.getWorkflowClient();
+            if (client == null) {
+                return ErrorCreator.createError(
+                        StringUtils.fromString("Workflow client not initialized"));
+            }
+
+            String wfId = workflowId.getValue();
+
+            // Describe the workflow execution to get its status
+            DescribeWorkflowExecutionRequest request = DescribeWorkflowExecutionRequest.newBuilder()
+                    .setNamespace(client.getOptions().getNamespace())
+                    .setExecution(io.temporal.api.common.v1.WorkflowExecution.newBuilder()
+                            .setWorkflowId(wfId)
+                            .build())
+                    .build();
+
+            DescribeWorkflowExecutionResponse response = client.getWorkflowServiceStubs()
+                    .blockingStub()
+                    .describeWorkflowExecution(request);
+
+            WorkflowExecutionInfo execInfo = response.getWorkflowExecutionInfo();
+            String workflowType = execInfo.getType().getName();
+            String status = convertStatus(execInfo.getStatus());
+
+            return buildWorkflowExecutionInfo(wfId, workflowType, status, null, null);
+
+        } catch (Exception e) {
+            return ErrorCreator.createError(
+                    StringUtils.fromString("Failed to get workflow info: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Converts Temporal WorkflowExecutionStatus to a string status.
+     */
+    private static String convertStatus(WorkflowExecutionStatus status) {
+        switch (status) {
+            case WORKFLOW_EXECUTION_STATUS_RUNNING:
+                return "RUNNING";
+            case WORKFLOW_EXECUTION_STATUS_COMPLETED:
+                return "COMPLETED";
+            case WORKFLOW_EXECUTION_STATUS_FAILED:
+                return "FAILED";
+            case WORKFLOW_EXECUTION_STATUS_CANCELED:
+                return "CANCELED";
+            case WORKFLOW_EXECUTION_STATUS_TERMINATED:
+                return "TERMINATED";
+            case WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW:
+                return "CONTINUED_AS_NEW";
+            case WORKFLOW_EXECUTION_STATUS_TIMED_OUT:
+                return "TIMED_OUT";
+            default:
+                return "UNKNOWN";
+        }
+    }
+
+    /**
+     * Builds a WorkflowExecutionInfo Ballerina record.
+     */
+    private static BMap<BString, Object> buildWorkflowExecutionInfo(
+            String workflowId,
+            String workflowType,
+            String status,
+            Object result,
+            String errorMessage) {
+
+        BMap<BString, Object> record = ValueCreator.createRecordValue(
+                ModuleUtils.getModule(), "WorkflowExecutionInfo");
+
+        record.put(StringUtils.fromString("workflowId"), StringUtils.fromString(workflowId));
+        record.put(StringUtils.fromString("workflowType"), StringUtils.fromString(workflowType));
+        record.put(StringUtils.fromString("status"), StringUtils.fromString(status));
+
+        if (result != null) {
+            record.put(StringUtils.fromString("result"), TypesUtil.convertJavaToBallerinaType(result));
+        } else {
+            record.put(StringUtils.fromString("result"), null);
+        }
+
+        if (errorMessage != null) {
+            record.put(StringUtils.fromString("errorMessage"), StringUtils.fromString(errorMessage));
+        } else {
+            record.put(StringUtils.fromString("errorMessage"), null);
+        }
+
+        // For now, activity invocations is an empty array
+        // Full activity history would require querying the workflow history
+        BArray emptyActivities = ValueCreator.createArrayValue(new BString[0]);
+        record.put(StringUtils.fromString("activityInvocations"), emptyActivities);
+
+        return record;
     }
 
     /**
