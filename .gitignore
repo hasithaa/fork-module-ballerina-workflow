@@ -50,5 +50,9 @@ velocity.log*
 *Ballerina.lock
 Dependencies.toml
 
+# Auto-generated test configuration
+ballerina/tests/Config.toml
+integration-tests/tests/Config.toml
+
 # Java Logs
 java_pid*.hprof
