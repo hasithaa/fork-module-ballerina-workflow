@@ -62,6 +62,10 @@ public final class WorkflowConstants {
     public static final String WORKFLOW_110 = "WORKFLOW_110";
     public static final String WORKFLOW_111 = "WORKFLOW_111";
     public static final String WORKFLOW_112 = "WORKFLOW_112";
+    public static final String WORKFLOW_113 = "WORKFLOW_113";
+    public static final String WORKFLOW_114 = "WORKFLOW_114";
+    public static final String WORKFLOW_115 = "WORKFLOW_115";
+    public static final String WORKFLOW_116 = "WORKFLOW_116";
 
     // Diagnostic messages
     public static final String PROCESS_INVALID_CONTEXT_PARAM =
@@ -95,6 +99,18 @@ public final class WorkflowConstants {
     public static final String SEND_EVENT_AMBIGUOUS_SIGNAL =
             "The process '%s' has structurally equivalent signal types '%s' and '%s'. "
                     + "You must provide an explicit signalName parameter to disambiguate";
+    
+    // Correlation validation error messages
+    public static final String PROCESS_INPUT_MUST_BE_RECORD =
+            "@Process function input parameter must be a record type for correlation support";
+    public static final String SIGNAL_MISSING_CORRELATION_KEY =
+            "Signal type '%s' is missing readonly field '%s' required for correlation with process input";
+    public static final String CORRELATION_KEY_TYPE_MISMATCH =
+            "Readonly field '%s' type mismatch: input has '%s', signal '%s' has '%s'";
+    public static final String CORRELATION_KEY_REQUIRED =
+            "Process input must have either readonly fields or 'id' field for correlation";
+    public static final String SIGNAL_MISSING_ID_FIELD =
+            "Signal type '%s' must have 'id' field for correlation (no readonly correlation keys defined)";
     
     // Function names for validation
     public static final String SEND_EVENT_FUNCTION = "sendEvent";

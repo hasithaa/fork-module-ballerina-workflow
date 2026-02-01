@@ -32,24 +32,38 @@ import ballerina/workflow;
 // ================================================================================
 
 # Input for single signal inference workflow.
+#
+# + id - The workflow identifier
+# + data - The input data
 type SingleSignalInferInput record {|
     string id;
     string data;
 |};
 
 # Signal data for the single signal.
+#
+# + id - The workflow identifier
+# + response - The response data
 type SingleInferSignal record {|
     string id;
     string response;
 |};
 
 # Result of single signal inference workflow.
+#
+# + inputData - The original input data
+# + signalResponse - The response from the signal
 type SingleSignalInferResult record {|
     string inputData;
     string signalResponse;
 |};
 
 # Workflow with a single signal - signal name should always be inferable.
+#
+# + ctx - The workflow context
+# + input - The workflow input
+# + signals - Record containing the signal future
+# + return - The result combining input and signal data
 @workflow:Process
 function singleSignalInferWorkflow(
     workflow:Context ctx,
@@ -70,12 +84,19 @@ function singleSignalInferWorkflow(
 // ================================================================================
 
 # Input for distinct types workflow.
+#
+# + id - The workflow identifier
+# + requestId - The request identifier
 type DistinctTypesInput record {|
     string id;
     string requestId;
 |};
 
 # First signal with distinct structure (has 'approved' boolean).
+#
+# + id - The workflow identifier
+# + approved - Whether the approval was granted
+# + approverName - The name of the approver
 type ApprovalTypeSignal record {|
     string id;
     boolean approved;
@@ -83,6 +104,10 @@ type ApprovalTypeSignal record {|
 |};
 
 # Second signal with distinct structure (has 'amount' decimal).
+#
+# + id - The workflow identifier
+# + amount - The payment amount
+# + transactionRef - The transaction reference
 type PaymentTypeSignal record {|
     string id;
     decimal amount;
@@ -90,6 +115,10 @@ type PaymentTypeSignal record {|
 |};
 
 # Third signal with distinct structure (has 'rating' int).
+#
+# + id - The workflow identifier
+# + rating - The feedback rating
+# + comment - The feedback comment
 type FeedbackTypeSignal record {|
     string id;
     int rating;
@@ -97,6 +126,10 @@ type FeedbackTypeSignal record {|
 |};
 
 # Result of distinct types workflow.
+#
+# + wasApproved - Whether the approval was granted
+# + paymentAmount - The payment amount received
+# + feedbackRating - The feedback rating received
 type DistinctTypesResult record {|
     boolean wasApproved;
     decimal paymentAmount;
@@ -104,6 +137,11 @@ type DistinctTypesResult record {|
 |};
 
 # Workflow with three signals of distinct types - each should be inferable.
+#
+# + ctx - The workflow context
+# + input - The workflow input
+# + signals - Record containing the signal futures
+# + return - The result combining all signal data
 @workflow:Process
 function distinctTypesWorkflow(
     workflow:Context ctx,
@@ -131,30 +169,47 @@ function distinctTypesWorkflow(
 // ================================================================================
 
 # Input for explicit signal name test.
+#
+# + id - The workflow identifier
+# + message - The input message
 type ExplicitSignalInput record {|
     string id;
     string message;
 |};
 
 # Ambiguous signal type 1 - same structure as type 2.
+#
+# + id - The workflow identifier
+# + value - The signal value
 type AmbiguousSignal1 record {|
     string id;
     string value;
 |};
 
 # Ambiguous signal type 2 - same structure as type 1.
+#
+# + id - The workflow identifier
+# + value - The signal value
 type AmbiguousSignal2 record {|
     string id;
     string value;
 |};
 
 # Result for explicit signal name workflow.
+#
+# + fromSignal1 - Value from the first signal
+# + fromSignal2 - Value from the second signal
 type ExplicitSignalResult record {|
     string fromSignal1;
     string fromSignal2;
 |};
 
 # Workflow with ambiguous signal types - requires explicit signalName.
+#
+# + ctx - The workflow context
+# + input - The workflow input
+# + signals - Record containing the signal futures
+# + return - The result with values from both signals
 @workflow:Process
 function explicitSignalNameWorkflow(
     workflow:Context ctx,
@@ -177,12 +232,19 @@ function explicitSignalNameWorkflow(
 // ================================================================================
 
 # Input for mixed signals workflow.
+#
+# + id - The workflow identifier
+# + orderId - The order identifier
 type MixedSignalsInput record {|
     string id;
     string orderId;
 |};
 
 # Distinct signal type with unique field (statusCode: int).
+#
+# + id - The workflow identifier
+# + statusCode - The status code
+# + description - The status description
 type StatusUpdateSignal record {|
     string id;
     int statusCode;
@@ -190,11 +252,18 @@ type StatusUpdateSignal record {|
 |};
 
 # Result for mixed signals workflow.
+#
+# + finalStatus - The final status code
 type MixedSignalsResult record {|
     int finalStatus;
 |};
 
 # Workflow with a single distinct signal type.
+#
+# + ctx - The workflow context
+# + input - The workflow input
+# + signals - Record containing the signal future
+# + return - The result with the status code from the signal
 @workflow:Process
 function mixedSignalsWorkflow(
     workflow:Context ctx,

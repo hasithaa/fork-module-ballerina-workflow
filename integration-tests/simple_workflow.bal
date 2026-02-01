@@ -29,6 +29,10 @@ import ballerina/workflow;
 // WORKFLOW INPUT TYPE
 // ================================================================================
 
+# Input for simple workflow.
+#
+# + id - The workflow identifier
+# + name - The name to process
 type SimpleInput record {|
     string id;
     string name;

@@ -28,6 +28,10 @@ import ballerina/workflow;
 // WORKFLOW INPUT TYPE
 // ================================================================================
 
+# Input for info test workflow.
+#
+# + id - The workflow identifier
+# + name - The name to process
 type InfoTestInput record {|
     string id;
     string name;

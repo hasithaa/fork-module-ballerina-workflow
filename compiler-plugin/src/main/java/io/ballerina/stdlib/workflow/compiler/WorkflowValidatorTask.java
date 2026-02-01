@@ -23,6 +23,8 @@ import io.ballerina.compiler.api.symbols.FunctionSymbol;
 import io.ballerina.compiler.api.symbols.FunctionTypeSymbol;
 import io.ballerina.compiler.api.symbols.ParameterKind;
 import io.ballerina.compiler.api.symbols.ParameterSymbol;
+import io.ballerina.compiler.api.symbols.RecordFieldSymbol;
+import io.ballerina.compiler.api.symbols.RecordTypeSymbol;
 import io.ballerina.compiler.api.symbols.Symbol;
 import io.ballerina.compiler.api.symbols.SymbolKind;
 import io.ballerina.compiler.api.symbols.TypeDescKind;
@@ -45,8 +47,11 @@ import io.ballerina.tools.diagnostics.DiagnosticFactory;
 import io.ballerina.tools.diagnostics.DiagnosticInfo;
 import io.ballerina.tools.diagnostics.DiagnosticSeverity;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -145,6 +150,8 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         boolean hasContext = false;
         boolean hasInput = false;
         boolean hasEvents = false;
+        TypeSymbol inputType = null;
+        TypeSymbol eventsType = null;
 
         // Check first parameter - could be Context, input, or events
         if (paramIndex < params.size()) {
@@ -186,12 +193,14 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                     return;
                 }
                 hasEvents = true;
+                eventsType = paramType;
                 paramIndex++;
             } else {
                 // No input yet - this could be input or events
                 if (isValidEventsType(paramType)) {
                     // This is an events parameter (can come without input)
                     hasEvents = true;
+                    eventsType = paramType;
                     paramIndex++;
                 } else if (WorkflowPluginUtils.isSubtypeOfAnydata(paramType, semanticModel)) {
                     // This is an input parameter
@@ -202,6 +211,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                         return;
                     }
                     hasInput = true;
+                    inputType = paramType;
                     paramIndex++;
                 } else {
                     // Parameter is neither anydata nor events record - error
@@ -214,6 +224,11 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
 
         // Validate return type
         validateReturnType(functionNode, context, typeSymbol);
+        
+        // Validate correlation keys if both input and events are present
+        if (hasInput && hasEvents) {
+            validateCorrelationKeys(functionNode, context, inputType, eventsType);
+        }
     }
 
     /**
@@ -229,6 +244,166 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                         WorkflowConstants.PROCESS_INVALID_RETURN_TYPE);
             }
         }
+    }
+
+    /**
+     * Validates correlation key consistency between process input and signal types.
+     * <p>
+     * Rules:
+     * <ul>
+     *   <li>If input has readonly fields, all signal types must have the SAME readonly fields</li>
+     *   <li>If input has no readonly fields, input must have 'id' field</li>
+     *   <li>If input has no readonly fields, all signal types must have 'id' field</li>
+     * </ul>
+     */
+    private void validateCorrelationKeys(FunctionDefinitionNode functionNode, SyntaxNodeAnalysisContext context,
+                                          TypeSymbol inputType, TypeSymbol eventsType) {
+        // Resolve the input type to get the record type symbol
+        TypeSymbol resolvedInputType = WorkflowPluginUtils.resolveTypeReference(inputType);
+        if (!(resolvedInputType instanceof RecordTypeSymbol)) {
+            // Input is not a record type - this is valid for simple anydata types
+            // In this case, we can't validate correlation keys
+            return;
+        }
+
+        RecordTypeSymbol inputRecordType = (RecordTypeSymbol) resolvedInputType;
+
+        // Extract readonly fields from input type
+        Map<String, TypeSymbol> inputReadonlyFields = extractReadonlyFields(inputRecordType);
+
+        // Get signal types from events record
+        List<RecordTypeSymbol> signalTypes = extractSignalTypes(eventsType);
+
+        if (inputReadonlyFields.isEmpty()) {
+            // Fallback to ID-based correlation
+            if (!hasIdField(inputRecordType)) {
+                reportDiagnostic(context, functionNode, WorkflowConstants.WORKFLOW_116,
+                        WorkflowConstants.CORRELATION_KEY_REQUIRED);
+                return;
+            }
+
+            // Validate all signal types have 'id' field
+            for (RecordTypeSymbol signalType : signalTypes) {
+                if (!hasIdField(signalType)) {
+                    String signalTypeName = signalType.getName().orElse("anonymous");
+                    reportDiagnostic(context, functionNode, WorkflowConstants.WORKFLOW_116,
+                            String.format(WorkflowConstants.SIGNAL_MISSING_ID_FIELD, signalTypeName));
+                }
+            }
+            return;
+        }
+
+        // Validate each signal type has matching readonly fields
+        for (RecordTypeSymbol signalType : signalTypes) {
+            Map<String, TypeSymbol> signalReadonlyFields = extractReadonlyFields(signalType);
+            String signalTypeName = signalType.getName().orElse("anonymous");
+
+            // Check all input readonly fields exist in signal type
+            for (Map.Entry<String, TypeSymbol> entry : inputReadonlyFields.entrySet()) {
+                String fieldName = entry.getKey();
+                TypeSymbol inputFieldType = entry.getValue();
+
+                if (!signalReadonlyFields.containsKey(fieldName)) {
+                    reportDiagnostic(context, functionNode, WorkflowConstants.WORKFLOW_114,
+                            String.format(WorkflowConstants.SIGNAL_MISSING_CORRELATION_KEY,
+                                    signalTypeName, fieldName));
+                    continue;
+                }
+
+                TypeSymbol signalFieldType = signalReadonlyFields.get(fieldName);
+                if (!typesAreEqual(inputFieldType, signalFieldType)) {
+                    reportDiagnostic(context, functionNode, WorkflowConstants.WORKFLOW_115,
+                            String.format(WorkflowConstants.CORRELATION_KEY_TYPE_MISMATCH,
+                                    fieldName,
+                                    inputFieldType.signature(),
+                                    signalTypeName,
+                                    signalFieldType.signature()));
+                }
+            }
+        }
+    }
+
+    /**
+     * Extracts readonly fields from a record type.
+     *
+     * @param recordType the record type symbol
+     * @return map of readonly field names to their type symbols
+     */
+    private Map<String, TypeSymbol> extractReadonlyFields(RecordTypeSymbol recordType) {
+        Map<String, TypeSymbol> readonlyFields = new LinkedHashMap<>();
+
+        for (Map.Entry<String, RecordFieldSymbol> entry : recordType.fieldDescriptors().entrySet()) {
+            RecordFieldSymbol field = entry.getValue();
+            // Check if field has READONLY qualifier
+            if (field.qualifiers().contains(io.ballerina.compiler.api.symbols.Qualifier.READONLY)) {
+                readonlyFields.put(entry.getKey(), field.typeDescriptor());
+            }
+        }
+
+        return readonlyFields;
+    }
+
+    /**
+     * Checks if a record type has an 'id' field.
+     *
+     * @param recordType the record type symbol
+     * @return true if the record has an 'id' field
+     */
+    private boolean hasIdField(RecordTypeSymbol recordType) {
+        return recordType.fieldDescriptors().containsKey("id");
+    }
+
+    /**
+     * Extracts signal types from the events record type.
+     * <p>
+     * The events record contains future<T> fields where T is the signal type.
+     *
+     * @param eventsType the events record type symbol
+     * @return list of signal record type symbols
+     */
+    private List<RecordTypeSymbol> extractSignalTypes(TypeSymbol eventsType) {
+        List<RecordTypeSymbol> signalTypes = new ArrayList<>();
+
+        TypeSymbol resolvedEventsType = WorkflowPluginUtils.resolveTypeReference(eventsType);
+        if (!(resolvedEventsType instanceof RecordTypeSymbol)) {
+            return signalTypes;
+        }
+
+        RecordTypeSymbol eventsRecordType = (RecordTypeSymbol) resolvedEventsType;
+
+        for (RecordFieldSymbol field : eventsRecordType.fieldDescriptors().values()) {
+            TypeSymbol fieldType = WorkflowPluginUtils.resolveTypeReference(field.typeDescriptor());
+
+            // Field should be future<T>
+            if (fieldType.typeKind() == TypeDescKind.FUTURE) {
+                // Get the type parameter of the future
+                if (fieldType instanceof io.ballerina.compiler.api.symbols.FutureTypeSymbol) {
+                    io.ballerina.compiler.api.symbols.FutureTypeSymbol futureType =
+                            (io.ballerina.compiler.api.symbols.FutureTypeSymbol) fieldType;
+                    Optional<TypeSymbol> typeParam = futureType.typeParameter();
+                    if (typeParam.isPresent()) {
+                        TypeSymbol signalType = WorkflowPluginUtils.resolveTypeReference(typeParam.get());
+                        if (signalType instanceof RecordTypeSymbol) {
+                            signalTypes.add((RecordTypeSymbol) signalType);
+                        }
+                    }
+                }
+            }
+        }
+
+        return signalTypes;
+    }
+
+    /**
+     * Compares two type symbols for equality.
+     *
+     * @param type1 the first type
+     * @param type2 the second type
+     * @return true if the types are equal
+     */
+    private boolean typesAreEqual(TypeSymbol type1, TypeSymbol type2) {
+        // Compare by signature for simplicity
+        return type1.signature().equals(type2.signature());
     }
 
     /**

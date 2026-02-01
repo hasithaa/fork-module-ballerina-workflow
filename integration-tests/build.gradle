@@ -107,6 +107,8 @@ task ballerinaTest {
     dependsOn(":startSharedTestServer")
     dependsOn(compileJava)
     dependsOn(processResources)
+    dependsOn(compileTestJava)
+    dependsOn(processTestResources)
     dependsOn(jar)
     finalizedBy(commitTomlFiles)
 

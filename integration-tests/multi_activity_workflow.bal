@@ -29,6 +29,10 @@ import ballerina/workflow;
 // WORKFLOW INPUT TYPE
 // ================================================================================
 
+# Input for multi-activity workflow.
+#
+# + id - The workflow identifier
+# + name - The name to process
 type MultiActivityInput record {|
     string id;
     string name;

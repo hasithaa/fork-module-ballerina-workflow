@@ -29,12 +29,22 @@ import ballerina/workflow;
 // TYPES
 // ================================================================================
 
+# Input for order processing workflow.
+#
+# + id - The workflow identifier
+# + orderId - The order identifier
+# + quantity - The quantity ordered
 type OrderInput record {|
     string id;
     string orderId;
     int quantity;
 |};
 
+# Result of order processing.
+#
+# + orderId - The order identifier
+# + status - The order status
+# + quantity - The quantity processed
 type OrderResult record {|
     string orderId;
     string status;

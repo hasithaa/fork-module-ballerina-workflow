@@ -31,6 +31,10 @@ import ballerina/workflow;
 // ================================================================================
 
 # Input for the approval workflow.
+#
+# + id - The workflow identifier
+# + orderId - The order identifier
+# + amount - The order amount
 type ApprovalInput record {|
     string id;
     string orderId;
@@ -38,6 +42,11 @@ type ApprovalInput record {|
 |};
 
 # Signal data for approval decision.
+#
+# + id - The workflow identifier
+# + approverId - The approver's identifier
+# + approved - Whether the approval was granted
+# + reason - The reason for approval/rejection (optional)
 type ApprovalSignal record {|
     string id;
     string approverId;
@@ -46,6 +55,10 @@ type ApprovalSignal record {|
 |};
 
 # Signal data for payment confirmation.
+#
+# + id - The workflow identifier
+# + txnId - The transaction identifier
+# + amount - The payment amount
 type PaymentSignal record {|
     string id;
     string txnId;
@@ -53,6 +66,11 @@ type PaymentSignal record {|
 |};
 
 # Result of the approval workflow.
+#
+# + orderId - The order identifier
+# + status - The workflow status
+# + approvedBy - The approver's identifier (optional)
+# + txnId - The transaction identifier (optional)
 type ApprovalResult record {|
     string orderId;
     string status;
@@ -101,7 +119,7 @@ function approvalWorkflow(
 ) returns ApprovalResult|error {
     
     // Send notification that approval is needed
-    boolean notifySent = check ctx->callActivity(sendNotificationActivity, 
+    boolean _ = check ctx->callActivity(sendNotificationActivity, 
             {"orderId": input.orderId, "message": "Approval required for order"});
     
     // Wait for approval signal using Ballerina's native wait
@@ -109,7 +127,7 @@ function approvalWorkflow(
     
     if !approvalDecision.approved {
         // Approval rejected - send rejection notification and return
-        boolean rejectionNotifySent = check ctx->callActivity(sendNotificationActivity,
+        boolean _ = check ctx->callActivity(sendNotificationActivity,
                 {"orderId": input.orderId, "message": "Order rejected"});
         return {
             orderId: input.orderId,
@@ -120,7 +138,7 @@ function approvalWorkflow(
     }
     
     // Approval granted - wait for payment signal
-    boolean waitingNotifySent = check ctx->callActivity(sendNotificationActivity,
+    boolean _ = check ctx->callActivity(sendNotificationActivity,
             {"orderId": input.orderId, "message": "Awaiting payment"});
     
     PaymentSignal paymentConfirmation = check wait signals.payment;
@@ -136,7 +154,7 @@ function approvalWorkflow(
     }
     
     // Order completed successfully
-    boolean completedNotifySent = check ctx->callActivity(sendNotificationActivity,
+    boolean _ = check ctx->callActivity(sendNotificationActivity,
             {"orderId": input.orderId, "message": "Order completed"});
     
     return {
@@ -152,18 +170,27 @@ function approvalWorkflow(
 // ================================================================================
 
 # Simple workflow input for single signal demo.
+#
+# + id - The workflow identifier
+# + message - The input message
 type SimpleSignalInput record {|
     string id;
     string message;
 |};
 
 # Simple signal data.
+#
+# + id - The workflow identifier
+# + response - The signal response
 type SimpleSignalData record {|
     string id;
     string response;
 |};
 
 # Simple result.
+#
+# + originalMessage - The original message from input
+# + response - The response from signal
 type SimpleSignalResult record {|
     string originalMessage;
     string response;

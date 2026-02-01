@@ -51,4 +51,16 @@
         <Class name="io.ballerina.stdlib.workflow.testing.TestServerNative" />
         <Bug pattern="DM_EXIT" />
     </Match>
+    
+    <!-- Private methods in WorkflowRuntime reserved for future use (correlation support) -->
+    <Match>
+        <Class name="io.ballerina.stdlib.workflow.runtime.WorkflowRuntime" />
+        <Bug pattern="UPM_UNCALLED_PRIVATE_METHOD" />
+    </Match>
+    
+    <!-- Private methods in BallerinaWorkflowAdapter reserved for future use (correlation support) -->
+    <Match>
+        <Class name="io.ballerina.stdlib.workflow.worker.WorkflowWorkerNative$BallerinaWorkflowAdapter" />
+        <Bug pattern="UPM_UNCALLED_PRIVATE_METHOD" />
+    </Match>
 </FindBugsFilter>

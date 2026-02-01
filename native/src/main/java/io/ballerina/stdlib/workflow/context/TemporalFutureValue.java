@@ -120,7 +120,7 @@ public class TemporalFutureValue extends FutureValue {
         // This callback runs when promise.complete() is called by the signal handler
         promise.thenApply(signalData -> {
             try {
-                LOGGER.info("[TemporalFutureValue] Signal '{}' received, processing callback", signalName);
+                LOGGER.debug("[TemporalFutureValue] Signal '{}' received, processing callback", signalName);
                 
                 // Convert the signal data to Ballerina type
                 Object rawData = signalData.getData();
@@ -133,7 +133,7 @@ public class TemporalFutureValue extends FutureValue {
                 // This will unblock Ballerina's wait action
                 this.completableFuture.complete(result);
                 
-                LOGGER.info("[TemporalFutureValue] CompletableFuture completed for signal '{}'", signalName);
+                LOGGER.debug("[TemporalFutureValue] CompletableFuture completed for signal '{}'", signalName);
                 
                 return result;
             } catch (Exception e) {
@@ -153,7 +153,7 @@ public class TemporalFutureValue extends FutureValue {
             return null;
         });
         
-        LOGGER.info("[TemporalFutureValue] Promise callback registered for signal '{}'", signalName);
+        LOGGER.debug("[TemporalFutureValue] Promise callback registered for signal '{}'", signalName);
     }
 
     /**

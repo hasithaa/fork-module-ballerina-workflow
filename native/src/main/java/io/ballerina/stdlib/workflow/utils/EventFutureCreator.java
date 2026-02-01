@@ -89,7 +89,7 @@ public final class EventFutureCreator {
             // Add to the events record
             eventsRecord.put(StringUtils.fromString(fieldName), futureValue);
 
-            LOGGER.info("[EventFutureCreator] Created TemporalFutureValue for event: {} (constraint type: {})",
+            LOGGER.debug("[EventFutureCreator] Created TemporalFutureValue for event: {} (constraint type: {})",
                     fieldName, constraintType != null ? constraintType.getName() : "anydata");
         }
 

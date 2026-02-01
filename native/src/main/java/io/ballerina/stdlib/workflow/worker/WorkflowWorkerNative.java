@@ -35,11 +35,14 @@ import io.ballerina.runtime.internal.values.FPValue;
 import io.ballerina.stdlib.workflow.context.SignalAwaitWrapper;
 import io.ballerina.stdlib.workflow.context.WorkflowContextNative;
 import io.ballerina.stdlib.workflow.registry.EventInfo;
+import io.ballerina.stdlib.workflow.utils.CorrelationExtractor;
 import io.ballerina.stdlib.workflow.utils.EventExtractor;
 import io.ballerina.stdlib.workflow.utils.EventFutureCreator;
+import io.ballerina.stdlib.workflow.utils.SearchAttributeRegistry;
 import io.ballerina.stdlib.workflow.utils.TypesUtil;
 import io.temporal.activity.DynamicActivity;
 import io.temporal.client.WorkflowClient;
+import io.temporal.common.SearchAttributeKey;
 import io.temporal.common.converter.EncodedValues;
 import io.temporal.serviceclient.WorkflowServiceStubs;
 import io.temporal.serviceclient.WorkflowServiceStubsOptions;
@@ -171,6 +174,9 @@ public final class WorkflowWorkerNative {
 
             singletonWorker = workerFactory.newWorker(taskQueue, workerOptions);
 
+            // Initialize the SearchAttributeRegistry for correlation key support
+            SearchAttributeRegistry.initialize(serviceStubs, ns, serverUrl);
+
             LOGGER.info("Singleton worker initialized successfully");
             return null;
 
@@ -230,6 +236,12 @@ public final class WorkflowWorkerNative {
 
             // Store the process function in the process registry
             PROCESS_REGISTRY.put(workflowType, processFunction);
+
+            // Register search attributes for correlation keys (readonly fields in input type)
+            RecordType inputRecordType = EventExtractor.getInputRecordType(processFunction);
+            if (inputRecordType != null) {
+                SearchAttributeRegistry.registerFromRecordType(inputRecordType, workflowType);
+            }
 
             // Register activities if provided
             if (activities != null) {
@@ -543,7 +555,7 @@ public final class WorkflowWorkerNative {
             // Register a dynamic signal handler that handles all signals
             Workflow.registerListener(
                     (io.temporal.workflow.DynamicSignalHandler) (signalName, encodedArgs) -> {
-                        LOGGER.info("[JWorkflowAdapter] Signal received: {}", signalName);
+                        LOGGER.debug("[JWorkflowAdapter] Signal received: {}", signalName);
 
                         // Extract signal data from encodedArgs
                         Map<String, Object> signalData = new HashMap<>();
@@ -565,7 +577,7 @@ public final class WorkflowWorkerNative {
 
                         if (this.serviceObject != null) {
                             try {
-                                LOGGER.info("[JWorkflowAdapter] Attempting to invoke remote method: {}", signalName);
+                                LOGGER.debug("[JWorkflowAdapter] Attempting to invoke remote method: {}", signalName);
 
                                 // Convert signal data to Ballerina map
                                 Object ballerinaSignalData = convertJavaToBallerinaType(signalData);
@@ -588,7 +600,7 @@ public final class WorkflowWorkerNative {
                                 }
 
                                 remoteMethodInvoked = true;
-                                LOGGER.info("[JWorkflowAdapter] Remote method '{}' invoked successfully", signalName);
+                                LOGGER.debug("[JWorkflowAdapter] Remote method '{}' invoked successfully", signalName);
 
                             } catch (Exception e) {
                                 // Method might not exist - that's okay, just log at debug level
@@ -700,6 +712,17 @@ public final class WorkflowWorkerNative {
 
                 // Extract workflow arguments from EncodedValues
                 Object[] workflowArgs = extractWorkflowArguments(args);
+
+                // Upsert correlation keys as Search Attributes for workflow discovery
+                // Search attributes are registered automatically during process registration
+                if (processFunction != null && workflowArgs.length > 0) {
+                    Object firstArg = workflowArgs[0];
+                    if (firstArg instanceof BMap) {
+                        @SuppressWarnings("unchecked")
+                        BMap<BString, Object> inputMap = (BMap<BString, Object>) firstArg;
+                        upsertCorrelationSearchAttributes(inputMap, isReplaying);
+                    }
+                }
 
                 // Check if the process function expects a Context parameter
                 boolean hasContext = processFunction != null && 
@@ -904,6 +927,70 @@ public final class WorkflowWorkerNative {
             }
 
             return argsList.toArray();
+        }
+
+        /**
+         * Upsert correlation keys from workflow input as Temporal Search Attributes.
+         * <p>
+         * This enables workflow discovery by correlation keys using Temporal's visibility APIs.
+         * Readonly fields from the input record become search attributes with "Correlation" prefix.
+         *
+         * @param inputMap the workflow input as a Ballerina map
+         * @param isReplaying whether the workflow is replaying
+         */
+        private void upsertCorrelationSearchAttributes(BMap<BString, Object> inputMap, boolean isReplaying) {
+            try {
+                // Extract correlation keys from the input
+                Map<String, Object> correlationKeys = CorrelationExtractor.extractCorrelationKeysFromMap(inputMap);
+
+                if (correlationKeys.isEmpty()) {
+                    return;
+                }
+
+                if (!isReplaying) {
+                    LOGGER.info("[JWorkflowAdapter] Upserting {} correlation search attributes for workflow {}",
+                            correlationKeys.size(), workflowType);
+                }
+
+                // Build search attribute updates - each upsert is wrapped in try-catch
+                // to handle cases where search attributes are not registered on the server
+                for (Map.Entry<String, Object> entry : correlationKeys.entrySet()) {
+                    String keyName = "Correlation" + CorrelationExtractor.capitalize(entry.getKey());
+                    Object value = entry.getValue();
+
+                    try {
+                        // Upsert based on value type
+                        if (value instanceof String) {
+                            SearchAttributeKey<String> key = SearchAttributeKey.forKeyword(keyName);
+                            Workflow.upsertTypedSearchAttributes(key.valueSet((String) value));
+                        } else if (value instanceof Long) {
+                            SearchAttributeKey<Long> key = SearchAttributeKey.forLong(keyName);
+                            Workflow.upsertTypedSearchAttributes(key.valueSet((Long) value));
+                        } else if (value instanceof Boolean) {
+                            SearchAttributeKey<Boolean> key = SearchAttributeKey.forBoolean(keyName);
+                            Workflow.upsertTypedSearchAttributes(key.valueSet((Boolean) value));
+                        } else if (value instanceof Double) {
+                            SearchAttributeKey<Double> key = SearchAttributeKey.forDouble(keyName);
+                            Workflow.upsertTypedSearchAttributes(key.valueSet((Double) value));
+                        } else {
+                            // Default to keyword for other types
+                            SearchAttributeKey<String> key = SearchAttributeKey.forKeyword(keyName);
+                            Workflow.upsertTypedSearchAttributes(key.valueSet(String.valueOf(value)));
+                        }
+                    } catch (Exception e) {
+                        // Search attribute not registered - log at debug level and continue
+                        // This is expected when running against servers without pre-registered attributes
+                        if (!isReplaying) {
+                            LOGGER.debug("[JWorkflowAdapter] Search attribute {} not available: {}",
+                                    keyName, e.getMessage());
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                // Log but don't fail the workflow - correlation is optional enhancement
+                LOGGER.warn("[JWorkflowAdapter] Failed to upsert correlation search attributes: {}",
+                        e.getMessage());
+            }
         }
 
         /**

@@ -29,6 +29,10 @@ import ballerina/workflow;
 // WORKFLOW INPUT TYPE
 // ================================================================================
 
+# Input for error handling workflow.
+#
+# + id - The workflow identifier
+# + shouldFail - Whether the workflow should trigger a failure
 type ErrorHandlingInput record {|
     string id;
     boolean shouldFail;

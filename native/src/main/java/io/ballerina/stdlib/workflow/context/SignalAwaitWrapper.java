@@ -76,7 +76,7 @@ public final class SignalAwaitWrapper {
     public CompletablePromise<SignalData> getSignalFuture(String signalName) {
         // Check if signal was already completed (during replay)
         if (completedSignals.containsKey(signalName)) {
-            LOGGER.info("[SignalAwaitWrapper] Signal '{}' already completed (replay), returning completed future",
+            LOGGER.debug("[SignalAwaitWrapper] Signal '{}' already completed (replay), returning completed future",
                     signalName);
             CompletablePromise<SignalData> completedPromise = Workflow.newPromise();
             completedPromise.complete(completedSignals.get(signalName));
@@ -85,7 +85,7 @@ public final class SignalAwaitWrapper {
 
         // Get or create a promise for this signal
         return signalPromises.computeIfAbsent(signalName, k -> {
-            LOGGER.info("[SignalAwaitWrapper] Creating new promise for signal '{}'", signalName);
+            LOGGER.debug("[SignalAwaitWrapper] Creating new promise for signal '{}'", signalName);
             return Workflow.newPromise();
         });
     }
@@ -105,13 +105,13 @@ public final class SignalAwaitWrapper {
         
         // Store in completed signals (for replay scenarios)
         completedSignals.put(signalName, signalData);
-        LOGGER.info("[SignalAwaitWrapper] Signal '{}' (id={}) recorded in completed signals", signalName, id);
+        LOGGER.debug("[SignalAwaitWrapper] Signal '{}' (id={}) recorded in completed signals", signalName, id);
 
         // Complete the promise if one exists
         CompletablePromise<SignalData> promise = signalPromises.get(signalName);
         if (promise != null && !promise.isCompleted()) {
             promise.complete(signalData);
-            LOGGER.info("[SignalAwaitWrapper] Promise for signal '{}' completed", signalName);
+            LOGGER.debug("[SignalAwaitWrapper] Promise for signal '{}' completed", signalName);
         }
     }
 
@@ -158,7 +158,7 @@ public final class SignalAwaitWrapper {
     public void clear() {
         signalPromises.clear();
         completedSignals.clear();
-        LOGGER.info("[SignalAwaitWrapper] All signal state cleared");
+        LOGGER.debug("[SignalAwaitWrapper] All signal state cleared");
     }
 
     /**

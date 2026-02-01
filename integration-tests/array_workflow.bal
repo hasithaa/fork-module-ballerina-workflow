@@ -29,6 +29,10 @@ import ballerina/workflow;
 // WORKFLOW INPUT TYPE
 // ================================================================================
 
+# Input for array processing workflow.
+#
+# + id - The workflow identifier
+# + numbers - Array of numbers to process
 type ArrayProcessInput record {|
     string id;
     int[] numbers;

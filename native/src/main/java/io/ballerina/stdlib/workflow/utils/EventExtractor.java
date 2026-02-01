@@ -331,6 +331,71 @@ public final class EventExtractor {
     }
 
     /**
+     * Gets the input parameter record type from a process function.
+     * <p>
+     * This is used to extract correlation keys (readonly fields) from the input type.
+     *
+     * @param processFunction the process function pointer
+     * @return the input RecordType, or null if input is not a record
+     */
+    public static RecordType getInputRecordType(BFunctionPointer processFunction) {
+        Type inputType = getInputType(processFunction);
+        if (inputType == null) {
+            return null;
+        }
+
+        Type actualType = dereferenceType(inputType);
+        if (actualType.getTag() == TypeTags.RECORD_TYPE_TAG) {
+            return (RecordType) actualType;
+        }
+
+        return null;
+    }
+
+    /**
+     * Gets the signal record type for a specific signal name from a process function.
+     * <p>
+     * This is used to extract correlation keys from signal data when sending events.
+     *
+     * @param processFunction the process function pointer
+     * @param signalName the name of the signal field in the events record
+     * @return the signal RecordType, or null if not found or not a record
+     */
+    public static RecordType getSignalRecordType(BFunctionPointer processFunction, String signalName) {
+        RecordType eventsRecordType = getEventsRecordType(processFunction);
+        if (eventsRecordType == null || signalName == null) {
+            return null;
+        }
+
+        Map<String, Field> fields = eventsRecordType.getFields();
+        if (fields == null || !fields.containsKey(signalName)) {
+            return null;
+        }
+
+        Field signalField = fields.get(signalName);
+        Type fieldType = signalField.getFieldType();
+        Type actualFieldType = dereferenceType(fieldType);
+
+        // Signal field should be future<T>
+        if (actualFieldType.getTag() != TypeTags.FUTURE_TAG) {
+            return null;
+        }
+
+        // Get the constraint type from the future
+        Type constraintType = getConstraintType(actualFieldType);
+        if (constraintType == null) {
+            return null;
+        }
+
+        Type actualConstraintType = dereferenceType(constraintType);
+        if (actualConstraintType.getTag() == TypeTags.RECORD_TYPE_TAG) {
+            return (RecordType) actualConstraintType;
+        }
+
+        return null;
+    }
+
+    /**
      * Gets information about the input parameter type of a process function.
      *
      * @param processFunction the process function pointer

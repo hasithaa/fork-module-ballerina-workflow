@@ -99,6 +99,71 @@ public type WorkflowData InputData;
 # Used when sending signals. The "id" field identifies the target workflow instance.
 public type SignalData InputData;
 
+# Data type with correlation keys for workflow-signal matching.
+#
+# When using correlation keys, define your input and signal types with `readonly` fields.
+# The readonly fields become correlation keys that the workflow engine uses to:
+# 1. Generate a composite workflow ID (e.g., "processName-customerId=C123-orderId=O456")
+# 2. Create Temporal Search Attributes for workflow discovery
+# 3. Validate signal data has matching correlation keys
+#
+# Example with readonly correlation keys:
+# ```ballerina
+# # Workflow input with correlation keys
+# type OrderInput record {|
+#     readonly string customerId;  // Correlation key
+#     readonly string orderId;     // Correlation key
+#     string product;              // Regular field
+#     int quantity;                // Regular field
+# |};
+#
+# # Signal data MUST have same readonly fields (name and type)
+# type PaymentSignal record {|
+#     readonly string customerId;  // Must match OrderInput.customerId
+#     readonly string orderId;     // Must match OrderInput.orderId
+#     decimal amount;              // Signal-specific data
+#     string paymentMethod;
+# |};
+#
+# @workflow:Process
+# function orderProcess(workflow:Context ctx, OrderInput input, 
+#                       record {| future<PaymentSignal> payment; |} events) 
+#                       returns OrderResult|error {
+#     PaymentSignal payment = check events.payment;  // Wait for payment signal
+#     // ...
+# }
+# ```
+#
+# The compiler plugin validates that:
+# - Signal types have the same readonly fields (name AND type) as the input type
+# - If no readonly fields exist, falls back to requiring an "id" field
+#
+# At runtime, sending a signal like:
+# ```ballerina
+# workflow:sendEvent("payment", {customerId: "C123", orderId: "O456", amount: 99.99});
+# ```
+# Will automatically find the workflow with matching correlation keys.
+public type CorrelatedData record {|
+    anydata...;
+|};
+
+# Type constraint for process input with correlation keys.
+# Use this as a type constraint when you want to enforce correlation key pattern.
+#
+# Example:
+# ```ballerina
+# type MyInput record {|
+#     *workflow:CorrelatedInput;  // Inherit readonly id
+#     string data;
+# |};
+# ```
+#
+# + id - The correlation identifier (readonly for type safety)
+public type CorrelatedInput record {|
+    readonly string id;
+    anydata...;
+|};
+
 # Information about an activity invocation (for testing/introspection).
 # + activityName - The name of the activity that was invoked
 # + input - The arguments passed to the activity

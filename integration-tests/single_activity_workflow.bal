@@ -30,6 +30,10 @@ import ballerina/workflow;
 // WORKFLOW INPUT TYPE
 // ================================================================================
 
+# Input for greeting workflow.
+#
+# + id - The workflow identifier
+# + name - The name to greet
 type GreetInput record {|
     string id;
     string name;
