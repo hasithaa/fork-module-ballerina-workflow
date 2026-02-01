@@ -31,6 +31,7 @@ import io.ballerina.runtime.api.values.BMap;
 import io.ballerina.runtime.api.values.BString;
 import io.ballerina.stdlib.workflow.ModuleUtils;
 import io.ballerina.stdlib.workflow.runtime.WorkflowRuntime;
+import io.ballerina.stdlib.workflow.utils.EventExtractor;
 import io.ballerina.stdlib.workflow.utils.TypesUtil;
 import io.ballerina.stdlib.workflow.worker.WorkflowWorkerNative;
 import io.temporal.api.enums.v1.WorkflowExecutionStatus;
@@ -41,8 +42,10 @@ import io.temporal.client.WorkflowClient;
 import io.temporal.client.WorkflowStub;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -125,9 +128,11 @@ public final class WorkflowNative {
      * @param env the Ballerina runtime environment
      * @param processFunction the process function to send the event to
      * @param eventData the event data to send (map with "id" field)
+     * @param signalName optional signal name (if null, infers from event data structure)
      * @return true if the event was sent successfully, or an error
      */
-    public static Object sendEvent(Environment env, BFunctionPointer processFunction, BMap<BString, Object> eventData) {
+    public static Object sendEvent(Environment env, BFunctionPointer processFunction, 
+            BMap<BString, Object> eventData, Object signalName) {
         return env.yieldAndRun(() -> {
             CompletableFuture<Object> balFuture = new CompletableFuture<>();
 
@@ -139,8 +144,24 @@ public final class WorkflowNative {
                     // Convert event data to Java type
                     Object javaEventData = TypesUtil.convertBallerinaToJavaType(eventData);
 
+                    // Get signal name (can be null/nil)
+                    String signalNameStr = null;
+                    if (signalName != null && !(signalName instanceof io.ballerina.runtime.api.values.BValue 
+                            && ((io.ballerina.runtime.api.values.BValue) signalName).toString().equals("()"))) {
+                        if (signalName instanceof BString) {
+                            signalNameStr = ((BString) signalName).getValue();
+                        } else if (signalName instanceof String) {
+                            signalNameStr = (String) signalName;
+                        }
+                    }
+
+                    // If signal name not provided, try to infer from event data structure
+                    if (signalNameStr == null || signalNameStr.isEmpty()) {
+                        signalNameStr = inferSignalName(processFunction, eventData);
+                    }
+
                     // Send the event through the workflow runtime
-                    boolean result = WorkflowRuntime.getInstance().sendEvent(processName, javaEventData);
+                    boolean result = WorkflowRuntime.getInstance().sendEvent(processName, javaEventData, signalNameStr);
 
                     balFuture.complete(result);
 
@@ -152,6 +173,59 @@ public final class WorkflowNative {
 
             return getResult(balFuture);
         });
+    }
+
+    /**
+     * Infers the signal name from event data structure by matching against the process function's
+     * events record type.
+     * <p>
+     * If the event data structure matches exactly one signal type, returns that signal name.
+     * If ambiguous (multiple matches) or no matches, throws a descriptive error.
+     *
+     * @param processFunction the process function with events definition
+     * @param eventData the event data being sent
+     * @return the inferred signal name
+     * @throws RuntimeException if signal name cannot be determined (ambiguous or no match)
+     */
+    private static String inferSignalName(BFunctionPointer processFunction, BMap<BString, Object> eventData) {
+        // Get the keys from event data
+        Set<String> eventDataKeys = new HashSet<>();
+        for (BString key : eventData.getKeys()) {
+            eventDataKeys.add(key.getValue());
+        }
+        
+        // Try to infer the signal name from the event data structure
+        String inferredSignal = EventExtractor.inferSignalName(processFunction, eventDataKeys);
+        
+        if (inferredSignal != null) {
+            return inferredSignal;
+        }
+        
+        // If inference failed, get the matching signals for error message
+        List<String> matchingSignals = EventExtractor.getMatchingSignals(processFunction, eventDataKeys);
+        
+        if (matchingSignals.isEmpty()) {
+            // Check if the process has any events at all
+            List<String> allEventNames = EventExtractor.extractEventNames(processFunction);
+            if (allEventNames.isEmpty()) {
+                throw new RuntimeException(
+                        "Process '" + processFunction.getType().getName() + 
+                        "' does not have any events defined. Cannot send signal without explicit signalName.");
+            } else {
+                throw new RuntimeException(
+                        "Event data structure does not match any signal type in process '" + 
+                        processFunction.getType().getName() + "'. Expected signals: " + 
+                        String.join(", ", allEventNames) + 
+                        ". Provide an explicit signalName parameter.");
+            }
+        } else {
+            // Multiple matches - ambiguous
+            throw new RuntimeException(
+                    "Ambiguous signal: Event data structure matches multiple signals [" +
+                    String.join(", ", matchingSignals) + "] in process '" + 
+                    processFunction.getType().getName() + 
+                    "'. Provide an explicit signalName parameter to disambiguate.");
+        }
     }
 
     /**

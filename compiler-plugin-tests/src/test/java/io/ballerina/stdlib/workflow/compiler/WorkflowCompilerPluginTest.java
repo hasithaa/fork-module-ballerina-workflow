@@ -254,4 +254,51 @@ public class WorkflowCompilerPluginTest {
         Assert.assertTrue(found, "Expected diagnostic with code " + expectedCode + ". Got: "
                 + getDiagnosticMessages(diagnosticResult));
     }
+
+    // ===== sendEvent validation test cases - Ambiguous signal types =====
+
+    @Test(groups = "valid")
+    public void testValidSendEventWithExplicitSignalName() {
+        String packagePath = "valid_send_event_with_signal_name";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertEquals(diagnosticResult.errorCount(), 0,
+                "Expected no errors when sendEvent provides explicit signalName with ambiguous signals. Errors: "
+                        + getDiagnosticMessages(diagnosticResult));
+    }
+
+    @Test(groups = "valid")
+    public void testValidSendEventWithDistinctTypes() {
+        String packagePath = "valid_send_event_distinct_types";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertEquals(diagnosticResult.errorCount(), 0,
+                "Expected no errors when signal types are structurally different. Errors: "
+                        + getDiagnosticMessages(diagnosticResult));
+    }
+
+    @Test(groups = "valid")
+    public void testValidSendEventWithSingleSignal() {
+        String packagePath = "valid_send_event_single_signal";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertEquals(diagnosticResult.errorCount(), 0,
+                "Expected no errors when process has only one signal. Errors: "
+                        + getDiagnosticMessages(diagnosticResult));
+    }
+
+    @Test(groups = "invalid")
+    public void testInvalidSendEventAmbiguousNoSignalName() {
+        String packagePath = "invalid_send_event_ambiguous_no_signal_name";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertTrue(diagnosticResult.errorCount() > 0,
+                "Expected validation error for sendEvent without signalName when signals are ambiguous");
+        assertDiagnosticContains(diagnosticResult, WorkflowConstants.WORKFLOW_112);
+    }
+
+    @Test(groups = "invalid")
+    public void testInvalidSendEventAmbiguousThreeSignals() {
+        String packagePath = "invalid_send_event_ambiguous_three_signals";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertTrue(diagnosticResult.errorCount() > 0,
+                "Expected validation error for sendEvent without signalName when three signals are ambiguous");
+        assertDiagnosticContains(diagnosticResult, WorkflowConstants.WORKFLOW_112);
+    }
 }

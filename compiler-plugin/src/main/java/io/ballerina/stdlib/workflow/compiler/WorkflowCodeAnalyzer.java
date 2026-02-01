@@ -29,6 +29,7 @@ import io.ballerina.projects.plugins.CodeAnalyzer;
  * <ul>
  *   <li>@Process functions have valid signature: (Context?, anydata input, record{future<anydata>...} events?)</li>
  *   <li>@Activity functions have anydata parameters and anydata|error return type</li>
+ *   <li>sendEvent calls have explicit signalName when events record has ambiguous types</li>
  * </ul>
  *
  * @since 0.1.0
@@ -39,5 +40,8 @@ public class WorkflowCodeAnalyzer extends CodeAnalyzer {
     public void init(CodeAnalysisContext analysisContext) {
         // Add syntax node analysis task for function definitions
         analysisContext.addSyntaxNodeAnalysisTask(new WorkflowValidatorTask(), SyntaxKind.FUNCTION_DEFINITION);
+        
+        // Add syntax node analysis task for function calls to validate sendEvent usage
+        analysisContext.addSyntaxNodeAnalysisTask(new SendEventValidatorTask(), SyntaxKind.FUNCTION_CALL);
     }
 }

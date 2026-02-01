@@ -61,6 +61,7 @@ public final class WorkflowConstants {
     public static final String WORKFLOW_109 = "WORKFLOW_109";
     public static final String WORKFLOW_110 = "WORKFLOW_110";
     public static final String WORKFLOW_111 = "WORKFLOW_111";
+    public static final String WORKFLOW_112 = "WORKFLOW_112";
 
     // Diagnostic messages
     public static final String PROCESS_INVALID_CONTEXT_PARAM =
@@ -68,7 +69,7 @@ public final class WorkflowConstants {
     public static final String PROCESS_INVALID_INPUT_TYPE =
             "@Process function's input parameter must be a subtype of 'anydata'";
     public static final String PROCESS_INVALID_EVENTS_TYPE =
-            "@Process function's events parameter must be a record type";
+            "@Process function's events parameter must be a record type with only future<T> fields";
     public static final String ACTIVITY_INVALID_PARAM_TYPE =
             "@Activity function parameters must be subtypes of 'anydata'";
     public static final String ACTIVITY_INVALID_RETURN_TYPE =
@@ -91,4 +92,10 @@ public final class WorkflowConstants {
     public static final String CALL_ACTIVITY_REST_PARAMS_NOT_SUPPORTED =
             "Activity functions with rest parameters are not supported with callActivity. "
                     + "Use explicit parameters instead";
+    public static final String SEND_EVENT_AMBIGUOUS_SIGNAL =
+            "The process '%s' has structurally equivalent signal types '%s' and '%s'. "
+                    + "You must provide an explicit signalName parameter to disambiguate";
+    
+    // Function names for validation
+    public static final String SEND_EVENT_FUNCTION = "sendEvent";
 }

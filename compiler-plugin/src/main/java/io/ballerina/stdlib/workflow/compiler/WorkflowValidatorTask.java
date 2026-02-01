@@ -205,6 +205,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                         WorkflowConstants.PROCESS_INVALID_EVENTS_TYPE);
                 return;
             }
+            
             paramIndex++;
         }
 
@@ -693,6 +694,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
 
     /**
      * Validates the events parameter type - should be a record with future<anydata> fields.
+     * All fields in the record must be future types.
      */
     private boolean isValidEventsType(TypeSymbol typeSymbol) {
         TypeDescKind kind = typeSymbol.typeKind();
@@ -708,8 +710,38 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
             return false;
         }
 
-        // For now, we accept any record type
-        // A more strict validation would check that all fields are future<anydata>
+        // Check that it's a RecordTypeSymbol and all fields are future types
+        if (typeSymbol instanceof io.ballerina.compiler.api.symbols.RecordTypeSymbol) {
+            io.ballerina.compiler.api.symbols.RecordTypeSymbol recordType = 
+                    (io.ballerina.compiler.api.symbols.RecordTypeSymbol) typeSymbol;
+            
+            // Get all record fields and validate each is a future type
+            java.util.Map<String, io.ballerina.compiler.api.symbols.RecordFieldSymbol> fields = 
+                    recordType.fieldDescriptors();
+            
+            if (fields.isEmpty()) {
+                // Empty record is not a valid events record
+                return false;
+            }
+            
+            for (io.ballerina.compiler.api.symbols.RecordFieldSymbol field : fields.values()) {
+                TypeSymbol fieldType = field.typeDescriptor();
+                TypeDescKind fieldKind = fieldType.typeKind();
+                
+                // Handle type references for field types
+                if (fieldKind == TypeDescKind.TYPE_REFERENCE) {
+                    TypeReferenceTypeSymbol fieldTypeRef = (TypeReferenceTypeSymbol) fieldType;
+                    fieldType = fieldTypeRef.typeDescriptor();
+                    fieldKind = fieldType.typeKind();
+                }
+                
+                // Each field must be a future type
+                if (fieldKind != TypeDescKind.FUTURE) {
+                    return false;
+                }
+            }
+        }
+
         return true;
     }
 

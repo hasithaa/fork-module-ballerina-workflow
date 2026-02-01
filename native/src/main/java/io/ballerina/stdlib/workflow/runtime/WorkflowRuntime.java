@@ -203,12 +203,26 @@ public final class WorkflowRuntime {
      * Sends an event (signal) to a running workflow.
      * The target workflow ID is extracted from the "id" field in the event data.
      *
-     * @param processName the name of the process to signal
+     * @param processName the name of the process (workflow type)
      * @param eventData the event data to send (must be a Map with "id" field)
      * @return true if the event was sent successfully
      * @throws RuntimeException if the id field is missing
      */
     public boolean sendEvent(String processName, Object eventData) {
+        return sendEvent(processName, eventData, null);
+    }
+
+    /**
+     * Sends an event (signal) to a running workflow with a specific signal name.
+     * The target workflow ID is extracted from the "id" field in the event data.
+     *
+     * @param processName the name of the process (workflow type)
+     * @param eventData the event data to send (must be a Map with "id" field)
+     * @param signalName the name of the signal to send (if null, uses processName)
+     * @return true if the event was sent successfully
+     * @throws RuntimeException if the id field is missing
+     */
+    public boolean sendEvent(String processName, Object eventData, String signalName) {
         // Extract the workflow ID from the "id" field in event data
         String workflowId = extractId(eventData, "signal");
         if (workflowId == null) {
@@ -221,15 +235,17 @@ public final class WorkflowRuntime {
             throw new RuntimeException("Workflow client not initialized. Ensure worker is initialized.");
         }
 
+        // Determine the actual signal name to use
+        String actualSignalName = (signalName != null && !signalName.isEmpty()) ? signalName : processName;
+
         try {
             // Create an untyped workflow stub for the existing workflow
             WorkflowStub workflowStub = client.newUntypedWorkflowStub(workflowId);
 
             // Send the signal to the workflow
-            // The signal name is derived from the process name or can be a generic event signal
-            workflowStub.signal(processName, eventData);
+            workflowStub.signal(actualSignalName, eventData);
 
-            LOGGER.info("Sent signal to workflow: id={}, signalName={}", workflowId, processName);
+            LOGGER.info("Sent signal to workflow: id={}, signalName={}", workflowId, actualSignalName);
             return true;
 
         } catch (Exception e) {

@@ -39,8 +39,10 @@ public isolated function startProcess(function processFunction, map<anydata> inp
 #
 # + processFunction - The process function that identifies the workflow type
 # + eventData - The signal data (must contain "id" field for workflow correlation)
+# + signalName - Optional name of the signal. This should match a field name in the 
+#                workflow's events record parameter. If not provided, defaults to process name.
 # + return - `true` if the event was sent successfully, or an error if sending fails
-public isolated function sendEvent(function processFunction, map<anydata> eventData) returns boolean|error = @java:Method {
+public isolated function sendEvent(function processFunction, map<anydata> eventData, string? signalName = ()) returns boolean|error = @java:Method {
     'class: "io.ballerina.stdlib.workflow.runtime.nativeimpl.WorkflowNative"
 } external;
 

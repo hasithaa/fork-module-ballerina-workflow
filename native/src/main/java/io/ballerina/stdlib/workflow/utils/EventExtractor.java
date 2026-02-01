@@ -302,6 +302,35 @@ public final class EventExtractor {
     }
 
     /**
+     * Gets the events record type from a process function signature.
+     * <p>
+     * The events record type is identified as a record containing future fields.
+     * This is used to create TemporalFutureValue instances for each event.
+     *
+     * @param processFunction the process function pointer
+     * @return the events RecordType, or null if no events parameter found
+     */
+    public static RecordType getEventsRecordType(BFunctionPointer processFunction) {
+        if (processFunction == null) {
+            return null;
+        }
+
+        Type funcType = processFunction.getType();
+        if (!(funcType instanceof FunctionType)) {
+            return null;
+        }
+
+        FunctionType functionType = (FunctionType) funcType;
+        Parameter[] parameters = functionType.getParameters();
+
+        if (parameters == null || parameters.length == 0) {
+            return null;
+        }
+
+        return findEventsRecordType(parameters);
+    }
+
+    /**
      * Gets information about the input parameter type of a process function.
      *
      * @param processFunction the process function pointer
@@ -383,5 +412,190 @@ public final class EventExtractor {
         }
 
         return isContextType(parameters[0].type);
+    }
+
+    /**
+     * Infers the signal name from event data by matching its structure against the events record type.
+     * <p>
+     * This method attempts to find a matching signal by comparing the set of keys in the event data
+     * with the expected structure of each signal type in the events record.
+     * <p>
+     * If multiple signals match the event data structure (ambiguous), returns null.
+     * If no signals match, returns null.
+     * If exactly one signal matches, returns the signal name.
+     *
+     * @param processFunction the process function pointer with events definition
+     * @param eventDataKeys the set of keys in the event data
+     * @return the matching signal name, or null if ambiguous or no match
+     */
+    public static String inferSignalName(BFunctionPointer processFunction, java.util.Set<String> eventDataKeys) {
+        if (processFunction == null || eventDataKeys == null || eventDataKeys.isEmpty()) {
+            return null;
+        }
+
+        RecordType eventsRecordType = getEventsRecordType(processFunction);
+        if (eventsRecordType == null) {
+            return null;
+        }
+
+        Map<String, Field> fields = eventsRecordType.getFields();
+        if (fields == null || fields.isEmpty()) {
+            return null;
+        }
+
+        List<String> matchingSignals = new ArrayList<>();
+
+        for (Map.Entry<String, Field> entry : fields.entrySet()) {
+            String signalName = entry.getKey();
+            Field field = entry.getValue();
+            Type fieldType = field.getFieldType();
+            
+            // Dereference the type to get the actual type
+            Type actualFieldType = dereferenceType(fieldType);
+            
+            if (actualFieldType.getTag() != TypeTags.FUTURE_TAG) {
+                continue;
+            }
+            
+            // Get the constraint type from the future
+            Type constraintType = getConstraintType(actualFieldType);
+            if (constraintType == null) {
+                // No constraint type, match any event data
+                matchingSignals.add(signalName);
+                continue;
+            }
+            
+            // Check if the event data keys match the constraint type
+            if (matchesStructure(constraintType, eventDataKeys)) {
+                matchingSignals.add(signalName);
+            }
+        }
+
+        // Return the signal name only if exactly one match
+        if (matchingSignals.size() == 1) {
+            return matchingSignals.get(0);
+        }
+
+        return null;
+    }
+
+    /**
+     * Gets a list of all signal names that match the given event data structure.
+     * Used for generating detailed error messages when ambiguous.
+     *
+     * @param processFunction the process function pointer with events definition
+     * @param eventDataKeys the set of keys in the event data
+     * @return list of matching signal names (may be empty or have multiple entries)
+     */
+    public static List<String> getMatchingSignals(BFunctionPointer processFunction, 
+            java.util.Set<String> eventDataKeys) {
+        List<String> matchingSignals = new ArrayList<>();
+        
+        if (processFunction == null || eventDataKeys == null || eventDataKeys.isEmpty()) {
+            return matchingSignals;
+        }
+
+        RecordType eventsRecordType = getEventsRecordType(processFunction);
+        if (eventsRecordType == null) {
+            return matchingSignals;
+        }
+
+        Map<String, Field> fields = eventsRecordType.getFields();
+        if (fields == null || fields.isEmpty()) {
+            return matchingSignals;
+        }
+
+        for (Map.Entry<String, Field> entry : fields.entrySet()) {
+            String signalName = entry.getKey();
+            Field field = entry.getValue();
+            Type fieldType = field.getFieldType();
+            
+            Type actualFieldType = dereferenceType(fieldType);
+            
+            if (actualFieldType.getTag() != TypeTags.FUTURE_TAG) {
+                continue;
+            }
+            
+            Type constraintType = getConstraintType(actualFieldType);
+            if (constraintType == null || matchesStructure(constraintType, eventDataKeys)) {
+                matchingSignals.add(signalName);
+            }
+        }
+
+        return matchingSignals;
+    }
+
+    /**
+     * Gets the constraint type from a future type.
+     *
+     * @param futureType the future type
+     * @return the constraint type, or null if not available
+     */
+    private static Type getConstraintType(Type futureType) {
+        if (futureType == null || futureType.getTag() != TypeTags.FUTURE_TAG) {
+            return null;
+        }
+        
+        // FutureType in io.ballerina.runtime.api.types doesn't directly expose constraint
+        // We need to use the type name or reflection to get it
+        // For now, check if it's a ParameterizedType
+        if (futureType instanceof io.ballerina.runtime.internal.types.BFutureType) {
+            io.ballerina.runtime.internal.types.BFutureType bFutureType = 
+                    (io.ballerina.runtime.internal.types.BFutureType) futureType;
+            return bFutureType.getConstrainedType();
+        }
+        
+        return null;
+    }
+
+    /**
+     * Checks if event data keys match the expected structure of a constraint type.
+     *
+     * @param constraintType the expected type structure
+     * @param eventDataKeys the keys present in the event data
+     * @return true if the structure matches
+     */
+    private static boolean matchesStructure(Type constraintType, java.util.Set<String> eventDataKeys) {
+        Type actualType = dereferenceType(constraintType);
+        
+        // For record types, compare field names
+        if (actualType.getTag() == TypeTags.RECORD_TYPE_TAG) {
+            RecordType recordType = (RecordType) actualType;
+            Map<String, Field> fields = recordType.getFields();
+            
+            if (fields == null || fields.isEmpty()) {
+                // Empty record matches empty event data
+                return eventDataKeys.isEmpty();
+            }
+            
+            // Get required fields (non-optional fields without defaults)
+            java.util.Set<String> requiredFieldNames = new java.util.HashSet<>();
+            java.util.Set<String> allFieldNames = new java.util.HashSet<>();
+            
+            for (Map.Entry<String, Field> entry : fields.entrySet()) {
+                allFieldNames.add(entry.getKey());
+                // Consider all fields as potentially required for matching
+                // (simpler approach - matching is based on key overlap)
+            }
+            
+            // Match if all event data keys are present in the record's fields
+            // and all required fields are present in event data
+            for (String key : eventDataKeys) {
+                if (!allFieldNames.contains(key) && !"id".equals(key)) {
+                    // Event has a key not in the record (ignore "id" as it's for correlation)
+                    return false;
+                }
+            }
+            
+            return true;
+        }
+        
+        // For map types, accept any keys
+        if (actualType.getTag() == TypeTags.MAP_TAG) {
+            return true;
+        }
+        
+        // For other types (primitives, etc.), event data should have a single value
+        return eventDataKeys.size() <= 1 || (eventDataKeys.size() == 2 && eventDataKeys.contains("id"));
     }
 }

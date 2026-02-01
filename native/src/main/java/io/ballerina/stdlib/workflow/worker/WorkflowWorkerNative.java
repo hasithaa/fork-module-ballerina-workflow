@@ -24,6 +24,7 @@ import io.ballerina.runtime.api.Runtime;
 import io.ballerina.runtime.api.concurrent.StrandMetadata;
 import io.ballerina.runtime.api.creators.ErrorCreator;
 import io.ballerina.runtime.api.creators.ValueCreator;
+import io.ballerina.runtime.api.types.RecordType;
 import io.ballerina.runtime.api.utils.StringUtils;
 import io.ballerina.runtime.api.values.BError;
 import io.ballerina.runtime.api.values.BFunctionPointer;
@@ -35,6 +36,7 @@ import io.ballerina.stdlib.workflow.context.SignalAwaitWrapper;
 import io.ballerina.stdlib.workflow.context.WorkflowContextNative;
 import io.ballerina.stdlib.workflow.registry.EventInfo;
 import io.ballerina.stdlib.workflow.utils.EventExtractor;
+import io.ballerina.stdlib.workflow.utils.EventFutureCreator;
 import io.ballerina.stdlib.workflow.utils.TypesUtil;
 import io.temporal.activity.DynamicActivity;
 import io.temporal.client.WorkflowClient;
@@ -703,22 +705,48 @@ public final class WorkflowWorkerNative {
                 boolean hasContext = processFunction != null && 
                         EventExtractor.hasContextParameter(processFunction);
 
-                // Build arguments array
-                Object[] ballerinaArgs;
+                // Check if the process function expects an events record parameter
+                RecordType eventsRecordType = processFunction != null ?
+                        EventExtractor.getEventsRecordType(processFunction) : null;
+                boolean hasEvents = eventsRecordType != null;
+
+                // Build arguments array with Context and Events as needed
+                List<Object> argsList = new ArrayList<>();
+                
+                // Add Context as first argument if needed
                 if (hasContext) {
-                    // Create Ballerina Context object with native workflow context handle
                     BObject contextObj = createWorkflowContext();
-                    ballerinaArgs = new Object[workflowArgs.length + 1];
-                    ballerinaArgs[0] = contextObj;
-                    System.arraycopy(workflowArgs, 0, ballerinaArgs, 1, workflowArgs.length);
-                } else {
-                    // No Context parameter - just pass workflow args
-                    ballerinaArgs = workflowArgs;
+                    argsList.add(contextObj);
                 }
+                
+                // Add workflow input arguments (from startProcess call)
+                for (Object arg : workflowArgs) {
+                    argsList.add(arg);
+                }
+                
+                // Add events record as last argument if needed
+                if (hasEvents) {
+                    // Create events record with TemporalFutureValue for each signal
+                    // Get scheduler from runtime if available (for proper Strand creation)
+                    io.ballerina.runtime.internal.scheduling.Scheduler scheduler = null;
+                    if (ballerinaRuntime instanceof io.ballerina.runtime.internal.BalRuntime balRuntime) {
+                        scheduler = balRuntime.scheduler;
+                    }
+                    BMap<BString, Object> eventsRecord = EventFutureCreator.createEventsRecord(
+                            eventsRecordType, signalWrapper, scheduler);
+                    argsList.add(eventsRecord);
+                    
+                    if (!isReplaying) {
+                        LOGGER.info("[JWorkflowAdapter] Injected events record with {} signals for workflow {}",
+                                eventsRecordType.getFields().size(), workflowType);
+                    }
+                }
+                
+                Object[] ballerinaArgs = argsList.toArray();
 
                 if (!isReplaying) {
-                    LOGGER.info("[JWorkflowAdapter] Invoking workflow {} with {} args (hasContext={})",
-                            workflowType, ballerinaArgs.length, hasContext);
+                    LOGGER.info("[JWorkflowAdapter] Invoking workflow {} with {} args (hasContext={}, hasEvents={})",
+                            workflowType, ballerinaArgs.length, hasContext, hasEvents);
                 }
 
                 Object result;
