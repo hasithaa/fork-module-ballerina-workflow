@@ -85,7 +85,12 @@ task pushBalaToLocal {
         if (balaFile.exists()) {
             exec {
                 workingDir project.rootDir
-                commandLine 'sh', '-c', "${distributionBinPath}/bal push --repository=local ${balaFile.absolutePath}"
+                if (Os.isFamily(Os.FAMILY_WINDOWS)) {
+                    commandLine 'cmd', '/c', "${distributionBinPath}/bal.bat push --repository=local " +
+                            "${balaFile.absolutePath} && exit %%ERRORLEVEL%%"
+                } else {
+                    commandLine 'sh', '-c', "${distributionBinPath}/bal push --repository=local ${balaFile.absolutePath}"
+                }
             }
             logger.lifecycle("Pushed workflow bala to local repository: ${balaFile.absolutePath}")
         } else {

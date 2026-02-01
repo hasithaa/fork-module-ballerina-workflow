@@ -16,6 +16,8 @@
  * under the License.
  */
 
+import org.apache.tools.ant.taskdefs.condition.Os
+
 plugins {
     id 'io.ballerina.plugin'
 }
@@ -55,7 +57,11 @@ task commitTomlFiles {
     doLast {
         project.exec {
             ignoreExitValue true
-            commandLine 'sh', '-c', "git commit -m '[Automated] Update the native jar versions' Ballerina.toml Dependencies.toml CompilerPlugin.toml"
+            if (Os.isFamily(Os.FAMILY_WINDOWS)) {
+                commandLine 'cmd', '/c', "git commit -m \"[Automated] Update the native jar versions\" Ballerina.toml Dependencies.toml CompilerPlugin.toml"
+            } else {
+                commandLine 'sh', '-c', "git commit -m '[Automated] Update the native jar versions' Ballerina.toml Dependencies.toml CompilerPlugin.toml"
+            }
         }
     }
 }
