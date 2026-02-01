@@ -103,7 +103,7 @@ public final class WorkflowRuntime {
         // The actual Temporal client and workers are initialized through
         // WorkflowWorkerNative.initSingletonWorker() which is called from Ballerina init
         initialized = true;
-        LOGGER.info("WorkflowRuntime initialized");
+        LOGGER.debug("WorkflowRuntime initialized");
     }
 
     /**
@@ -206,7 +206,7 @@ public final class WorkflowRuntime {
             // Start the workflow asynchronously with the input data
             workflowStub.start(input);
 
-            LOGGER.info("Started workflow: type={}, id={}, correlationKeys={}", 
+            LOGGER.debug("Started workflow: type={}, id={}, correlationKeys={}", 
                     processName, workflowId, correlationKeys.keySet());
             return workflowId;
 
@@ -359,7 +359,7 @@ public final class WorkflowRuntime {
             // Send the signal to the workflow
             workflowStub.signal(actualSignalName, eventData);
 
-            LOGGER.info("Sent signal to workflow: id={}, signalName={}, correlationKeys={}", 
+            LOGGER.debug("Sent signal to workflow: id={}, signalName={}, correlationKeys={}", 
                     workflowId, actualSignalName, correlationKeys.keySet());
             return true;
 
@@ -469,6 +469,6 @@ public final class WorkflowRuntime {
         // which is called from Ballerina stop lifecycle
 
         initialized = false;
-        LOGGER.info("WorkflowRuntime shutdown");
+        LOGGER.debug("WorkflowRuntime shutdown");
     }
 }

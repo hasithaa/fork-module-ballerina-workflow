@@ -213,10 +213,10 @@ public class TemporalFutureValue extends FutureValue {
      */
     private void ensureSignalReady() {
         if (!this.completableFuture.isDone()) {
-            LOGGER.info("[TemporalFutureValue] Waiting for signal '{}' using Temporal await", signalName);
+            LOGGER.debug("[TemporalFutureValue] Waiting for signal '{}' using Temporal await", signalName);
             // Use Temporal's await - this yields control properly during replay
             Workflow.await(() -> this.completableFuture.isDone());
-            LOGGER.info("[TemporalFutureValue] Signal '{}' is ready", signalName);
+            LOGGER.debug("[TemporalFutureValue] Signal '{}' is ready", signalName);
         }
     }
 

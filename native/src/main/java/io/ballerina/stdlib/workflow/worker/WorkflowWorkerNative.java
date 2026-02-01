@@ -147,7 +147,7 @@ public final class WorkflowWorkerNative {
             String ns = namespace.getValue();
             taskQueue = workerTaskQueue.getValue();
 
-            LOGGER.info("Initializing singleton workflow worker - URL: {}, Namespace: {}, TaskQueue: {}",
+            LOGGER.debug("Initializing singleton workflow worker - URL: {}, Namespace: {}, TaskQueue: {}",
                     serverUrl, ns, taskQueue);
 
             // Create service stubs (connection to Temporal server)
@@ -177,7 +177,7 @@ public final class WorkflowWorkerNative {
             // Initialize the SearchAttributeRegistry for correlation key support
             SearchAttributeRegistry.initialize(serviceStubs, ns, serverUrl);
 
-            LOGGER.info("Singleton worker initialized successfully");
+            LOGGER.debug("Singleton worker initialized successfully");
             return null;
 
         } catch (Exception e) {
@@ -226,7 +226,7 @@ public final class WorkflowWorkerNative {
 
         try {
             String workflowType = processName.getValue();
-            LOGGER.info("Registering process: {}", workflowType);
+            LOGGER.debug("Registering process: {}", workflowType);
 
             // Check for duplicate registration
             if (PROCESS_REGISTRY.containsKey(workflowType)) {
@@ -251,7 +251,7 @@ public final class WorkflowWorkerNative {
                     BFunctionPointer activityFunc = activityMap.get(activityName);
                     String fullActivityName = workflowType + "." + activityName.getValue();
                     ACTIVITY_REGISTRY.put(fullActivityName, activityFunc);
-                    LOGGER.info("Registered activity: {}", fullActivityName);
+                    LOGGER.debug("Registered activity: {}", fullActivityName);
                 }
             }
 
@@ -263,19 +263,19 @@ public final class WorkflowWorkerNative {
                     eventNames.add(event.getFieldName());
                 }
                 EVENT_REGISTRY.put(workflowType, eventNames);
-                LOGGER.info("Registered {} events for process: {}", eventNames.size(), workflowType);
+                LOGGER.debug("Registered {} events for process: {}", eventNames.size(), workflowType);
             }
 
             // Register dynamic workflow implementation ONCE
             if (dynamicWorkflowRegistered.compareAndSet(false, true)) {
                 singletonWorker.registerWorkflowImplementationTypes(BallerinaWorkflowAdapter.class);
-                LOGGER.info("Registered dynamic workflow adapter");
+                LOGGER.debug("Registered dynamic workflow adapter");
             }
 
             // Register dynamic activity implementation ONCE
             if (dynamicActivityRegistered.compareAndSet(false, true)) {
                 singletonWorker.registerActivitiesImplementations(new BallerinaActivityAdapter());
-                LOGGER.info("Registered dynamic activity adapter");
+                LOGGER.debug("Registered dynamic activity adapter");
             }
 
             return true;
@@ -308,7 +308,7 @@ public final class WorkflowWorkerNative {
         }
 
         try {
-            LOGGER.info("Starting singleton worker for task queue: {}", taskQueue);
+            LOGGER.debug("Starting singleton worker for task queue: {}", taskQueue);
 
             // Start the worker factory in a background thread
             Thread workerThread = new Thread(() -> {
@@ -325,7 +325,7 @@ public final class WorkflowWorkerNative {
             // Give it a moment to initialize
             Thread.sleep(100);
 
-            LOGGER.info("Singleton worker started successfully");
+            LOGGER.debug("Singleton worker started successfully");
             return null;
 
         } catch (Exception e) {
@@ -347,7 +347,7 @@ public final class WorkflowWorkerNative {
         }
 
         try {
-            LOGGER.info("Stopping singleton worker...");
+            LOGGER.debug("Stopping singleton worker...");
 
             if (workerFactory != null) {
                 workerFactory.shutdown();
@@ -359,7 +359,7 @@ public final class WorkflowWorkerNative {
             }
 
             started.set(false);
-            LOGGER.info("Singleton worker stopped");
+            LOGGER.debug("Singleton worker stopped");
             return null;
 
         } catch (Exception e) {
@@ -614,15 +614,15 @@ public final class WorkflowWorkerNative {
                         // If remote method was invoked, record its result; otherwise record the signal data
                         Object resultToRecord = remoteMethodInvoked ? signalResult : signalData;
                         signalWrapper.recordSignal(signalName, resultToRecord);
-                        LOGGER.info("[JWorkflowAdapter] Signal {} recorded in wrapper", signalName);
+                        LOGGER.debug("[JWorkflowAdapter] Signal {} recorded in wrapper", signalName);
                     }
             );
-            LOGGER.info("[JWorkflowAdapter] Dynamic signal handler registered");
+            LOGGER.debug("[JWorkflowAdapter] Dynamic signal handler registered");
 
             // Register a dynamic query handler that routes to service methods
             Workflow.registerListener(
                     (io.temporal.workflow.DynamicQueryHandler) (queryName, encodedArgs) -> {
-                        LOGGER.info("[JWorkflowAdapter] Query received: {}", queryName);
+                        LOGGER.debug("[JWorkflowAdapter] Query received: {}", queryName);
 
                         try {
                             // Use the workflow's current ServiceObject instance
@@ -636,7 +636,7 @@ public final class WorkflowWorkerNative {
                             // For now, we support only no-argument queries
                             Object[] queryArgs = new Object[0];
 
-                            LOGGER.info("[JWorkflowAdapter] Invoking query method '{}' on existing service instance",
+                            LOGGER.debug("[JWorkflowAdapter] Invoking query method '{}' on existing service instance",
                                     queryName);
 
                             // Invoke the query method on the EXISTING service object
@@ -658,7 +658,7 @@ public final class WorkflowWorkerNative {
                             // Convert Ballerina result to Java type for Temporal
                             Object javaResult = convertBallerinaToJavaType(result);
 
-                            LOGGER.info("[JWorkflowAdapter] Query {} completed successfully, result type: {}",
+                            LOGGER.debug("[JWorkflowAdapter] Query {} completed successfully, result type: {}",
                                     queryName, (javaResult != null ? javaResult.getClass().getSimpleName() : "null"));
 
                             return javaResult;
@@ -670,7 +670,7 @@ public final class WorkflowWorkerNative {
                         }
                     }
             );
-            LOGGER.info("[JWorkflowAdapter] Dynamic query handler registered");
+            LOGGER.debug("[JWorkflowAdapter] Dynamic query handler registered");
         }
 
         @Override
@@ -683,7 +683,7 @@ public final class WorkflowWorkerNative {
                 boolean isReplaying = Workflow.isReplaying();
 
                 if (!isReplaying) {
-                    LOGGER.info("[JWorkflowAdapter] Executing workflow: {}", workflowType);
+                    LOGGER.debug("[JWorkflowAdapter] Executing workflow: {}", workflowType);
                 }
 
                 // First check for a registered process function
@@ -707,7 +707,7 @@ public final class WorkflowWorkerNative {
                 }
 
                 if (!isReplaying) {
-                    LOGGER.info("[JWorkflowAdapter] Found registered workflow: {}", workflowType);
+                    LOGGER.debug("[JWorkflowAdapter] Found registered workflow: {}", workflowType);
                 }
 
                 // Extract workflow arguments from EncodedValues
@@ -760,7 +760,7 @@ public final class WorkflowWorkerNative {
                     argsList.add(eventsRecord);
                     
                     if (!isReplaying) {
-                        LOGGER.info("[JWorkflowAdapter] Injected events record with {} signals for workflow {}",
+                        LOGGER.debug("[JWorkflowAdapter] Injected events record with {} signals for workflow {}",
                                 eventsRecordType.getFields().size(), workflowType);
                     }
                 }
@@ -768,7 +768,7 @@ public final class WorkflowWorkerNative {
                 Object[] ballerinaArgs = argsList.toArray();
 
                 if (!isReplaying) {
-                    LOGGER.info("[JWorkflowAdapter] Invoking workflow {} with {} args (hasContext={}, hasEvents={})",
+                    LOGGER.debug("[JWorkflowAdapter] Invoking workflow {} with {} args (hasContext={}, hasEvents={})",
                             workflowType, ballerinaArgs.length, hasContext, hasEvents);
                 }
 
@@ -793,7 +793,7 @@ public final class WorkflowWorkerNative {
                 }
 
                 if (!isReplaying) {
-                    LOGGER.info("[JWorkflowAdapter] Workflow {} completed with result type: {}",
+                    LOGGER.debug("[JWorkflowAdapter] Workflow {} completed with result type: {}",
                             workflowType, (result != null ? result.getClass().getSimpleName() : "null"));
                 }
 
@@ -828,7 +828,7 @@ public final class WorkflowWorkerNative {
                 Object javaResult = convertBallerinaToJavaType(result);
 
                 if (!isReplaying) {
-                    LOGGER.info("[JWorkflowAdapter] Workflow completed successfully, result: {}", javaResult);
+                    LOGGER.debug("[JWorkflowAdapter] Workflow completed successfully, result: {}", javaResult);
                 }
 
                 return javaResult;
@@ -948,7 +948,7 @@ public final class WorkflowWorkerNative {
                 }
 
                 if (!isReplaying) {
-                    LOGGER.info("[JWorkflowAdapter] Upserting {} correlation search attributes for workflow {}",
+                    LOGGER.debug("[JWorkflowAdapter] Upserting {} correlation search attributes for workflow {}",
                             correlationKeys.size(), workflowType);
                 }
 

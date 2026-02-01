@@ -78,9 +78,9 @@ public final class SignalFutureNative {
 
             // Use Temporal's cooperative await - this blocks until signal arrives
             // but works with Temporal's deterministic replay mechanism
-            LOGGER.info("[SignalFutureNative] Awaiting signal: {}", signalName);
+            LOGGER.debug("[SignalFutureNative] Awaiting signal: {}", signalName);
             SignalAwaitWrapper.SignalData signalData = promise.get();
-            LOGGER.info("[SignalFutureNative] Signal {} received", signalName);
+            LOGGER.debug("[SignalFutureNative] Signal {} received", signalName);
 
             // Convert the signal data to Ballerina type
             Object rawData = signalData.getData();

@@ -91,6 +91,42 @@ task build {
     dependsOn(':workflow-compiler-plugin-tests:test')
 }
 
+// Task to publish workflow module to local Maven repository
+// This makes the module available for samples to use as a local dependency
+task publishWorkflowToLocal {
+    description = 'Publishes the workflow module to local Maven repository'
+    group = 'publishing'
+    dependsOn(':workflow-ballerina:publishToMavenLocal')
+}
+
+// Build samples after publishing workflow module to local repo
+task buildSamples {
+    description = 'Builds all sample projects'
+    group = 'build'
+    dependsOn('publishWorkflowToLocal')
+    
+    doLast {
+        logger.lifecycle("Building workflow samples...")
+        
+        def samplesDir = file("${project.rootDir}/samples")
+        if (!samplesDir.exists()) {
+            logger.warn("Samples directory not found at: ${samplesDir}")
+            return
+        }
+        
+        samplesDir.eachDir { sampleDir ->
+            logger.lifecycle("Building sample: ${sampleDir.name}")
+            
+            exec {
+                workingDir sampleDir
+                commandLine 'bal', 'build'
+            }
+        }
+        
+        logger.lifecycle("All samples built successfully")
+    }
+}
+
 // ============================================================================
 // Shared Temporal Test Server Configuration
 // Single server instance shared across module and integration tests

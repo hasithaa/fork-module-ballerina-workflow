@@ -84,7 +84,7 @@ public final class SearchAttributeRegistry {
         // This avoids metrics scope issues with creating a separate OperatorServiceStubs
         grpcChannel = workflowStubs.getRawChannel();
         namespace = ns;
-        LOGGER.info("SearchAttributeRegistry initialized for namespace: {}", ns);
+        LOGGER.debug("SearchAttributeRegistry initialized for namespace: {}", ns);
     }
 
     /**
@@ -159,7 +159,7 @@ public final class SearchAttributeRegistry {
             operatorStub.addSearchAttributes(request);
 
             REGISTERED_ATTRIBUTES.add(temporalAttributeName);
-            LOGGER.info("Registered search attribute '{}' (type: {}) for process {}",
+            LOGGER.debug("Registered search attribute '{}' (type: {}) for process {}",
                     temporalAttributeName, indexedType, processName);
 
         } catch (io.grpc.StatusRuntimeException e) {
