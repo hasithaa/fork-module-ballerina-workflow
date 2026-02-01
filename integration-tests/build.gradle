@@ -29,9 +29,10 @@ description = 'Ballerina - Workflow Integration Tests'
 def packageName = "workflow"
 def packageOrg = "ballerina"
 def tomlVersion = stripBallerinaExtensionVersion("${project.version}")
+def ballerinaTomlFilePlaceHolder = new File("${project.rootDir}/build-config/resources/BallerinaIntegrationTest.toml")
 def ballerinaTomlFile = new File("$project.projectDir/Ballerina.toml")
-def originalBallerinaToml = ballerinaTomlFile.text
-def distributionBinPath = project.rootDir.absolutePath + "/target/ballerina-runtime/bin"
+def ballerinaDist = "${project.rootDir}/target/ballerina-runtime"
+def distributionBinPath = "${ballerinaDist}/bin"
 def testCoverageParam = "--code-coverage --coverage-format=xml --includes=io.ballerina.stdlib.workflow.*:ballerina.workflow*"
 
 def stripBallerinaExtensionVersion(String extVersion) {
@@ -48,53 +49,27 @@ def stripBallerinaExtensionVersion(String extVersion) {
     }
 }
 
-configurations {
-    jbalTools
-}
-
-dependencies {
-    jbalTools("org.ballerinalang:jballerina-tools:${ballerinaLangVersion}") {
-        transitive = false
-    }
-}
-
 clean {
     delete "$project.projectDir/target"
 }
 
 task updateTomlFiles {
     doLast {
-        def newBallerinaToml = ballerinaTomlFile.text.replace("@project.version@", project.version)
+        def newBallerinaToml = ballerinaTomlFilePlaceHolder.text.replace("@project.version@", project.version)
         newBallerinaToml = newBallerinaToml.replace("@toml.version@", tomlVersion)
         ballerinaTomlFile.text = newBallerinaToml
     }
 }
 
-task revertTomlFiles {
+task commitTomlFiles {
     doLast {
-        ballerinaTomlFile.text = originalBallerinaToml
-    }
-}
-
-// Push workflow bala to local Ballerina repository for dependency resolution
-task pushBalaToLocal {
-    dependsOn ":${packageName}-ballerina:build"
-    
-    doLast {
-        def balaFile = file("${project(':workflow-ballerina').projectDir}/build/bal_build_target/bala/ballerina-workflow-java21-${tomlVersion}.bala")
-        if (balaFile.exists()) {
-            exec {
-                workingDir project.rootDir
-                if (Os.isFamily(Os.FAMILY_WINDOWS)) {
-                    commandLine 'cmd', '/c', "${distributionBinPath}/bal.bat push --repository=local " +
-                            "${balaFile.absolutePath} && exit %%ERRORLEVEL%%"
-                } else {
-                    commandLine 'sh', '-c', "${distributionBinPath}/bal push --repository=local ${balaFile.absolutePath}"
-                }
+        project.exec {
+            ignoreExitValue true
+            if (Os.isFamily(Os.FAMILY_WINDOWS)) {
+                commandLine 'cmd', '/c', "git commit -m \"[Automated] Update the native jar versions\" Ballerina.toml Dependencies.toml"
+            } else {
+                commandLine 'sh', '-c', "git commit -m '[Automated] Update the native jar versions' Ballerina.toml Dependencies.toml"
             }
-            logger.lifecycle("Pushed workflow bala to local repository: ${balaFile.absolutePath}")
-        } else {
-            logger.warn("Bala file not found: ${balaFile.absolutePath}")
         }
     }
 }
@@ -102,6 +77,7 @@ task pushBalaToLocal {
 def debugParams = ""
 def balJavaDebugParam = ""
 def testParams = ""
+def graalvmFlag = ""
 
 task initializeVariables {
     if (project.hasProperty("debug")) {
@@ -110,10 +86,15 @@ task initializeVariables {
     if (project.hasProperty("balJavaDebug")) {
         balJavaDebugParam = "BAL_JAVA_DEBUG=${project.findProperty("balJavaDebug")}"
     }
+    if (project.hasProperty('balGraalVMTest')) {
+        graalvmFlag = '--graalvm'
+    }
 
     gradle.taskGraph.whenReady { graph ->
         if (graph.hasTask(":${packageName}-integration-tests:test")) {
-            testParams = "${testCoverageParam}"
+            if (!project.hasProperty('balGraalVMTest')) {
+                testParams = "${testCoverageParam}"
+            }
         }
     }
 }
@@ -121,17 +102,10 @@ task initializeVariables {
 task ballerinaTest {
     inputs.dir file(project.projectDir)
     dependsOn(":${packageName}-ballerina:build")
-    dependsOn(pushBalaToLocal)
     dependsOn(updateTomlFiles)
     dependsOn(initializeVariables)
-    dependsOn(":startSharedTestServer")  // Use shared test server from root project
-    // Explicit dependencies to avoid Gradle validation errors
-    mustRunAfter(compileJava)
-    mustRunAfter(compileTestJava)
-    mustRunAfter(processResources)
-    mustRunAfter(processTestResources)
-    mustRunAfter(jar)
-    finalizedBy(revertTomlFiles)
+    dependsOn(":startSharedTestServer")
+    finalizedBy(commitTomlFiles)
 
     doLast {
         exec {
@@ -139,15 +113,22 @@ task ballerinaTest {
             environment "JAVA_OPTS", "-DBALLERINA_DEV_COMPILE_BALLERINA_ORG=true"
             if (Os.isFamily(Os.FAMILY_WINDOWS)) {
                 commandLine 'cmd', '/c', "${balJavaDebugParam} ${distributionBinPath}/bal.bat test " +
-                        "--offline ${testParams} ${debugParams} && " +
-                        "exit %%ERRORLEVEL%%"
+                        "${graalvmFlag} ${testParams} --offline ${debugParams} && exit %%ERRORLEVEL%%"
             } else {
                 commandLine 'sh', '-c', "${balJavaDebugParam} ${distributionBinPath}/bal test " +
-                        "--offline ${testParams} ${debugParams}"
+                        "${graalvmFlag} ${testParams} --offline ${debugParams}"
             }
         }
     }
 }
 
-test.dependsOn ballerinaTest
-build.dependsOn test
+test {
+    dependsOn(ballerinaTest)
+}
+
+build.dependsOn ":${packageName}-ballerina:build"
+build.dependsOn ":${packageName}-compiler-plugin:build"
+test.dependsOn ":${packageName}-ballerina:build"
+test.dependsOn ":${packageName}-compiler-plugin:build"
+publishToMavenLocal.dependsOn build
+publish.dependsOn build
