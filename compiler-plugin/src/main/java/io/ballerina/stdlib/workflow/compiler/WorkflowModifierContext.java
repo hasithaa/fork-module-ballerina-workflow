@@ -43,7 +43,7 @@ public class WorkflowModifierContext {
      * @param processInfo the process function information
      */
     public void addProcessInfo(ProcessFunctionInfo processInfo) {
-        this.processInfoMap.put(processInfo.getFunctionName(), processInfo);
+        this.processInfoMap.put(processInfo.functionName(), processInfo);
     }
 
     /**

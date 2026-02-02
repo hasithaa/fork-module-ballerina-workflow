@@ -23,10 +23,9 @@ import io.ballerina.runtime.api.types.Type;
 /**
  * Information about an event (signal) extracted from a workflow process function signature.
  * <p>
- * In Ballerina workflow, events are modeled as fields of type future in the 
- * events record parameter. Each event corresponds to a Temporal signal that the workflow
- * can wait for. When a signal is received, the corresponding future is completed with 
- * the signal data.
+ * In Ballerina workflow, events are modeled as fields of type future in the events record parameter. Each event
+ * corresponds to a Temporal signal that the workflow can wait for. When a signal is received, the corresponding future
+ * is completed with the signal data.
  * <p>
  * Example process signature:
  * <pre>
@@ -35,13 +34,12 @@ import io.ballerina.runtime.api.types.Type;
  *     record { future approval, future rejection } events) returns R|error { }
  * </pre>
  *
+ * @param fieldName   the name of the event field (e.g., "approval")
+ * @param valueType   the type of value the event carries (the T in future&lt;T&gt;)
+ * @param processName the name of the process this event belongs to
  * @since 0.1.0
  */
-public final class EventInfo {
-
-    private final String fieldName;
-    private final Type valueType;
-    private final String processName;
+public record EventInfo(String fieldName, Type valueType, String processName) {
 
     /**
      * Creates a new EventInfo instance.
@@ -50,48 +48,18 @@ public final class EventInfo {
      * @param valueType   the type of value the event carries (the T in future&lt;T&gt;)
      * @param processName the name of the process this event belongs to
      */
-    public EventInfo(String fieldName, Type valueType, String processName) {
-        this.fieldName = fieldName;
-        this.valueType = valueType;
-        this.processName = processName;
+    public EventInfo {
+        java.util.Objects.requireNonNull(fieldName, "fieldName must not be null");
+        java.util.Objects.requireNonNull(processName, "processName must not be null");
     }
 
     /**
-     * Gets the event field name.
-     * This corresponds to the signal name in Temporal.
+     * Gets the event field name. This corresponds to the signal name in Temporal.
      *
      * @return the event field name
      */
-    public String getFieldName() {
-        return fieldName;
-    }
-
-    /**
-     * Gets the value type of the event.
-     * This is the type parameter T in future&lt;T&gt;.
-     *
-     * @return the value type, or null if not available
-     */
-    public Type getValueType() {
-        return valueType;
-    }
-
-    /**
-     * Gets the name of the process this event belongs to.
-     *
-     * @return the process name
-     */
-    public String getProcessName() {
-        return processName;
-    }
-
-    /**
-     * Gets the signal name to use when registering with Temporal.
-     * By default, this is the same as the field name.
-     *
-     * @return the signal name
-     */
-    public String getSignalName() {
+    @Override
+    public String fieldName() {
         return fieldName;
     }
 

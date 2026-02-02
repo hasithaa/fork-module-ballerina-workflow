@@ -29,7 +29,6 @@ import org.testng.annotations.Test;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Iterator;
 
 /**
  * Tests for workflow compiler plugin.
@@ -226,9 +225,7 @@ public class WorkflowCompilerPluginTest {
      */
     private String getDiagnosticMessages(DiagnosticResult diagnosticResult) {
         StringBuilder messages = new StringBuilder();
-        Iterator<Diagnostic> diagnostics = diagnosticResult.diagnostics().iterator();
-        while (diagnostics.hasNext()) {
-            Diagnostic diagnostic = diagnostics.next();
+        for (Diagnostic diagnostic : diagnosticResult.diagnostics()) {
             messages.append("\n").append(diagnostic.diagnosticInfo().severity())
                     .append(": ").append(diagnostic.message())
                     .append(" at ").append(diagnostic.location().lineRange().startLine().line() + 1)

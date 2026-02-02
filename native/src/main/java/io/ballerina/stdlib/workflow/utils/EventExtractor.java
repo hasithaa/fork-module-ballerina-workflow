@@ -81,11 +81,10 @@ public final class EventExtractor {
         }
 
         Type funcType = processFunction.getType();
-        if (!(funcType instanceof FunctionType)) {
+        if (!(funcType instanceof FunctionType functionType)) {
             return Collections.emptyList();
         }
 
-        FunctionType functionType = (FunctionType) funcType;
         Parameter[] parameters = functionType.getParameters();
 
         if (parameters == null || parameters.length == 0) {
@@ -144,8 +143,7 @@ public final class EventExtractor {
         int maxDepth = 10;
         Type current = type;
         
-        while (current instanceof ReferenceType && maxDepth > 0) {
-            ReferenceType refType = (ReferenceType) current;
+        while (current instanceof ReferenceType refType && maxDepth > 0) {
             Type referredType = refType.getReferredType();
             
             // If the referred type is the same object, stop to prevent infinite loop
@@ -232,11 +230,10 @@ public final class EventExtractor {
         }
 
         Type funcType = processFunction.getType();
-        if (!(funcType instanceof FunctionType)) {
+        if (!(funcType instanceof FunctionType functionType)) {
             return Collections.emptyList();
         }
 
-        FunctionType functionType = (FunctionType) funcType;
         Parameter[] parameters = functionType.getParameters();
 
         if (parameters == null || parameters.length == 0) {
@@ -287,11 +284,10 @@ public final class EventExtractor {
         }
 
         Type funcType = processFunction.getType();
-        if (!(funcType instanceof FunctionType)) {
+        if (!(funcType instanceof FunctionType functionType)) {
             return false;
         }
 
-        FunctionType functionType = (FunctionType) funcType;
         Parameter[] parameters = functionType.getParameters();
 
         if (parameters == null || parameters.length == 0) {
@@ -316,11 +312,10 @@ public final class EventExtractor {
         }
 
         Type funcType = processFunction.getType();
-        if (!(funcType instanceof FunctionType)) {
+        if (!(funcType instanceof FunctionType functionType)) {
             return null;
         }
 
-        FunctionType functionType = (FunctionType) funcType;
         Parameter[] parameters = functionType.getParameters();
 
         if (parameters == null || parameters.length == 0) {
@@ -407,11 +402,10 @@ public final class EventExtractor {
         }
 
         Type funcType = processFunction.getType();
-        if (!(funcType instanceof FunctionType)) {
+        if (!(funcType instanceof FunctionType functionType)) {
             return null;
         }
 
-        FunctionType functionType = (FunctionType) funcType;
         Parameter[] parameters = functionType.getParameters();
 
         if (parameters == null || parameters.length == 0) {
@@ -422,7 +416,7 @@ public final class EventExtractor {
         // - First param if no Context
         // - Second param if Context is present
         int inputIndex = 0;
-        if (parameters.length > 0 && isContextType(parameters[0].type)) {
+        if (isContextType(parameters[0].type)) {
             inputIndex = 1;
         }
 
@@ -465,11 +459,10 @@ public final class EventExtractor {
         }
 
         Type funcType = processFunction.getType();
-        if (!(funcType instanceof FunctionType)) {
+        if (!(funcType instanceof FunctionType functionType)) {
             return false;
         }
 
-        FunctionType functionType = (FunctionType) funcType;
         Parameter[] parameters = functionType.getParameters();
 
         if (parameters == null || parameters.length == 0) {
@@ -538,7 +531,7 @@ public final class EventExtractor {
 
         // Return the signal name only if exactly one match
         if (matchingSignals.size() == 1) {
-            return matchingSignals.get(0);
+            return matchingSignals.getFirst();
         }
 
         return null;
@@ -604,9 +597,7 @@ public final class EventExtractor {
         // FutureType in io.ballerina.runtime.api.types doesn't directly expose constraint
         // We need to use the type name or reflection to get it
         // For now, check if it's a ParameterizedType
-        if (futureType instanceof io.ballerina.runtime.internal.types.BFutureType) {
-            io.ballerina.runtime.internal.types.BFutureType bFutureType = 
-                    (io.ballerina.runtime.internal.types.BFutureType) futureType;
+        if (futureType instanceof io.ballerina.runtime.internal.types.BFutureType bFutureType) {
             return bFutureType.getConstrainedType();
         }
         
@@ -634,7 +625,6 @@ public final class EventExtractor {
             }
             
             // Get required fields (non-optional fields without defaults)
-            java.util.Set<String> requiredFieldNames = new java.util.HashSet<>();
             java.util.Set<String> allFieldNames = new java.util.HashSet<>();
             
             for (Map.Entry<String, Field> entry : fields.entrySet()) {

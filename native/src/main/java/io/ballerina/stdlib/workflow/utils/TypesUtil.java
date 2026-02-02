@@ -141,7 +141,6 @@ public final class TypesUtil {
      * @param bMap the BMap to convert
      * @return the Java Map equivalent
      */
-    @SuppressWarnings("unchecked")
     public static Map<String, Object> convertBMapToMap(BMap<BString, Object> bMap) {
         Map<String, Object> result = new HashMap<>();
         for (BString key : bMap.getKeys()) {
@@ -157,7 +156,6 @@ public final class TypesUtil {
      * @param map the Java Map to convert
      * @return the BMap equivalent
      */
-    @SuppressWarnings("unchecked")
     public static BMap<BString, Object> convertMapToBMap(Map<String, Object> map) {
         // Create a map<anydata> type to ensure it can be cast to anydata
         BMap<BString, Object> bMap = ValueCreator.createMapValue(
@@ -210,33 +208,6 @@ public final class TypesUtil {
         errorMap.put(ERROR_MESSAGE, error.getMessage());
         errorMap.put(ERROR_TYPE, error.getType().getName());
         return errorMap;
-    }
-
-    /**
-     * Checks if the given object is a serialized error.
-     *
-     * @param obj the object to check
-     * @return true if the object is a serialized error
-     */
-    @SuppressWarnings("unchecked")
-    public static boolean isSerializedError(Object obj) {
-        if (obj instanceof Map) {
-            Map<String, Object> map = (Map<String, Object>) obj;
-            return Boolean.TRUE.equals(map.get(ERROR_MARKER));
-        }
-        return false;
-    }
-
-    /**
-     * Deserializes a Map to a BError.
-     *
-     * @param errorMap the Map representing a serialized error
-     * @return the BError
-     */
-    @SuppressWarnings("unchecked")
-    public static BError deserializeError(Map<String, Object> errorMap) {
-        String message = (String) errorMap.getOrDefault(ERROR_MESSAGE, "Unknown error");
-        return ErrorCreator.createError(StringUtils.fromString(message));
     }
 
     /**

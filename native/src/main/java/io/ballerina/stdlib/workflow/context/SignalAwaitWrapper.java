@@ -27,7 +27,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Wrapper for managing signal futures in Temporal workflows.
- * 
+ *
  * <p>Purpose:
  * <ul>
  *   <li>Listen for signals in workflows coming from Temporal</li>
@@ -35,10 +35,10 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li>During replay, create temporary futures for completed signals and mark them as completed
  *       with the signal data</li>
  * </ul>
- * 
+ *
  * <p>All signal data is expected to be a map with a mandatory "id" field (String) for correlation.
  * The "id" field is used internally by the workflow engine to identify signals and workflow instances.
- * 
+ *
  * <p>Other semantics (like awaiting signals) are handled from the Ballerina side using
  * Ballerina's native {@code wait} action on futures.
  *
@@ -46,11 +46,11 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class SignalAwaitWrapper {
 
-    private static final Logger LOGGER = Workflow.getLogger(SignalAwaitWrapper.class);
-
-    /** The key for the mandatory id field in signal/workflow data. */
+    /**
+     * The key for the mandatory id field in signal/workflow data.
+     */
     public static final String ID_FIELD = "id";
-
+    private static final Logger LOGGER = Workflow.getLogger(SignalAwaitWrapper.class);
     // Map of signal name to its promise (future)
     // Each signal gets a CompletablePromise that will be completed when the signal arrives
     private final Map<String, CompletablePromise<SignalData>> signalPromises = new ConcurrentHashMap<>();
@@ -66,9 +66,8 @@ public final class SignalAwaitWrapper {
     }
 
     /**
-     * Creates or gets a future for a signal.
-     * If the signal has already been received (during replay), returns a completed future.
-     * Otherwise, creates a new promise that will be completed when the signal arrives.
+     * Creates or gets a future for a signal. If the signal has already been received (during replay), returns a
+     * completed future. Otherwise, creates a new promise that will be completed when the signal arrives.
      *
      * @param signalName the name of the signal
      * @return a CompletablePromise that will contain the signal data
@@ -77,7 +76,7 @@ public final class SignalAwaitWrapper {
         // Check if signal was already completed (during replay)
         if (completedSignals.containsKey(signalName)) {
             LOGGER.debug("[SignalAwaitWrapper] Signal '{}' already completed (replay), returning completed future",
-                    signalName);
+                         signalName);
             CompletablePromise<SignalData> completedPromise = Workflow.newPromise();
             completedPromise.complete(completedSignals.get(signalName));
             return completedPromise;
@@ -91,18 +90,17 @@ public final class SignalAwaitWrapper {
     }
 
     /**
-     * Records a signal that has been received.
-     * This completes the promise for the signal if one exists, or stores the data for replay.
-     * The signal data is expected to contain an "id" field for correlation.
+     * Records a signal that has been received. This completes the promise for the signal if one exists, or stores the
+     * data for replay. The signal data is expected to contain an "id" field for correlation.
      *
      * @param signalName the name of the signal
-     * @param data the signal data (expected to be a Map with "id" field)
+     * @param data       the signal data (expected to be a Map with "id" field)
      */
     public void recordSignal(String signalName, Object data) {
         // Extract the id from the data if it's a Map
         String id = extractId(data);
         SignalData signalData = new SignalData(signalName, id, data);
-        
+
         // Store in completed signals (for replay scenarios)
         completedSignals.put(signalName, signalData);
         LOGGER.debug("[SignalAwaitWrapper] Signal '{}' (id={}) recorded in completed signals", signalName, id);
@@ -133,72 +131,19 @@ public final class SignalAwaitWrapper {
     }
 
     /**
-     * Checks if a signal has been received.
+     * Container for signal data that wraps the signal name, id, and data together. The "id" field is extracted from the
+     * data for easy correlation access.
      *
-     * @param signalName the name of the signal
-     * @return true if the signal has been received
+     * @param signalName the signal name
+     * @param id         the correlation id (from "id" field in data)
+     * @param data       the full signal data
      */
-    public boolean isSignalReceived(String signalName) {
-        return completedSignals.containsKey(signalName);
-    }
-
-    /**
-     * Gets the data for a completed signal.
-     *
-     * @param signalName the name of the signal
-     * @return the signal data, or null if not received
-     */
-    public SignalData getCompletedSignalData(String signalName) {
-        return completedSignals.get(signalName);
-    }
-
-    /**
-     * Clears all signal state. Called when workflow completes.
-     */
-    public void clear() {
-        signalPromises.clear();
-        completedSignals.clear();
-        LOGGER.debug("[SignalAwaitWrapper] All signal state cleared");
-    }
-
-    /**
-     * Container for signal data that wraps the signal name, id, and data together.
-     * The "id" field is extracted from the data for easy correlation access.
-     */
-    public static final class SignalData {
-        private final String signalName;
-        private final String id;
-        private final Object data;
-
+    public record SignalData(String signalName, String id, Object data) {
         /**
          * Creates a new SignalData.
-         *
-         * @param signalName the signal name
-         * @param id the correlation id (from "id" field in data)
-         * @param data the full signal data
          */
-        public SignalData(String signalName, String id, Object data) {
-            this.signalName = signalName;
-            this.id = id;
-            this.data = data;
-        }
-
-        /**
-         * Gets the signal name.
-         *
-         * @return the signal name
-         */
-        public String getSignalName() {
-            return signalName;
-        }
-
-        /**
-         * Gets the correlation id.
-         *
-         * @return the id from the "id" field in data, or null if not present
-         */
-        public String getId() {
-            return id;
+        public SignalData {
+            java.util.Objects.requireNonNull(signalName, "signalName must not be null");
         }
 
         /**
@@ -206,7 +151,8 @@ public final class SignalAwaitWrapper {
          *
          * @return the full signal data
          */
-        public Object getData() {
+        @Override
+        public Object data() {
             return data;
         }
 

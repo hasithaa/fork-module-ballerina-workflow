@@ -62,12 +62,10 @@ public class SendEventValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCo
 
     @Override
     public void perform(SyntaxNodeAnalysisContext context) {
-        if (!(context.node() instanceof FunctionCallExpressionNode)) {
+        if (!(context.node() instanceof FunctionCallExpressionNode callNode)) {
             return;
         }
 
-        FunctionCallExpressionNode callNode = (FunctionCallExpressionNode) context.node();
-        
         // Check if this is a sendEvent call
         if (!isSendEventCall(callNode, context.semanticModel())) {
             return;
@@ -106,11 +104,10 @@ public class SendEventValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCo
         }
         
         // Get the function type to find the events parameter
-        if (!(processType instanceof FunctionTypeSymbol)) {
+        if (!(processType instanceof FunctionTypeSymbol funcType)) {
             return;
         }
-        
-        FunctionTypeSymbol funcType = (FunctionTypeSymbol) processType;
+
         Optional<List<ParameterSymbol>> paramsOpt = funcType.params();
         if (paramsOpt.isEmpty()) {
             return;
@@ -146,8 +143,7 @@ public class SendEventValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCo
         NameReferenceNode funcName = callNode.functionName();
         
         // Check for qualified name (workflow:sendEvent)
-        if (funcName instanceof QualifiedNameReferenceNode) {
-            QualifiedNameReferenceNode qualifiedName = (QualifiedNameReferenceNode) funcName;
+        if (funcName instanceof QualifiedNameReferenceNode qualifiedName) {
             String moduleName = qualifiedName.modulePrefix().text();
             String functionName = qualifiedName.identifier().text();
             
@@ -158,8 +154,7 @@ public class SendEventValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCo
         }
         
         // Check for simple name (sendEvent) - need to verify it's from workflow module
-        if (funcName instanceof SimpleNameReferenceNode) {
-            SimpleNameReferenceNode simpleName = (SimpleNameReferenceNode) funcName;
+        if (funcName instanceof SimpleNameReferenceNode simpleName) {
             if (!WorkflowConstants.SEND_EVENT_FUNCTION.equals(simpleName.name().text())) {
                 return false;
             }
@@ -194,8 +189,7 @@ public class SendEventValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCo
             
             if (actualType.typeKind() == TypeDescKind.RECORD) {
                 // Check if this record contains future fields (events record signature)
-                if (actualType instanceof RecordTypeSymbol) {
-                    RecordTypeSymbol recordType = (RecordTypeSymbol) actualType;
+                if (actualType instanceof RecordTypeSymbol recordType) {
                     if (containsFutureFields(recordType)) {
                         return paramType;
                     }
@@ -236,11 +230,10 @@ public class SendEventValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCo
             return EMPTY_STRING_ARRAY;
         }
         
-        if (!(actualType instanceof RecordTypeSymbol)) {
+        if (!(actualType instanceof RecordTypeSymbol recordType)) {
             return EMPTY_STRING_ARRAY;
         }
-        
-        RecordTypeSymbol recordType = (RecordTypeSymbol) actualType;
+
         Map<String, RecordFieldSymbol> fields = recordType.fieldDescriptors();
         
         if (fields.size() < 2) {
@@ -279,8 +272,7 @@ public class SendEventValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCo
             return actualType.signature();
         }
         
-        if (actualType instanceof FutureTypeSymbol) {
-            FutureTypeSymbol futureTypeSymbol = (FutureTypeSymbol) actualType;
+        if (actualType instanceof FutureTypeSymbol futureTypeSymbol) {
             Optional<TypeSymbol> constraintOpt = futureTypeSymbol.typeParameter();
             if (constraintOpt.isPresent()) {
                 return getStructuralSignature(constraintOpt.get());
@@ -296,19 +288,16 @@ public class SendEventValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCo
     private String getStructuralSignature(TypeSymbol typeSymbol) {
         TypeSymbol actualType = WorkflowPluginUtils.resolveTypeReference(typeSymbol);
         
-        if (actualType.typeKind() == TypeDescKind.RECORD && actualType instanceof RecordTypeSymbol) {
-            RecordTypeSymbol recordType = (RecordTypeSymbol) actualType;
+        if (actualType.typeKind() == TypeDescKind.RECORD && actualType instanceof RecordTypeSymbol recordType) {
             Map<String, RecordFieldSymbol> fields = recordType.fieldDescriptors();
             
             StringBuilder signature = new StringBuilder("record{");
             fields.entrySet().stream()
                     .sorted(Map.Entry.comparingByKey())
-                    .forEach(entry -> {
-                        signature.append(entry.getKey())
-                                .append(":")
-                                .append(getStructuralSignature(entry.getValue().typeDescriptor()))
-                                .append(";");
-                    });
+                    .forEach(entry -> signature.append(entry.getKey())
+                                           .append(":")
+                                           .append(getStructuralSignature(entry.getValue().typeDescriptor()))
+                                           .append(";"));
             signature.append("}");
             return signature.toString();
         }

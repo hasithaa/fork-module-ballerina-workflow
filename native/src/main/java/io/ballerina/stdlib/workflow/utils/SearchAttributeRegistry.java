@@ -186,32 +186,20 @@ public final class SearchAttributeRegistry {
     private static IndexedValueType mapToTemporalType(Type type) {
         int tag = type.getTag();
 
-        switch (tag) {
-            case TypeTags.STRING_TAG:
-            case TypeTags.CHAR_STRING_TAG:
-                return IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD;
+        return switch (tag) {
+            case TypeTags.STRING_TAG, TypeTags.CHAR_STRING_TAG -> IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD;
 
-            case TypeTags.INT_TAG:
-            case TypeTags.BYTE_TAG:
-            case TypeTags.SIGNED8_INT_TAG:
-            case TypeTags.SIGNED16_INT_TAG:
-            case TypeTags.SIGNED32_INT_TAG:
-            case TypeTags.UNSIGNED8_INT_TAG:
-            case TypeTags.UNSIGNED16_INT_TAG:
-            case TypeTags.UNSIGNED32_INT_TAG:
-                return IndexedValueType.INDEXED_VALUE_TYPE_INT;
+            case TypeTags.INT_TAG, TypeTags.BYTE_TAG, TypeTags.SIGNED8_INT_TAG, TypeTags.SIGNED16_INT_TAG,
+                 TypeTags.SIGNED32_INT_TAG, TypeTags.UNSIGNED8_INT_TAG, TypeTags.UNSIGNED16_INT_TAG,
+                 TypeTags.UNSIGNED32_INT_TAG -> IndexedValueType.INDEXED_VALUE_TYPE_INT;
 
-            case TypeTags.FLOAT_TAG:
-            case TypeTags.DECIMAL_TAG:
-                return IndexedValueType.INDEXED_VALUE_TYPE_DOUBLE;
+            case TypeTags.FLOAT_TAG, TypeTags.DECIMAL_TAG -> IndexedValueType.INDEXED_VALUE_TYPE_DOUBLE;
 
-            case TypeTags.BOOLEAN_TAG:
-                return IndexedValueType.INDEXED_VALUE_TYPE_BOOL;
+            case TypeTags.BOOLEAN_TAG -> IndexedValueType.INDEXED_VALUE_TYPE_BOOL;
 
-            default:
-                // For complex types, use keyword (will be serialized as string)
-                return IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD;
-        }
+            // For complex types, use keyword (will be serialized as string)
+            default -> IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD;
+        };
     }
 
     /**

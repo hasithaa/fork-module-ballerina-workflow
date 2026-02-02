@@ -177,17 +177,7 @@ public class SignalAwaitWrapper {
         }
     }
 
-    public static class SignalData {
-        private final String signalName;
-        private final Object data;
-        
-        public SignalData(String signalName, Object data) {
-            this.signalName = signalName;
-            this.data = data;
-        }
-        
-        public Object getData() { return data; }
-        public String getSignalName() { return signalName; }
+    public record SignalData(String signalName, Object data) {
     }
 }
 ```

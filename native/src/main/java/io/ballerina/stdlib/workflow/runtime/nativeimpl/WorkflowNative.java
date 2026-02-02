@@ -134,7 +134,7 @@ public final class WorkflowNative {
      * @param processFunction the process function to send the event to
      * @param eventData the event data to send (map with "id" field)
      * @param signalName optional signal name (if null, infers from event data structure)
-     * @return true if the event was sent successfully, or an error
+     * @return BBoolean true if the event was sent successfully, or an error
      */
     public static Object sendEvent(Environment env, BFunctionPointer processFunction, 
             BMap<BString, Object> eventData, Object signalName) {
@@ -152,7 +152,7 @@ public final class WorkflowNative {
                     // Get signal name (can be null/nil)
                     String signalNameStr = null;
                     if (signalName != null && !(signalName instanceof io.ballerina.runtime.api.values.BValue 
-                            && ((io.ballerina.runtime.api.values.BValue) signalName).toString().equals("()"))) {
+                            && signalName.toString().equals("()"))) {
                         if (signalName instanceof BString) {
                             signalNameStr = ((BString) signalName).getValue();
                         } else if (signalName instanceof String) {
@@ -305,7 +305,7 @@ public final class WorkflowNative {
      * Clears all registered processes, activities, and events.
      * This is primarily used for testing.
      *
-     * @return true if clearing was successful
+     * @return Boolean true if clearing was successful, Otherwise an error
      */
     public static Object clearRegistry() {
         try {
@@ -343,7 +343,7 @@ public final class WorkflowNative {
 
             // Wait for the workflow to complete and get the result
             Object result = null;
-            String status = "RUNNING";
+            String status;
             String errorMessage = null;
 
             try {
@@ -416,24 +416,16 @@ public final class WorkflowNative {
      * Converts Temporal WorkflowExecutionStatus to a string status.
      */
     private static String convertStatus(WorkflowExecutionStatus status) {
-        switch (status) {
-            case WORKFLOW_EXECUTION_STATUS_RUNNING:
-                return "RUNNING";
-            case WORKFLOW_EXECUTION_STATUS_COMPLETED:
-                return "COMPLETED";
-            case WORKFLOW_EXECUTION_STATUS_FAILED:
-                return "FAILED";
-            case WORKFLOW_EXECUTION_STATUS_CANCELED:
-                return "CANCELED";
-            case WORKFLOW_EXECUTION_STATUS_TERMINATED:
-                return "TERMINATED";
-            case WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW:
-                return "CONTINUED_AS_NEW";
-            case WORKFLOW_EXECUTION_STATUS_TIMED_OUT:
-                return "TIMED_OUT";
-            default:
-                return "UNKNOWN";
-        }
+        return switch (status) {
+            case WORKFLOW_EXECUTION_STATUS_RUNNING -> "RUNNING";
+            case WORKFLOW_EXECUTION_STATUS_COMPLETED -> "COMPLETED";
+            case WORKFLOW_EXECUTION_STATUS_FAILED -> "FAILED";
+            case WORKFLOW_EXECUTION_STATUS_CANCELED -> "CANCELED";
+            case WORKFLOW_EXECUTION_STATUS_TERMINATED -> "TERMINATED";
+            case WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW -> "CONTINUED_AS_NEW";
+            case WORKFLOW_EXECUTION_STATUS_TIMED_OUT -> "TIMED_OUT";
+            default -> "UNKNOWN";
+        };
     }
 
     /**

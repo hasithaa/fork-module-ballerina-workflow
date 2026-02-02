@@ -70,11 +70,10 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
 
     @Override
     public void perform(SyntaxNodeAnalysisContext context) {
-        if (!(context.node() instanceof FunctionDefinitionNode)) {
+        if (!(context.node() instanceof FunctionDefinitionNode functionNode)) {
             return;
         }
 
-        FunctionDefinitionNode functionNode = (FunctionDefinitionNode) context.node();
         SemanticModel semanticModel = context.semanticModel();
 
         // Check if function has @Process annotation
@@ -147,26 +146,17 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         }
 
         int paramIndex = 0;
-        boolean hasContext = false;
         boolean hasInput = false;
         boolean hasEvents = false;
         TypeSymbol inputType = null;
         TypeSymbol eventsType = null;
 
         // Check first parameter - could be Context, input, or events
-        if (paramIndex < params.size()) {
-            ParameterSymbol firstParam = params.get(paramIndex);
-            TypeSymbol firstParamType = firstParam.typeDescriptor();
+        ParameterSymbol firstParam = params.get(paramIndex);
+        TypeSymbol firstParamType = firstParam.typeDescriptor();
 
-            if (WorkflowPluginUtils.isContextType(firstParamType)) {
-                hasContext = true;
-                paramIndex++;
-            } else if (looksLikeContextType(firstParamType)) {
-                // First param looks like it should be Context but isn't the right type
-                reportDiagnostic(context, functionNode, WorkflowConstants.WORKFLOW_100,
-                        WorkflowConstants.PROCESS_INVALID_CONTEXT_PARAM);
-                return;
-            }
+        if (WorkflowPluginUtils.isContextType(firstParamType)) {
+            paramIndex++;
         }
 
         // Check remaining parameters - they can be input and/or events
@@ -262,13 +252,11 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                                           TypeSymbol inputType, TypeSymbol eventsType) {
         // Resolve the input type to get the record type symbol
         TypeSymbol resolvedInputType = WorkflowPluginUtils.resolveTypeReference(inputType);
-        if (!(resolvedInputType instanceof RecordTypeSymbol)) {
+        if (!(resolvedInputType instanceof RecordTypeSymbol inputRecordType)) {
             // Input is not a record type - this is valid for simple anydata types
             // In this case, we can't validate correlation keys
             return;
         }
-
-        RecordTypeSymbol inputRecordType = (RecordTypeSymbol) resolvedInputType;
 
         // Extract readonly fields from input type
         Map<String, TypeSymbol> inputReadonlyFields = extractReadonlyFields(inputRecordType);
@@ -345,11 +333,9 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         List<RecordTypeSymbol> signalTypes = new ArrayList<>();
 
         TypeSymbol resolvedEventsType = WorkflowPluginUtils.resolveTypeReference(eventsType);
-        if (!(resolvedEventsType instanceof RecordTypeSymbol)) {
+        if (!(resolvedEventsType instanceof RecordTypeSymbol eventsRecordType)) {
             return signalTypes;
         }
-
-        RecordTypeSymbol eventsRecordType = (RecordTypeSymbol) resolvedEventsType;
 
         for (RecordFieldSymbol field : eventsRecordType.fieldDescriptors().values()) {
             TypeSymbol fieldType = WorkflowPluginUtils.resolveTypeReference(field.typeDescriptor());
@@ -357,9 +343,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
             // Field should be future<T>
             if (fieldType.typeKind() == TypeDescKind.FUTURE) {
                 // Get the type parameter of the future
-                if (fieldType instanceof io.ballerina.compiler.api.symbols.FutureTypeSymbol) {
-                    io.ballerina.compiler.api.symbols.FutureTypeSymbol futureType =
-                            (io.ballerina.compiler.api.symbols.FutureTypeSymbol) fieldType;
+                if (fieldType instanceof io.ballerina.compiler.api.symbols.FutureTypeSymbol futureType) {
                     Optional<TypeSymbol> typeParam = futureType.typeParameter();
                     if (typeParam.isPresent()) {
                         TypeSymbol signalType = WorkflowPluginUtils.resolveTypeReference(typeParam.get());
@@ -462,8 +446,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                 SeparatedNodeList<FunctionArgumentNode> arguments = remoteCallNode.arguments();
                 if (!arguments.isEmpty()) {
                     FunctionArgumentNode firstArg = arguments.get(0);
-                    if (firstArg instanceof PositionalArgumentNode) {
-                        PositionalArgumentNode posArg = (PositionalArgumentNode) firstArg;
+                    if (firstArg instanceof PositionalArgumentNode posArg) {
                         ExpressionNode expression = posArg.expression();
                         
                         // Check if the function reference has @Activity annotation
@@ -550,11 +533,10 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         private Set<String> extractProvidedParamNames(FunctionArgumentNode paramsArg) {
             Set<String> paramNames = new HashSet<>();
             
-            if (!(paramsArg instanceof PositionalArgumentNode)) {
+            if (!(paramsArg instanceof PositionalArgumentNode posArg)) {
                 return paramNames;
             }
 
-            PositionalArgumentNode posArg = (PositionalArgumentNode) paramsArg;
             ExpressionNode expr = posArg.expression();
             
             // Check if it's a mapping constructor expression like {"param1": value1, "param2": value2}
@@ -563,8 +545,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                 SeparatedNodeList<MappingFieldNode> fields = mappingExpr.fields();
                 
                 for (MappingFieldNode field : fields) {
-                    if (field instanceof SpecificFieldNode) {
-                        SpecificFieldNode specificField = (SpecificFieldNode) field;
+                    if (field instanceof SpecificFieldNode specificField) {
                         String fieldName = extractFieldName(specificField);
                         if (fieldName != null) {
                             paramNames.add(fieldName);
@@ -696,16 +677,6 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
     }
 
     /**
-     * Checks if the type looks like it's intended to be a Context type
-     * (e.g., named "ctx" or "context") but isn't the actual workflow:Context type.
-     */
-    private boolean looksLikeContextType(TypeSymbol typeSymbol) {
-        // For now, we don't do heuristic matching
-        // This could be enhanced to check parameter names like "ctx" or "context"
-        return false;
-    }
-
-    /**
      * Validates the events parameter type - should be a record with future<anydata> fields.
      * All fields in the record must be future types.
      */
@@ -719,10 +690,8 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         }
 
         // Check that it's a RecordTypeSymbol and all fields are future types
-        if (resolvedType instanceof io.ballerina.compiler.api.symbols.RecordTypeSymbol) {
-            io.ballerina.compiler.api.symbols.RecordTypeSymbol recordType = 
-                    (io.ballerina.compiler.api.symbols.RecordTypeSymbol) resolvedType;
-            
+        if (resolvedType instanceof RecordTypeSymbol recordType) {
+
             // Get all record fields and validate each is a future type
             java.util.Map<String, io.ballerina.compiler.api.symbols.RecordFieldSymbol> fields = 
                     recordType.fieldDescriptors();

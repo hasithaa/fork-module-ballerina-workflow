@@ -439,7 +439,7 @@ public final class WorkflowRuntime {
         LOGGER.debug("Searching for workflow with query: {}", queryStr);
 
         int maxAttempts = withRetry ? VISIBILITY_MAX_RETRIES : 1;
-        int attempt = 1;
+        int attempt;
         
         // Retry with exponential backoff to handle Temporal visibility eventual consistency
         for (attempt = 1; attempt <= maxAttempts; attempt++) {

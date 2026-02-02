@@ -21,7 +21,7 @@ public class TestServer {
     private static Server grpcServer;
     private static final int PORT = 7233;  // Test server port
     
-    public static void main(String[] args) throws Exception {
+    static void main(String[] args) throws Exception {
         // 1. Create Temporal test environment
         TestEnvironmentOptions options = TestEnvironmentOptions.newBuilder()
             .setUseExternalService(false)  // Embedded in-memory server

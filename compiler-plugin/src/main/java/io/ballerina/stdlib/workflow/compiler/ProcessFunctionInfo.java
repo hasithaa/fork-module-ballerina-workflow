@@ -26,12 +26,11 @@ import java.util.Map;
  * <p>
  * Contains the function name and a map of activity functions called within it.
  *
+ * @param functionName the name of the process function
+ * @param activityMap  map of activity function names to their references
  * @since 0.1.0
  */
-public class ProcessFunctionInfo {
-
-    private final String functionName;
-    private final Map<String, String> activityMap;
+public record ProcessFunctionInfo(String functionName, Map<String, String> activityMap) {
 
     /**
      * Creates a new ProcessFunctionInfo.
@@ -39,9 +38,7 @@ public class ProcessFunctionInfo {
      * @param functionName the name of the process function
      * @param activityMap  map of activity function names to their references
      */
-    public ProcessFunctionInfo(String functionName, Map<String, String> activityMap) {
-        this.functionName = functionName;
-        this.activityMap = activityMap;
+    public ProcessFunctionInfo {
     }
 
     /**
@@ -49,7 +46,8 @@ public class ProcessFunctionInfo {
      *
      * @return the function name
      */
-    public String getFunctionName() {
+    @Override
+    public String functionName() {
         return functionName;
     }
 
@@ -60,7 +58,8 @@ public class ProcessFunctionInfo {
      *
      * @return unmodifiable map of activity function names to references
      */
-    public Map<String, String> getActivityMap() {
+    @Override
+    public Map<String, String> activityMap() {
         return Collections.unmodifiableMap(activityMap);
     }
 }

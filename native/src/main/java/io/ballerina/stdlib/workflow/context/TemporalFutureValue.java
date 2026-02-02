@@ -34,8 +34,7 @@ import java.util.Collections;
  * 
  * <p>This class extends Ballerina's {@link FutureValue} to bridge Temporal's 
  * {@link CompletablePromise} to Ballerina's wait mechanism.
- * 
-
+ * <p>
  * Ballerina's wait action uses AsyncUtils.handleWait() which:
  * 1. Calls future.getAndSetWaited() - we intercept here
  * 2. Directly calls future.completableFuture.get() - which would block!
@@ -123,7 +122,7 @@ public class TemporalFutureValue extends FutureValue {
                 LOGGER.debug("[TemporalFutureValue] Signal '{}' received, processing callback", signalName);
                 
                 // Convert the signal data to Ballerina type
-                Object rawData = signalData.getData();
+                Object rawData = signalData.data();
                 Object ballerinaData = TypesUtil.convertJavaToBallerinaType(rawData);
                 
                 // Clone with type to ensure proper type matching
@@ -215,7 +214,7 @@ public class TemporalFutureValue extends FutureValue {
         if (!this.completableFuture.isDone()) {
             LOGGER.debug("[TemporalFutureValue] Waiting for signal '{}' using Temporal await", signalName);
             // Use Temporal's await - this yields control properly during replay
-            Workflow.await(() -> this.completableFuture.isDone());
+            Workflow.await(this.completableFuture::isDone);
             LOGGER.debug("[TemporalFutureValue] Signal '{}' is ready", signalName);
         }
     }
@@ -246,14 +245,5 @@ public class TemporalFutureValue extends FutureValue {
     @Override
     public void cancel() {
         LOGGER.warn("[TemporalFutureValue] cancel() called on signal future '{}' - not supported", signalName);
-    }
-
-    /**
-     * Gets the signal name this future is waiting for.
-     *
-     * @return the signal name
-     */
-    public String getSignalName() {
-        return signalName;
     }
 }

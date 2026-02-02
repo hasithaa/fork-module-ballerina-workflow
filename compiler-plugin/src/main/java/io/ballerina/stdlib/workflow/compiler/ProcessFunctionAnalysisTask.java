@@ -49,18 +49,15 @@ public class ProcessFunctionAnalysisTask implements AnalysisTask<SyntaxNodeAnaly
 
     private final Map<String, Object> userData;
 
-    @SuppressWarnings("unchecked")
     public ProcessFunctionAnalysisTask(Map<String, Object> userData) {
         this.userData = userData;
     }
 
     @Override
     public void perform(SyntaxNodeAnalysisContext context) {
-        if (!(context.node() instanceof FunctionDefinitionNode)) {
+        if (!(context.node() instanceof FunctionDefinitionNode functionNode)) {
             return;
         }
-
-        FunctionDefinitionNode functionNode = (FunctionDefinitionNode) context.node();
 
         // Check if this function has @workflow:Process annotation
         if (!hasProcessAnnotation(functionNode, context.semanticModel())) {
@@ -150,8 +147,7 @@ public class ProcessFunctionAnalysisTask implements AnalysisTask<SyntaxNodeAnaly
                 SeparatedNodeList<FunctionArgumentNode> arguments = remoteCallNode.arguments();
                 if (!arguments.isEmpty()) {
                     FunctionArgumentNode firstArg = arguments.get(0);
-                    if (firstArg instanceof PositionalArgumentNode) {
-                        PositionalArgumentNode posArg = (PositionalArgumentNode) firstArg;
+                    if (firstArg instanceof PositionalArgumentNode posArg) {
                         Node expression = posArg.expression();
                         
                         // Get the function name from the expression

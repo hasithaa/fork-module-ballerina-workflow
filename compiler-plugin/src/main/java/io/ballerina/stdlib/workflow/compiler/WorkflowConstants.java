@@ -39,7 +39,6 @@ public final class WorkflowConstants {
 
     // Function names
     public static final String CALL_ACTIVITY_FUNCTION = "callActivity";
-    public static final String REGISTER_PROCESS_FUNCTION = "registerProcess";
 
     // Type names
     public static final String CONTEXT_TYPE = "Context";
@@ -62,7 +61,6 @@ public final class WorkflowConstants {
     public static final String WORKFLOW_110 = "WORKFLOW_110";
     public static final String WORKFLOW_111 = "WORKFLOW_111";
     public static final String WORKFLOW_112 = "WORKFLOW_112";
-    public static final String WORKFLOW_113 = "WORKFLOW_113";
     public static final String WORKFLOW_114 = "WORKFLOW_114";
     public static final String WORKFLOW_115 = "WORKFLOW_115";
     public static final String WORKFLOW_116 = "WORKFLOW_116";
@@ -101,8 +99,6 @@ public final class WorkflowConstants {
                     + "You must provide an explicit signalName parameter to disambiguate";
     
     // Correlation validation error messages
-    public static final String PROCESS_INPUT_MUST_BE_RECORD =
-            "@Process function input parameter must be a record type for correlation support";
     public static final String SIGNAL_MISSING_CORRELATION_KEY =
             "Signal type '%s' is missing readonly field '%s' required for correlation with process input";
     public static final String CORRELATION_KEY_TYPE_MISMATCH =

@@ -260,7 +260,7 @@ public final class WorkflowWorkerNative {
             if (!events.isEmpty()) {
                 List<String> eventNames = new ArrayList<>();
                 for (EventInfo event : events) {
-                    eventNames.add(event.getFieldName());
+                    eventNames.add(event.fieldName());
                 }
                 EVENT_REGISTRY.put(workflowType, eventNames);
                 LOGGER.debug("Registered {} events for process: {}", eventNames.size(), workflowType);
@@ -507,12 +507,11 @@ public final class WorkflowWorkerNative {
 
             // Create a new instance of the same type
             // ValueCreator.createObjectValue() creates a fresh instance
-            BObject newInstance = ValueCreator.createObjectValue(
+
+            return ValueCreator.createObjectValue(
                     serviceType.getPackage(),
                     serviceType.getName()
-            );
-
-            return newInstance;
+                                                 );
         } catch (Exception e) {
             // If we can't create a new instance, fall back to template
             // This maintains backwards compatibility but may cause state sharing issues
@@ -592,8 +591,7 @@ public final class WorkflowWorkerNative {
                                 );
 
                                 // Check if method returned an error - log but don't fail
-                                if (signalResult instanceof BError) {
-                                    BError err = (BError) signalResult;
+                                if (signalResult instanceof BError err) {
                                     LOGGER.warn("[JWorkflowAdapter] Signal handler method '{}' returned error: {}",
                                             signalName, err.getMessage());
                                     // Still use the error as the signal result
@@ -648,8 +646,7 @@ public final class WorkflowWorkerNative {
                             );
 
                             // Check if query returned an error - this should fail the query
-                            if (result instanceof BError) {
-                                BError err = (BError) result;
+                            if (result instanceof BError err) {
                                 String errorMsg = err.getMessage();
                                 LOGGER.error("[JWorkflowAdapter] Query method returned error: {}", errorMsg);
                                 throw new IllegalStateException("Query failed: " + errorMsg);
@@ -725,8 +722,7 @@ public final class WorkflowWorkerNative {
                 }
 
                 // Check if the process function expects a Context parameter
-                boolean hasContext = processFunction != null && 
-                        EventExtractor.hasContextParameter(processFunction);
+                boolean hasContext = EventExtractor.hasContextParameter(processFunction);
 
                 // Check if the process function expects an events record parameter
                 RecordType eventsRecordType = processFunction != null ?
@@ -743,9 +739,7 @@ public final class WorkflowWorkerNative {
                 }
                 
                 // Add workflow input arguments (from createInstance call)
-                for (Object arg : workflowArgs) {
-                    argsList.add(arg);
-                }
+                Collections.addAll(argsList, workflowArgs);
                 
                 // Add events record as last argument if needed
                 if (hasEvents) {
@@ -798,8 +792,7 @@ public final class WorkflowWorkerNative {
                 }
 
                 // Check if workflow returned an error - this should fail the workflow execution
-                if (result instanceof BError) {
-                    BError err = (BError) result;
+                if (result instanceof BError err) {
                     String errorMsg = err.getMessage();
                     Object errorDetails = convertBallerinaToJavaType(err.getDetails());
 
@@ -1028,13 +1021,12 @@ public final class WorkflowWorkerNative {
 
             // Create the Context object using ValueCreator with the proper module
             // Context has init(handle nativeContext) constructor
-            BObject contextObj = ValueCreator.createObjectValue(
+
+            return ValueCreator.createObjectValue(
                     workflowModule,
                     "Context",
                     nativeContextHandle
-            );
-
-            return contextObj;
+                                                 );
         }
     }
 
@@ -1047,65 +1039,52 @@ public final class WorkflowWorkerNative {
 
         @Override
         public Object execute(EncodedValues args) {
-            try {
-                // Get activity name from Temporal's Activity.getExecutionContext()
-                io.temporal.activity.ActivityExecutionContext activityContext =
-                        io.temporal.activity.Activity.getExecutionContext();
-                String activityName = activityContext.getInfo().getActivityType();
+            // Get activity name from Temporal's Activity.getExecutionContext()
+            io.temporal.activity.ActivityExecutionContext activityContext =
+                    io.temporal.activity.Activity.getExecutionContext();
+            String activityName = activityContext.getInfo().getActivityType();
 
-                // Look up the registered Ballerina function for this activity
-                BFunctionPointer activityFunction = ACTIVITY_REGISTRY.get(activityName);
-                if (activityFunction == null) {
-                    String errorMsg = "Activity not registered: " + activityName +
-                            ". Available activities: " + ACTIVITY_REGISTRY.keySet();
-                    throw new RuntimeException(errorMsg);
-                }
+            // Look up the registered Ballerina function for this activity
+            BFunctionPointer activityFunction = ACTIVITY_REGISTRY.get(activityName);
+            if (activityFunction == null) {
+                String errorMsg = "Activity not registered: " + activityName +
+                        ". Available activities: " + ACTIVITY_REGISTRY.keySet();
+                throw new RuntimeException(errorMsg);
+            }
 
-                // Decode arguments from Temporal - get each argument by index
-                // EncodedValues doesn't have a size() method, so try to get up to 10 args
-                List<Object> argsList = new ArrayList<>();
-                for (int i = 0; i < 10; i++) {
-                    try {
-                        Object arg = args.get(i, Object.class);
-                        if (arg != null) {
-                            argsList.add(arg);
-                        } else {
-                            break;
-                        }
-                    } catch (Exception e) {
-                        // No more arguments
+            // Decode arguments from Temporal - get each argument by index
+            // EncodedValues doesn't have a size() method, so try to get up to 10 args
+            List<Object> argsList = new ArrayList<>();
+            for (int i = 0; i < 10; i++) {
+                try {
+                    Object arg = args.get(i, Object.class);
+                    if (arg != null) {
+                        argsList.add(arg);
+                    } else {
                         break;
                     }
+                } catch (Exception e) {
+                    // No more arguments
+                    break;
                 }
-                Object[] javaArgs = argsList.toArray();
-
-                // Convert Java arguments to Ballerina types
-                Object[] ballerinaArgs = new Object[javaArgs.length];
-                for (int i = 0; i < javaArgs.length; i++) {
-                    ballerinaArgs[i] = convertJavaToBallerinaType(javaArgs[i]);
-                }
-
-                // Execute the Ballerina activity function
-                FPValue fpValue = (FPValue) activityFunction;
-                fpValue.metadata = new StrandMetadata(true, fpValue.metadata.properties());
-                Object result = activityFunction.call(ballerinaRuntime, ballerinaArgs);
-
-                // Check if result is a BError - this is a valid return value, not a failure
-                if (result instanceof BError) {
-                    BError err = (BError) result;
-                    // Activity returned error value (treated as normal value)
-                }
-
-                // Convert result back to Java types for Temporal
-                // BError will be converted to a serializable error representation
-                Object javaResult = convertBallerinaToJavaType(result);
-
-                return javaResult;
-
-            } catch (RuntimeException e) {
-                // Activity threw an exception (panic/uncontrolled error) - this is a real failure
-                throw e;
             }
+            Object[] javaArgs = argsList.toArray();
+
+            // Convert Java arguments to Ballerina types
+            Object[] ballerinaArgs = new Object[javaArgs.length];
+            for (int i = 0; i < javaArgs.length; i++) {
+                ballerinaArgs[i] = convertJavaToBallerinaType(javaArgs[i]);
+            }
+
+            // Execute the Ballerina activity function
+            FPValue fpValue = (FPValue) activityFunction;
+            fpValue.metadata = new StrandMetadata(true, fpValue.metadata.properties());
+            Object result = activityFunction.call(ballerinaRuntime, ballerinaArgs);
+
+            // Convert result back to Java types for Temporal
+            // BError will be converted to a serializable error representation
+
+            return convertBallerinaToJavaType(result);
         }
     }
 }

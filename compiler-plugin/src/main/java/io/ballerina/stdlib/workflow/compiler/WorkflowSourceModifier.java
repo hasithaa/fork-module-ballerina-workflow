@@ -117,7 +117,7 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
     private ModuleVariableDeclarationNode createRegisterProcessCall(ProcessFunctionInfo processInfo) {
         StringBuilder mapLiteral = new StringBuilder("{");
         boolean first = true;
-        for (Map.Entry<String, String> activity : processInfo.getActivityMap().entrySet()) {
+        for (Map.Entry<String, String> activity : processInfo.activityMap().entrySet()) {
             if (!first) {
                 mapLiteral.append(", ");
             }
@@ -126,12 +126,12 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
         }
         mapLiteral.append("}");
 
-        String activitiesArg = processInfo.getActivityMap().isEmpty() ? "()" : mapLiteral.toString();
+        String activitiesArg = processInfo.activityMap().isEmpty() ? "()" : mapLiteral.toString();
 
         String registerStatement = String.format(
                 "boolean _ = check workflow:registerProcess(%s, \"%s\", %s);",
-                processInfo.getFunctionName(),
-                processInfo.getFunctionName(),
+                processInfo.functionName(),
+                processInfo.functionName(),
                 activitiesArg
         );
 
@@ -207,7 +207,7 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
 
             // Check if this is a process function - just apply standard transformation
             if (workflowContext.getProcessInfoMap().containsKey(functionName)) {
-                return (FunctionDefinitionNode) super.transform(functionNode);
+                return super.transform(functionNode);
             }
 
             return functionNode;

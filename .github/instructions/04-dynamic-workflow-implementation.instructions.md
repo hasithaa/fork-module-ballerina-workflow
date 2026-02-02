@@ -178,8 +178,7 @@ public static class BallerinaWorkflowAdapter implements DynamicWorkflow {
             }
             
             // 8. Handle errors
-            if (result instanceof BError) {
-                BError err = (BError) result;
+            if (result instanceof BError err) {
                 ApplicationFailure failure = ApplicationFailure.newFailure(
                     "Workflow '" + workflowType + "' failed: " + err.getMessage(),
                     "BallerinaWorkflowError",
@@ -249,8 +248,7 @@ public static class BallerinaActivityAdapter implements DynamicActivity {
         Object result = activityFunction.call(ballerinaRuntime, ballerinaArgs);
         
         // 6. Handle errors
-        if (result instanceof BError) {
-            BError err = (BError) result;
+        if (result instanceof BError err) {
             LOGGER.error("Activity {} failed: {}", activityType, err.getMessage());
             throw new RuntimeException("Activity failed: " + err.getMessage());
         }

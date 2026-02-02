@@ -172,7 +172,7 @@ public final class WorkflowContextNative {
     public static Object getWorkflowId(Object contextHandle) {
         try {
             if (contextHandle instanceof ContextInfo) {
-                return StringUtils.fromString(((ContextInfo) contextHandle).getWorkflowId());
+                return StringUtils.fromString(((ContextInfo) contextHandle).workflowId());
             }
             io.temporal.workflow.WorkflowInfo info = Workflow.getInfo();
             return StringUtils.fromString(info.getWorkflowId());
@@ -191,7 +191,7 @@ public final class WorkflowContextNative {
     public static Object getWorkflowType(Object contextHandle) {
         try {
             if (contextHandle instanceof ContextInfo) {
-                return StringUtils.fromString(((ContextInfo) contextHandle).getWorkflowType());
+                return StringUtils.fromString(((ContextInfo) contextHandle).workflowType());
             }
             io.temporal.workflow.WorkflowInfo info = Workflow.getInfo();
             return StringUtils.fromString(info.getWorkflowType());
@@ -202,72 +202,74 @@ public final class WorkflowContextNative {
     }
 
     /**
-     * Context information holder.
-     * Stores workflow-specific context information.
+     * Context information holder. Stores workflow-specific context information.
+     *
+     * @param workflowId      the workflow ID
+     * @param workflowType    the workflow type
+     * @param correlationData the correlation data
      */
-    public static final class ContextInfo {
-        private final String workflowId;
-        private final String workflowType;
-        private final Map<String, Object> correlationData;
+        public record ContextInfo(String workflowId, String workflowType, Map<String, Object> correlationData) {
+            /**
+             * Creates a new ContextInfo.
+             *
+             * @param workflowId      the workflow ID
+             * @param workflowType    the workflow type
+             * @param correlationData the correlation data
+             */
+            public ContextInfo(String workflowId, String workflowType, Map<String, Object> correlationData) {
+                this.workflowId = workflowId;
+                this.workflowType = workflowType;
+                this.correlationData = correlationData != null ? new HashMap<>(correlationData) : new HashMap<>();
+            }
 
-        /**
-         * Creates a new ContextInfo.
-         *
-         * @param workflowId the workflow ID
-         * @param workflowType the workflow type
-         * @param correlationData the correlation data
-         */
-        public ContextInfo(String workflowId, String workflowType, Map<String, Object> correlationData) {
-            this.workflowId = workflowId;
-            this.workflowType = workflowType;
-            this.correlationData = correlationData != null ? new HashMap<>(correlationData) : new HashMap<>();
-        }
+            /**
+             * Gets the workflow ID.
+             *
+             * @return the workflow ID
+             */
+            @Override
+            public String workflowId() {
+                return workflowId;
+            }
 
-        /**
-         * Gets the workflow ID.
-         *
-         * @return the workflow ID
-         */
-        public String getWorkflowId() {
-            return workflowId;
-        }
+            /**
+             * Gets the workflow type.
+             *
+             * @return the workflow type
+             */
+            @Override
+            public String workflowType() {
+                return workflowType;
+            }
 
-        /**
-         * Gets the workflow type.
-         *
-         * @return the workflow type
-         */
-        public String getWorkflowType() {
-            return workflowType;
-        }
+            /**
+             * Gets the correlation data.
+             *
+             * @return the correlation data map
+             */
+            @Override
+            public Map<String, Object> correlationData() {
+                return correlationData;
+            }
 
-        /**
-         * Gets the correlation data.
-         *
-         * @return the correlation data map
-         */
-        public Map<String, Object> getCorrelationData() {
-            return correlationData;
-        }
+            /**
+             * Adds correlation data.
+             *
+             * @param key   the key
+             * @param value the value
+             */
+            public void addCorrelationData(String key, Object value) {
+                correlationData.put(key, value);
+            }
 
-        /**
-         * Adds correlation data.
-         *
-         * @param key the key
-         * @param value the value
-         */
-        public void addCorrelationData(String key, Object value) {
-            correlationData.put(key, value);
+            /**
+             * Gets a correlation value.
+             *
+             * @param key the key
+             * @return the value, or null if not found
+             */
+            public Object getCorrelationValue(String key) {
+                return correlationData.get(key);
+            }
         }
-
-        /**
-         * Gets a correlation value.
-         *
-         * @param key the key
-         * @return the value, or null if not found
-         */
-        public Object getCorrelationValue(String key) {
-            return correlationData.get(key);
-        }
-    }
 }

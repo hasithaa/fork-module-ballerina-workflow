@@ -241,12 +241,12 @@ public final class CorrelationExtractor {
 
         // Build least significant bits: 2-bit variant (10) + 62-bit random
         long lsb = ((randomBytes[2] & 0x3FL) | 0x80L) << 56 // variant bits
-                | ((long) (randomBytes[3] & 0xFFL) << 48)
-                | ((long) (randomBytes[4] & 0xFFL) << 40)
-                | ((long) (randomBytes[5] & 0xFFL) << 32)
-                | ((long) (randomBytes[6] & 0xFFL) << 24)
-                | ((long) (randomBytes[7] & 0xFFL) << 16)
-                | ((long) (randomBytes[8] & 0xFFL) << 8)
+                | ((randomBytes[3] & 0xFFL) << 48)
+                | ((randomBytes[4] & 0xFFL) << 40)
+                | ((randomBytes[5] & 0xFFL) << 32)
+                | ((randomBytes[6] & 0xFFL) << 24)
+                | ((randomBytes[7] & 0xFFL) << 16)
+                | ((randomBytes[8] & 0xFFL) << 8)
                 | (randomBytes[9] & 0xFFL);
 
         return new UUID(msb, lsb).toString();

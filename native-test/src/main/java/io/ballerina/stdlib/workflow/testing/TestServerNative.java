@@ -28,7 +28,6 @@ import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.util.concurrent.CountDownLatch;
 import java.util.logging.Logger;
 
@@ -157,8 +156,7 @@ public final class TestServerNative {
             return;
         }
         
-        String pidStr = new String(Files.readAllBytes(Paths.get(pidFile.getAbsolutePath())), 
-                StandardCharsets.UTF_8).trim();
+        String pidStr = Files.readString(pidFile.toPath()).trim();
         long pid;
         try {
             pid = Long.parseLong(pidStr);
@@ -192,8 +190,7 @@ public final class TestServerNative {
         }
         
         try {
-            String pidStr = new String(Files.readAllBytes(Paths.get(pidFile.getAbsolutePath())), 
-                    StandardCharsets.UTF_8).trim();
+            String pidStr = Files.readString(pidFile.toPath()).trim();
             long pid;
             try {
                 pid = Long.parseLong(pidStr);
@@ -208,8 +205,7 @@ public final class TestServerNative {
             if (ProcessHandle.of(pid).isPresent()) {
                 String target = "";
                 if (targetFile.exists()) {
-                    target = new String(Files.readAllBytes(Paths.get(targetFile.getAbsolutePath())), 
-                            StandardCharsets.UTF_8).trim();
+                    target = Files.readString(targetFile.toPath()).trim();
                 }
                 LOGGER.info("Test server is running with PID: " + pid);
                 LOGGER.info("Target: " + target);
