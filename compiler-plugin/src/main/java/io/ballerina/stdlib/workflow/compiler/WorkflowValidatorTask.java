@@ -45,7 +45,6 @@ import io.ballerina.projects.plugins.AnalysisTask;
 import io.ballerina.projects.plugins.SyntaxNodeAnalysisContext;
 import io.ballerina.tools.diagnostics.DiagnosticFactory;
 import io.ballerina.tools.diagnostics.DiagnosticInfo;
-import io.ballerina.tools.diagnostics.DiagnosticSeverity;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -140,8 +139,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         
         // Check for excess parameters (max 3: Context, input, events)
         if (params.size() > 3) {
-            reportDiagnostic(context, functionNode, WorkflowConstants.WORKFLOW_106,
-                    WorkflowConstants.PROCESS_TOO_MANY_PARAMS);
+            reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_106);
             return;
         }
 
@@ -172,14 +170,12 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
             if (hasInput) {
                 // Already have input, so this parameter MUST be events
                 if (!isValidEventsType(paramType)) {
-                    reportDiagnostic(context, functionNode, WorkflowConstants.WORKFLOW_102,
-                            WorkflowConstants.PROCESS_INVALID_EVENTS_TYPE);
+                    reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_102);
                     return;
                 }
                 if (hasEvents) {
                     // Already have events parameter, this is an error
-                    reportDiagnostic(context, functionNode, WorkflowConstants.WORKFLOW_106,
-                            WorkflowConstants.PROCESS_TOO_MANY_PARAMS);
+                    reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_106);
                     return;
                 }
                 hasEvents = true;
@@ -196,8 +192,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                     // This is an input parameter
                     if (hasEvents) {
                         // Input must come before events
-                        reportDiagnostic(context, functionNode, WorkflowConstants.WORKFLOW_101,
-                                "@Process function's input parameter must come before events parameter");
+                        reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_101);
                         return;
                     }
                     hasInput = true;
@@ -205,8 +200,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                     paramIndex++;
                 } else {
                     // Parameter is neither anydata nor events record - error
-                    reportDiagnostic(context, functionNode, WorkflowConstants.WORKFLOW_101,
-                            WorkflowConstants.PROCESS_INVALID_INPUT_TYPE);
+                    reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_101);
                     return;
                 }
             }
@@ -230,8 +224,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         if (returnTypeOpt.isPresent()) {
             TypeSymbol returnType = returnTypeOpt.get();
             if (!WorkflowPluginUtils.isSubtypeOfAnydataOrError(returnType, context.semanticModel())) {
-                reportDiagnostic(context, functionNode, WorkflowConstants.WORKFLOW_105,
-                        WorkflowConstants.PROCESS_INVALID_RETURN_TYPE);
+                reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_105);
             }
         }
     }
@@ -266,8 +259,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
 
         // If process has events but no readonly fields, report error
         if (inputReadonlyFields.isEmpty() && !signalTypes.isEmpty()) {
-            reportDiagnostic(context, functionNode, WorkflowConstants.WORKFLOW_116,
-                    WorkflowConstants.CORRELATION_KEY_REQUIRED_FOR_EVENTS);
+            reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_116);
             return;
         }
 
@@ -282,20 +274,18 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                 TypeSymbol inputFieldType = entry.getValue();
 
                 if (!signalReadonlyFields.containsKey(fieldName)) {
-                    reportDiagnostic(context, functionNode, WorkflowConstants.WORKFLOW_114,
-                            String.format(WorkflowConstants.SIGNAL_MISSING_CORRELATION_KEY,
-                                    signalTypeName, fieldName));
+                    reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_114,
+                            signalTypeName, fieldName);
                     continue;
                 }
 
                 TypeSymbol signalFieldType = signalReadonlyFields.get(fieldName);
                 if (!typesAreEqual(inputFieldType, signalFieldType)) {
-                    reportDiagnostic(context, functionNode, WorkflowConstants.WORKFLOW_115,
-                            String.format(WorkflowConstants.CORRELATION_KEY_TYPE_MISMATCH,
-                                    fieldName,
-                                    inputFieldType.signature(),
-                                    signalTypeName,
-                                    signalFieldType.signature()));
+                    reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_115,
+                            fieldName,
+                            inputFieldType.signature(),
+                            signalTypeName,
+                            signalFieldType.signature());
                 }
             }
         }
@@ -394,8 +384,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
             for (ParameterSymbol param : paramsOpt.get()) {
                 TypeSymbol paramType = param.typeDescriptor();
                 if (!WorkflowPluginUtils.isSubtypeOfAnydata(paramType, semanticModel)) {
-                    reportDiagnostic(context, functionNode, WorkflowConstants.WORKFLOW_103,
-                            WorkflowConstants.ACTIVITY_INVALID_PARAM_TYPE);
+                    reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_103);
                     return;
                 }
             }
@@ -406,8 +395,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         if (returnTypeOpt.isPresent()) {
             TypeSymbol returnType = returnTypeOpt.get();
             if (!WorkflowPluginUtils.isSubtypeOfAnydataOrError(returnType, semanticModel)) {
-                reportDiagnostic(context, functionNode, WorkflowConstants.WORKFLOW_104,
-                        WorkflowConstants.ACTIVITY_INVALID_RETURN_TYPE);
+                reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_104);
             }
         }
     }
@@ -453,10 +441,15 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                         if (!hasActivityAnnotation(expression)) {
                             reportCallActivityDiagnostic(remoteCallNode);
                         } else {
-                            // Validate parameters match if second argument is provided
+                            // Validate parameters match
+                            // If second argument is provided, validate it matches activity params
+                            // If no second argument, validate activity has no required params
                             if (arguments.size() >= 2) {
                                 FunctionArgumentNode secondArg = arguments.get(1);
                                 validateParametersMatch(remoteCallNode, expression, secondArg);
+                            } else {
+                                // No args provided - validate activity has no required parameters
+                                validateNoArgsActivity(remoteCallNode, expression);
                             }
                         }
                     }
@@ -465,6 +458,44 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
 
             // Continue visiting child nodes
             remoteCallNode.arguments().forEach(arg -> arg.accept(this));
+        }
+
+        /**
+         * Validates that an activity function with no args provided has no required parameters.
+         */
+        private void validateNoArgsActivity(RemoteMethodCallActionNode callNode,
+                                            ExpressionNode activityFuncExpr) {
+            // Get the activity function symbol to extract parameters
+            Optional<Symbol> funcSymbolOpt = semanticModel.symbol(activityFuncExpr);
+            if (funcSymbolOpt.isEmpty() || funcSymbolOpt.get().kind() != SymbolKind.FUNCTION) {
+                return;
+            }
+
+            FunctionSymbol functionSymbol = (FunctionSymbol) funcSymbolOpt.get();
+            FunctionTypeSymbol funcTypeSymbol = functionSymbol.typeDescriptor();
+            
+            // Check if the function has rest parameters
+            if (funcTypeSymbol.restParam().isPresent()) {
+                reportRestParamsNotSupported(callNode);
+                return;
+            }
+
+            // Get expected parameters from activity function
+            Optional<List<ParameterSymbol>> paramsOpt = funcTypeSymbol.params();
+            if (paramsOpt.isEmpty() || paramsOpt.get().isEmpty()) {
+                // Activity has no parameters - valid for no-args call
+                return;
+            }
+
+            // Check for required parameters
+            List<ParameterSymbol> expectedParams = paramsOpt.get();
+            for (ParameterSymbol param : expectedParams) {
+                if (param.paramKind() == ParameterKind.REQUIRED) {
+                    Optional<String> nameOpt = param.getName();
+                    String paramName = nameOpt.orElse("unnamed");
+                    reportMissingRequiredParam(callNode, paramName);
+                }
+            }
         }
 
         /**
@@ -585,36 +616,39 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
 
         private void reportCallActivityDiagnostic(RemoteMethodCallActionNode node) {
             DiagnosticInfo diagnosticInfo = new DiagnosticInfo(
-                    WorkflowConstants.WORKFLOW_107,
-                    WorkflowConstants.CALL_ACTIVITY_MISSING_ACTIVITY_ANNOTATION,
-                    DiagnosticSeverity.ERROR);
+                    WorkflowDiagnostic.WORKFLOW_107.getCode(),
+                    WorkflowDiagnostic.WORKFLOW_107.getMessage(),
+                    WorkflowDiagnostic.WORKFLOW_107.getSeverity());
             context.reportDiagnostic(DiagnosticFactory.createDiagnostic(diagnosticInfo,
                     node.methodName().location()));
         }
 
         private void reportMissingRequiredParam(RemoteMethodCallActionNode node, String paramName) {
             DiagnosticInfo diagnosticInfo = new DiagnosticInfo(
-                    WorkflowConstants.WORKFLOW_109,
-                    String.format(WorkflowConstants.CALL_ACTIVITY_MISSING_REQUIRED_PARAM, paramName),
-                    DiagnosticSeverity.ERROR);
-            context.reportDiagnostic(DiagnosticFactory.createDiagnostic(diagnosticInfo,
-                    node.arguments().get(1).location()));
+                    WorkflowDiagnostic.WORKFLOW_109.getCode(),
+                    WorkflowDiagnostic.WORKFLOW_109.getMessage(paramName),
+                    WorkflowDiagnostic.WORKFLOW_109.getSeverity());
+            // Report on the second argument if it exists, otherwise on the method name
+            var location = node.arguments().size() > 1 
+                    ? node.arguments().get(1).location() 
+                    : node.methodName().location();
+            context.reportDiagnostic(DiagnosticFactory.createDiagnostic(diagnosticInfo, location));
         }
 
         private void reportExtraParam(RemoteMethodCallActionNode node, String paramName) {
             DiagnosticInfo diagnosticInfo = new DiagnosticInfo(
-                    WorkflowConstants.WORKFLOW_110,
-                    String.format(WorkflowConstants.CALL_ACTIVITY_EXTRA_PARAM, paramName),
-                    DiagnosticSeverity.ERROR);
+                    WorkflowDiagnostic.WORKFLOW_110.getCode(),
+                    WorkflowDiagnostic.WORKFLOW_110.getMessage(paramName),
+                    WorkflowDiagnostic.WORKFLOW_110.getSeverity());
             context.reportDiagnostic(DiagnosticFactory.createDiagnostic(diagnosticInfo,
                     node.arguments().get(1).location()));
         }
 
         private void reportRestParamsNotSupported(RemoteMethodCallActionNode node) {
             DiagnosticInfo diagnosticInfo = new DiagnosticInfo(
-                    WorkflowConstants.WORKFLOW_111,
-                    WorkflowConstants.CALL_ACTIVITY_REST_PARAMS_NOT_SUPPORTED,
-                    DiagnosticSeverity.ERROR);
+                    WorkflowDiagnostic.WORKFLOW_111.getCode(),
+                    WorkflowDiagnostic.WORKFLOW_111.getMessage(),
+                    WorkflowDiagnostic.WORKFLOW_111.getSeverity());
             context.reportDiagnostic(DiagnosticFactory.createDiagnostic(diagnosticInfo,
                     node.arguments().get(0).location()));
         }
@@ -668,9 +702,9 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
 
         private void reportDirectActivityCallError(FunctionCallExpressionNode callNode) {
             DiagnosticInfo diagnosticInfo = new DiagnosticInfo(
-                    WorkflowConstants.WORKFLOW_108,
-                    WorkflowConstants.DIRECT_ACTIVITY_CALL_NOT_ALLOWED,
-                    DiagnosticSeverity.ERROR);
+                    WorkflowDiagnostic.WORKFLOW_108.getCode(),
+                    WorkflowDiagnostic.WORKFLOW_108.getMessage(),
+                    WorkflowDiagnostic.WORKFLOW_108.getSeverity());
             context.reportDiagnostic(DiagnosticFactory.createDiagnostic(diagnosticInfo,
                     callNode.functionName().location()));
         }
@@ -715,8 +749,17 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
     }
 
     private void reportDiagnostic(SyntaxNodeAnalysisContext context, FunctionDefinitionNode functionNode,
-                                   String code, String message) {
-        DiagnosticInfo diagnosticInfo = new DiagnosticInfo(code, message, DiagnosticSeverity.ERROR);
+                                   WorkflowDiagnostic diagnostic) {
+        DiagnosticInfo diagnosticInfo = new DiagnosticInfo(
+                diagnostic.getCode(), diagnostic.getMessage(), diagnostic.getSeverity());
+        context.reportDiagnostic(DiagnosticFactory.createDiagnostic(diagnosticInfo,
+                functionNode.functionName().location()));
+    }
+
+    private void reportDiagnostic(SyntaxNodeAnalysisContext context, FunctionDefinitionNode functionNode,
+                                   WorkflowDiagnostic diagnostic, Object... args) {
+        DiagnosticInfo diagnosticInfo = new DiagnosticInfo(
+                diagnostic.getCode(), diagnostic.getMessage(args), diagnostic.getSeverity());
         context.reportDiagnostic(DiagnosticFactory.createDiagnostic(diagnosticInfo,
                 functionNode.functionName().location()));
     }

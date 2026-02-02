@@ -42,7 +42,6 @@ import io.ballerina.projects.plugins.AnalysisTask;
 import io.ballerina.projects.plugins.SyntaxNodeAnalysisContext;
 import io.ballerina.tools.diagnostics.DiagnosticFactory;
 import io.ballerina.tools.diagnostics.DiagnosticInfo;
-import io.ballerina.tools.diagnostics.DiagnosticSeverity;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -127,10 +126,10 @@ public class SendEventValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCo
             
             // Report error: sendEvent called without signalName but events are ambiguous
             DiagnosticInfo diagnosticInfo = new DiagnosticInfo(
-                    WorkflowConstants.WORKFLOW_112,
-                    String.format(WorkflowConstants.SEND_EVENT_AMBIGUOUS_SIGNAL, 
+                    WorkflowDiagnostic.WORKFLOW_112.getCode(),
+                    WorkflowDiagnostic.WORKFLOW_112.getMessage(
                             processName, ambiguousSignals[0], ambiguousSignals[1]),
-                    DiagnosticSeverity.ERROR);
+                    WorkflowDiagnostic.WORKFLOW_112.getSeverity());
             context.reportDiagnostic(DiagnosticFactory.createDiagnostic(diagnosticInfo,
                     callNode.functionName().location()));
         }

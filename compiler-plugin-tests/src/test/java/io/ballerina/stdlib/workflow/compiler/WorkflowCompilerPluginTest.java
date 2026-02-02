@@ -88,6 +88,15 @@ public class WorkflowCompilerPluginTest {
                         + getDiagnosticMessages(diagnosticResult));
     }
 
+    @Test(groups = "valid")
+    public void testValidNoArgActivity() {
+        String packagePath = "valid_no_arg_activity";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertEquals(diagnosticResult.errorCount(), 0,
+                "Expected no errors for callActivity with empty args for no-arg activity. Errors: "
+                        + getDiagnosticMessages(diagnosticResult));
+    }
+
     // ===== Invalid test cases - Validation errors =====
 
     @Test(groups = "invalid")
@@ -96,7 +105,7 @@ public class WorkflowCompilerPluginTest {
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertTrue(diagnosticResult.errorCount() > 0,
                 "Expected validation error for activity with non-anydata parameter");
-        assertDiagnosticContains(diagnosticResult, WorkflowConstants.WORKFLOW_103);
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_103);
     }
 
     @Test(groups = "invalid")
@@ -105,7 +114,7 @@ public class WorkflowCompilerPluginTest {
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertTrue(diagnosticResult.errorCount() > 0,
                 "Expected validation error for activity with non-anydata return type");
-        assertDiagnosticContains(diagnosticResult, WorkflowConstants.WORKFLOW_104);
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_104);
     }
 
     @Test(groups = "invalid")
@@ -114,7 +123,7 @@ public class WorkflowCompilerPluginTest {
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertTrue(diagnosticResult.errorCount() > 0,
                 "Expected validation error for process with non-anydata input parameter");
-        assertDiagnosticContains(diagnosticResult, WorkflowConstants.WORKFLOW_101);
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_101);
     }
 
     @Test(groups = "invalid")
@@ -123,7 +132,7 @@ public class WorkflowCompilerPluginTest {
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertTrue(diagnosticResult.errorCount() > 0,
                 "Expected validation error for process with non-anydata return type");
-        assertDiagnosticContains(diagnosticResult, WorkflowConstants.WORKFLOW_105);
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_105);
     }
 
     @Test(groups = "invalid")
@@ -132,7 +141,7 @@ public class WorkflowCompilerPluginTest {
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertTrue(diagnosticResult.errorCount() > 0,
                 "Expected validation error for process with invalid events parameter type");
-        assertDiagnosticContains(diagnosticResult, WorkflowConstants.WORKFLOW_102);
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_102);
     }
 
     @Test(groups = "invalid")
@@ -141,7 +150,7 @@ public class WorkflowCompilerPluginTest {
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertTrue(diagnosticResult.errorCount() > 0,
                 "Expected validation error for callActivity with non-activity function");
-        assertDiagnosticContains(diagnosticResult, WorkflowConstants.WORKFLOW_107);
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_107);
     }
 
     @Test(groups = "invalid")
@@ -150,7 +159,7 @@ public class WorkflowCompilerPluginTest {
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertTrue(diagnosticResult.errorCount() > 0,
                 "Expected validation error for direct @Activity function call in @Process function");
-        assertDiagnosticContains(diagnosticResult, WorkflowConstants.WORKFLOW_108);
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_108);
     }
 
     @Test(groups = "invalid")
@@ -159,7 +168,16 @@ public class WorkflowCompilerPluginTest {
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertTrue(diagnosticResult.errorCount() > 0,
                 "Expected validation error for callActivity with missing required parameter");
-        assertDiagnosticContains(diagnosticResult, WorkflowConstants.WORKFLOW_109);
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_109);
+    }
+
+    @Test(groups = "invalid")
+    public void testInvalidNoArgActivityWithRequiredParams() {
+        String packagePath = "invalid_no_arg_activity_with_required_params";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertTrue(diagnosticResult.errorCount() > 0,
+                "Expected validation error for callActivity with empty args when activity requires parameters");
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_109);
     }
 
     @Test(groups = "invalid")
@@ -168,7 +186,7 @@ public class WorkflowCompilerPluginTest {
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertTrue(diagnosticResult.errorCount() > 0,
                 "Expected validation error for callActivity with extra parameter");
-        assertDiagnosticContains(diagnosticResult, WorkflowConstants.WORKFLOW_110);
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_110);
     }
 
     @Test(groups = "invalid")
@@ -177,7 +195,7 @@ public class WorkflowCompilerPluginTest {
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertTrue(diagnosticResult.errorCount() > 0,
                 "Expected validation error for callActivity with activity having rest parameters");
-        assertDiagnosticContains(diagnosticResult, WorkflowConstants.WORKFLOW_111);
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_111);
     }
 
     /**
@@ -238,6 +256,16 @@ public class WorkflowCompilerPluginTest {
      * Assert that the diagnostic result contains a diagnostic with the given code.
      *
      * @param diagnosticResult the diagnostic result
+     * @param expectedDiagnostic the expected diagnostic enum
+     */
+    private void assertDiagnosticContains(DiagnosticResult diagnosticResult, WorkflowDiagnostic expectedDiagnostic) {
+        assertDiagnosticContains(diagnosticResult, expectedDiagnostic.getCode());
+    }
+
+    /**
+     * Assert that the diagnostic result contains a diagnostic with the given code.
+     *
+     * @param diagnosticResult the diagnostic result
      * @param expectedCode the expected diagnostic code
      */
     private void assertDiagnosticContains(DiagnosticResult diagnosticResult, String expectedCode) {
@@ -287,7 +315,7 @@ public class WorkflowCompilerPluginTest {
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertTrue(diagnosticResult.errorCount() > 0,
                 "Expected validation error for sendEvent without signalName when signals are ambiguous");
-        assertDiagnosticContains(diagnosticResult, WorkflowConstants.WORKFLOW_112);
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_112);
     }
 
     @Test(groups = "invalid")
@@ -296,6 +324,6 @@ public class WorkflowCompilerPluginTest {
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertTrue(diagnosticResult.errorCount() > 0,
                 "Expected validation error for sendEvent without signalName when three signals are ambiguous");
-        assertDiagnosticContains(diagnosticResult, WorkflowConstants.WORKFLOW_112);
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_112);
     }
 }

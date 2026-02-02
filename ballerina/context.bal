@@ -56,13 +56,15 @@ public client class Context {
     # Example:
     # ```ballerina
     # string result = check ctx->callActivity(sendEmailActivity, {"email": recipientEmail, "subject": subject});
+    # // For activities with no parameters, pass an empty record:
+    # string result = check ctx->callActivity(noArgActivity, {});
     # ```
     #
     # + activityFunction - The activity function to execute (must be annotated with @Activity)
     # + args - Record containing the arguments to pass to the activity function
     # + T - The expected return type (inferred from context or explicitly specified)
     # + return - The result of the activity execution cast to type T, or an error if execution fails
-    remote isolated function callActivity(function activityFunction, Parameters args, typedesc<anydata> T = <>) 
+    remote isolated function callActivity(function activityFunction, Parameters args = {}, typedesc<anydata> T = <>) 
             returns T|error = @java:Method {
         'class: "io.ballerina.stdlib.workflow.context.WorkflowContextNative",
         name: "callActivity"
