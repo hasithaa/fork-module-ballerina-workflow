@@ -94,9 +94,26 @@ task build {
 // Task to publish workflow module to local Maven repository
 // This makes the module available for samples to use as a local dependency
 task publishWorkflowToLocal {
-    description = 'Publishes the workflow module to local Maven repository'
+    description = 'Publishes the workflow module to local Maven repository and Ballerina local repository'
     group = 'publishing'
-    dependsOn(':workflow-ballerina:publishToMavenLocal')
+    dependsOn(':workflow-ballerina:build')
+    
+    doLast {
+        logger.lifecycle("Publishing workflow module to Ballerina local repository...")
+        
+        def balaFile = file("${project(':workflow-ballerina').buildDir}/bal_build_target/bala/ballerina-workflow-java21-0.1.0.bala")
+        def localRepoDir = file("${System.getProperty('user.home')}/.ballerina/repositories/local/bala/ballerina/workflow/0.1.0/java21")
+        
+        localRepoDir.mkdirs()
+        
+        // Extract bala contents to local repository
+        exec {
+            workingDir localRepoDir
+            commandLine 'unzip', '-o', balaFile.absolutePath
+        }
+        
+        logger.lifecycle("Workflow module published to local repository successfully")
+    }
 }
 
 // Build samples after publishing workflow module to local repo
@@ -115,6 +132,13 @@ task buildSamples {
         }
         
         samplesDir.eachDir { sampleDir ->
+            // Skip empty directories (check for Ballerina.toml)
+            def tomlFile = new File(sampleDir, "Ballerina.toml")
+            if (!tomlFile.exists()) {
+                logger.lifecycle("Skipping ${sampleDir.name} (not a Ballerina package)")
+                return
+            }
+            
             logger.lifecycle("Building sample: ${sampleDir.name}")
             
             exec {
