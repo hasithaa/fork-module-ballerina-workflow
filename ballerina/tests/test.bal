@@ -449,7 +449,7 @@ function simpleWorkflowProcess(string input) returns string|error {
 }
 
 @test:Config {groups: ["unit"]}
-function testStartProcessWithUnregisteredProcess() returns error? {
+function testCreateInstanceWithUnregisteredProcess() returns error? {
     _ = check clearRegistry();
     // Attempt to start a workflow without registering the process first
     WorkflowData input = {id: "test-workflow-001"};
@@ -465,7 +465,7 @@ function testStartProcessWithUnregisteredProcess() returns error? {
 }
 
 @test:Config {groups: ["unit"]}
-function testStartProcessWithMissingId() returns error? {
+function testCreateInstanceWithMissingId() returns error? {
     _ = check clearRegistry();
     // First register the process
     boolean registered = check registerProcess(simpleWorkflowProcess, "simple-workflow");
@@ -485,7 +485,7 @@ function testStartProcessWithMissingId() returns error? {
 }
 
 @test:Config {groups: ["unit"]}
-function testStartProcessWithValidInput() returns error? {
+function testCreateInstanceWithValidInput() returns error? {
     _ = check clearRegistry();
     // Register the process first
     boolean registered = check registerProcess(simpleWorkflowProcess, "workflow-for-start-test");

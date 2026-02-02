@@ -376,7 +376,7 @@ Location: [WorkflowRuntime.java](native/src/main/java/io/ballerina/stdlib/workfl
  * Correlation Keys: Extracted from readonly fields, stored as Temporal Search Attributes
  * Duplicate Detection: Checks for running workflows with same correlation keys before starting
  */
-public String startProcess(String processName, Object input) {
+public String createInstance(String processName, Object input) {
     // Get process function and extract input type
     BFunctionPointer processFunction = WorkflowWorkerNative.getProcessRegistry().get(processName);
     RecordType inputRecordType = EventExtractor.getInputRecordType(processFunction);

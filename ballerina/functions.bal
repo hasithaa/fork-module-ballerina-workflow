@@ -29,7 +29,7 @@ import ballerina/jballerina.java;
 # + return - The unique workflow ID as a string, or an error if the process fails to start
 public isolated function createInstance(function processFunction, map<anydata> input) returns string|error = @java:Method {
     'class: "io.ballerina.stdlib.workflow.runtime.nativeimpl.WorkflowNative",
-    name: "startProcess"
+    name: "createInstance"
 } external;
 
 # Sends an event (signal) to a running workflow process.

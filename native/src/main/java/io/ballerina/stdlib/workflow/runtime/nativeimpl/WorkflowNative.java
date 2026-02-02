@@ -58,7 +58,7 @@ import java.util.concurrent.TimeUnit;
  * defined in the Ballerina workflow module:
  * <ul>
  *   <li>callActivity - Execute an activity within a workflow</li>
- *   <li>startProcess - Start a new workflow process</li>
+ *   <li>createInstance - Start a new workflow process</li>
  *   <li>sendEvent - Send an event to a running workflow</li>
  *   <li>registerProcess - Register a process function with the runtime</li>
  * </ul>
@@ -72,7 +72,7 @@ public final class WorkflowNative {
     }
 
     /**
-     * Native implementation for startProcess function.
+     * Native implementation for createInstance function.
      * <p>
      * Starts a new workflow process with the given input.
      * The input must contain an "id" field for workflow correlation.
@@ -85,7 +85,8 @@ public final class WorkflowNative {
      * @param input the input data for the process (map with "id" field)
      * @return the workflow ID as a string, or an error
      */
-    public static Object startProcess(Environment env, BFunctionPointer processFunction, BMap<BString, Object> input) {
+    public static Object createInstance(Environment env, BFunctionPointer processFunction,
+                                        BMap<BString, Object> input) {
         return env.yieldAndRun(() -> {
             CompletableFuture<Object> balFuture = new CompletableFuture<>();
 
@@ -105,7 +106,7 @@ public final class WorkflowNative {
                     Object javaInput = TypesUtil.convertBallerinaToJavaType(input);
 
                     // Start the process through the workflow runtime
-                    String workflowId = WorkflowRuntime.getInstance().startProcess(processName, javaInput);
+                    String workflowId = WorkflowRuntime.getInstance().createInstance(processName, javaInput);
 
                     balFuture.complete(StringUtils.fromString(workflowId));
 

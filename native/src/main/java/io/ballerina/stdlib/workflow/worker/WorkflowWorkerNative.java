@@ -742,7 +742,7 @@ public final class WorkflowWorkerNative {
                     argsList.add(contextObj);
                 }
                 
-                // Add workflow input arguments (from startProcess call)
+                // Add workflow input arguments (from createInstance call)
                 for (Object arg : workflowArgs) {
                     argsList.add(arg);
                 }

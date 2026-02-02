@@ -102,10 +102,13 @@ task pushToLocalRepository(type: Exec) {
     
     workingDir project.projectDir
     
+    // Version comes from Ballerina.toml via tomlVersion variable
+    def balaFile = "build/bal_build_target/bala/ballerina-workflow-java21-${tomlVersion}.bala"
+    
     if (Os.isFamily(Os.FAMILY_WINDOWS)) {
-        commandLine 'cmd', '/c', 'bal', 'push', '--repository=local'
+        commandLine 'cmd', '/c', 'bal', 'push', '--repository=local', balaFile
     } else {
-        commandLine 'bal', 'push', '--repository=local'
+        commandLine 'bal', 'push', '--repository=local', balaFile
     }
 }
 

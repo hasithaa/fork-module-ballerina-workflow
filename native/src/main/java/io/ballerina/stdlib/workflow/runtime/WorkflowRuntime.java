@@ -135,7 +135,7 @@ public final class WorkflowRuntime {
      *                          expected but no correlation keys (readonly fields) are defined
      */
     @SuppressWarnings("unchecked")
-    public String startProcess(String processName, Object input) {
+    public String createInstance(String processName, Object input) {
         // Verify the process is registered in WorkflowWorkerNative
         if (!WorkflowWorkerNative.getProcessRegistry().containsKey(processName)) {
             throw new RuntimeException("Process not registered: " + processName);
