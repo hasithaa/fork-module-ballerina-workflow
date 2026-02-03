@@ -16,6 +16,8 @@
  * under the License.
  */
 
+import org.apache.tools.ant.taskdefs.condition.Os
+
 plugins {
     id 'io.ballerina.plugin'
 }
@@ -34,6 +36,16 @@ task updateTomlFiles {
     doLast {
         def newBallerinaToml = ballerinaTomlFilePlaceHolder.text.replace("@project.version@", project.version)
         newBallerinaToml = newBallerinaToml.replace("@toml.version@", tomlVersion)
+        // Substitute dependency versions
+        newBallerinaToml = newBallerinaToml.replace("@temporal.sdk.version@", temporalSdkVersion)
+        newBallerinaToml = newBallerinaToml.replace("@jackson.version@", jacksonVersion)
+        newBallerinaToml = newBallerinaToml.replace("@grpc.version@", grpcVersion)
+        newBallerinaToml = newBallerinaToml.replace("@protobuf.version@", protobufVersion)
+        newBallerinaToml = newBallerinaToml.replace("@proto.google.common.protos.version@", protoGoogleCommonProtosVersion)
+        newBallerinaToml = newBallerinaToml.replace("@guava.version@", guavaVersion)
+        newBallerinaToml = newBallerinaToml.replace("@tally.version@", tallyVersion)
+        newBallerinaToml = newBallerinaToml.replace("@perfmark.version@", perfmarkVersion)
+        newBallerinaToml = newBallerinaToml.replace("@nexusrpc.version@", nexusrpcVersion)
         ballerinaTomlFile.text = newBallerinaToml
 
         def newCompilerPluginToml = compilerPluginTomlFilePlaceHolder.text.replace("@project.version@", project.version)
@@ -45,7 +57,11 @@ task commitTomlFiles {
     doLast {
         project.exec {
             ignoreExitValue true
-            commandLine 'sh', '-c', "git commit -m '[Automated] Update the native jar versions' Ballerina.toml Dependencies.toml CompilerPlugin.toml"
+            if (Os.isFamily(Os.FAMILY_WINDOWS)) {
+                commandLine 'cmd', '/c', "git commit -m \"[Automated] Update the native jar versions\" Ballerina.toml Dependencies.toml CompilerPlugin.toml"
+            } else {
+                commandLine 'sh', '-c', "git commit -m '[Automated] Update the native jar versions' Ballerina.toml Dependencies.toml CompilerPlugin.toml"
+            }
         }
     }
 }
@@ -79,9 +95,37 @@ test.dependsOn ":${packageName}-compiler-plugin:build"
 publishToMavenLocal.dependsOn build
 publish.dependsOn build
 
+// Task to push the Ballerina package to local repository
+task pushToLocalRepository(type: Exec) {
+    description = 'Pushes the Ballerina package to the local repository'
+    group = 'build'
+    
+    workingDir project.projectDir
+    
+    // Use the unpacked distribution's bal command (same as integration tests)
+    def ballerinaDist = "${project.rootDir}/target/ballerina-runtime"
+    def balCommand = "${ballerinaDist}/bin/bal"
+    
+    // Version comes from Ballerina.toml via tomlVersion variable
+    def balaFile = "build/bal_build_target/bala/ballerina-workflow-java21-${tomlVersion}.bala"
+    
+    if (Os.isFamily(Os.FAMILY_WINDOWS)) {
+        commandLine 'cmd', '/c', "${balCommand}.bat", 'push', '--repository=local', balaFile
+    } else {
+        commandLine balCommand, 'push', '--repository=local', balaFile
+    }
+}
+
+// Make pushToLocalRepository run after the build task completes successfully
+pushToLocalRepository.shouldRunAfter build
+build.finalizedBy pushToLocalRepository
+
+// Use the shared test server from root project
+test.dependsOn ":startSharedTestServer"
+
 def stripBallerinaExtensionVersion(String extVersion) {
     if (extVersion.matches(project.ext.timestampedVersionRegex)) {
-        def splitVersion = extVersion.split('-');
+        def splitVersion = extVersion.split('-')
         if (splitVersion.length > 3) {
             def strippedValues = splitVersion[0..-4]
             return strippedValues.join('-')

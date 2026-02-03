@@ -29,6 +29,27 @@ dependencies {
     checkstyle "com.puppycrawl.tools:checkstyle:${checkstylePluginVersion}"
 
     implementation group: 'org.ballerinalang', name: 'ballerina-runtime', version: "${ballerinaLangVersion}"
+    
+    // Temporal SDK for durable workflow execution
+    implementation "io.temporal:temporal-sdk:${temporalSdkVersion}"
+    
+    // Tally metrics library (required by Temporal SDK)
+    implementation "com.uber.m3:tally-core:${tallyVersion}"
+    
+    // Jackson for JSON serialization (required by Temporal for payload conversion)
+    implementation "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"
+    implementation "com.fasterxml.jackson.core:jackson-core:${jacksonVersion}"
+    implementation "com.fasterxml.jackson.core:jackson-annotations:${jacksonVersion}"
+    
+    // gRPC dependencies - force consistent version to avoid conflicts
+    implementation "io.grpc:grpc-api:${grpcVersion}"
+    implementation "io.grpc:grpc-context:${grpcVersion}"
+    implementation "io.grpc:grpc-core:${grpcVersion}"
+    implementation "io.grpc:grpc-stub:${grpcVersion}"
+    implementation "io.grpc:grpc-protobuf:${grpcVersion}"
+    implementation "io.grpc:grpc-netty-shaded:${grpcVersion}"
+    implementation "io.grpc:grpc-services:${grpcVersion}"
+    implementation "io.grpc:grpc-util:${grpcVersion}"
 }
 
 def excludePattern = '**/module-info.java'
@@ -78,13 +99,4 @@ publishing {
 
 spotbugsTest {
     enabled = false
-}
-
-compileJava {
-    doFirst {
-        options.compilerArgs = [
-                '--module-path', classpath.asPath,
-        ]
-        classpath = files()
-    }
 }
