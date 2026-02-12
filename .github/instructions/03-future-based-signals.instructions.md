@@ -36,6 +36,7 @@ function orderProcess(
     }
 
     return { status: "REJECTED" };
+}
 ```
 
 #### Signal Types

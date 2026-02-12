@@ -114,8 +114,8 @@ The `workflow:Context` parameter provides:
 
 Each sample uses following workflow executor initialization configuration in `Config.toml`:
 
-```ballerina
-// Config.toml
+```toml
+# Config.toml
 [ballerina.workflow.workflowConfig]
 provider = "TEMPORAL"
 url = "localhost:7233"
@@ -132,7 +132,7 @@ All the workflows in current project are automatically registered to the workflo
 ### Error Handling
 
 ```ballerina
-MyData result = check ctx->callActivity("activityName", args...);
+MyData|error result = ctx->callActivity(activityFunc, args...);
 if result is error {
     // Handle activity failure
 }
@@ -151,11 +151,11 @@ type OrderInput record {|
     int quantity;
 |};
 
-// Signal type MUST have same readonly fields
+// Event type MUST have same readonly fields
 type PaymentEvent record {|
     readonly string orderId;    // Must match OrderInput
     readonly string customerId; // Must match OrderInput
-    decimal amount;             // Signal-specific data
+    decimal amount;             // Event-specific data
 |};
 ```
 

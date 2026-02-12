@@ -158,7 +158,7 @@ function myProcess(workflow:Context ctx, Input input) returns Result|error {
 }
 ```
 
-### Waiting for Signals
+### Waiting for Events
 ```ballerina
 @workflow:Process
 function processWithEvents(
