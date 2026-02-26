@@ -32,7 +32,7 @@ public client class Context {
 
     # Initialize the context with native workflow context handle.
     #
-    # + nativeContext - Native context handle from Temporal
+    # + nativeContext - Native context handle from the workflow engine
     public isolated function init(handle nativeContext) {
         self.nativeContext = nativeContext;
     }

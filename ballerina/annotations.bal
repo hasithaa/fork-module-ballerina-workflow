@@ -49,7 +49,7 @@ public annotation Activity on function;
 # Marks a record field as a correlation key for workflow-signal matching.
 #
 # Correlation keys are used to:
-# 1. Create Temporal Search Attributes for workflow discovery
+# 1. Create search attributes for workflow discovery
 # 2. Enable `searchWorkflow()` to find workflows by business identifiers
 # 3. Prevent duplicate workflows with the same correlation keys
 #

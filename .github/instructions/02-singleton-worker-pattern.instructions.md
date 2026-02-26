@@ -7,10 +7,10 @@ applyTo: "**/*.bal,**/WorkflowWorkerNative.java"
 ## Overview
 
 The workflow module uses a singleton worker pattern ensuring:
-- Only one Temporal SDK instance per JVM
+- Only one workflow SDK instance per JVM
 - Worker created at module initialization time
 - Configuration via Ballerina configurable variables
-- Provider-agnostic configuration structure
+- Union-type configuration supporting multiple deployment modes
 
 ## Current Implementation
 
@@ -18,25 +18,46 @@ The workflow module uses a singleton worker pattern ensuring:
 
 #### Configuration Types ([types.bal](ballerina/types.bal))
 ```ballerina
-# Supported workflow providers
-public enum Provider {
-    TEMPORAL
-}
+# Deployment-specific configuration records, discriminated by `mode` field
+public type WorkflowConfig LocalConfig|CloudConfig|SelfHostedConfig|InMemoryConfig;
 
-# Temporal-specific configuration parameters
-public type TemporalParams record {|
+public type LocalConfig record {|
+    "LOCAL" mode = "LOCAL";
+    string url = "localhost:7233";
+    string namespace = "default";
+    WorkerConfig params = {};
+|};
+
+public type CloudConfig record {|
+    "CLOUD" mode;
+    string url;
+    string namespace;
+    AuthConfig auth;
+    WorkerConfig params = {};
+|};
+
+public type SelfHostedConfig record {|
+    "SELF_HOSTED" mode;
+    string url;
+    string namespace = "default";
+    AuthConfig? auth = ();
+    WorkerConfig params = {};
+|};
+
+public type InMemoryConfig record {|
+    "IN_MEMORY" mode = "IN_MEMORY";
+|};
+
+public type WorkerConfig record {|
     string taskQueue = "BALLERINA_WORKFLOW_TASK_QUEUE";
     int maxConcurrentWorkflows = 100;
     int maxConcurrentActivities = 100;
-    AuthConfig? authentication = ();
 |};
 
-# Workflow module configuration (generic structure)
-public type WorkflowConfig record {|
-    Provider provider = TEMPORAL;
-    string url = "localhost:7233";
-    string namespace = "default";
-    TemporalParams params = {};
+public type AuthConfig record {|
+    string? apiKey = ();
+    string? mtlsCert = ();
+    string? mtlsKey = ();
 |};
 ```
 
@@ -44,7 +65,7 @@ public type WorkflowConfig record {|
 ```ballerina
 # The workflow module configuration
 # Read from Config.toml or set programmatically
-configurable WorkflowConfig workflowConfig = {};
+configurable WorkflowConfig workflowConfig = {mode: "LOCAL"};
 ```
 
 #### Module Initialization ([module.bal](ballerina/module.bal))
@@ -57,38 +78,60 @@ function init() returns error? {
     check initSingletonWorker();     // Initialize worker
 }
 
-# Start lifecycle hook - called after all modules loaded
-function 'start() returns error? {
-    check startWorker();             // Start polling for tasks
-}
-
-# Stop lifecycle hook - called on graceful shutdown
-function stop() returns error? {
-    check stopWorker();              // Stop worker gracefully
-}
-
 # Initialize the singleton worker with configured settings
 isolated function initSingletonWorker() returns error? {
     lock {
         if workerStarted {
             return;
         }
-        check initWorkerNative(
-            workflowConfig.url,
-            workflowConfig.namespace,
-            workflowConfig.params.taskQueue,
-            workflowConfig.params.maxConcurrentWorkflows,
-            workflowConfig.params.maxConcurrentActivities
-        );
+        WorkflowConfig config = workflowConfig;
+        if config is InMemoryConfig {
+            return error("In-memory workflow mode is not yet implemented");
+        }
+        // Extract connection parameters based on deployment mode
+        string url;
+        string namespace;
+        WorkerConfig workerCfg;
+        string apiKey = "";
+        string mtlsCert = "";
+        string mtlsKey = "";
+        if config is CloudConfig {
+            url = config.url;
+            namespace = config.namespace;
+            workerCfg = config.params;
+            apiKey = config.auth.apiKey ?: "";
+            mtlsCert = config.auth.mtlsCert ?: "";
+            mtlsKey = config.auth.mtlsKey ?: "";
+        } else if config is SelfHostedConfig {
+            url = config.url;
+            namespace = config.namespace;
+            workerCfg = config.params;
+            if config.auth is AuthConfig {
+                AuthConfig auth = <AuthConfig>config.auth;
+                apiKey = auth.apiKey ?: "";
+                mtlsCert = auth.mtlsCert ?: "";
+                mtlsKey = auth.mtlsKey ?: "";
+            }
+        } else {
+            LocalConfig localCfg = config;
+            url = localCfg.url;
+            namespace = localCfg.namespace;
+            workerCfg = localCfg.params;
+        }
+        check initWorkerNative(url, namespace, workerCfg.taskQueue,
+                workerCfg.maxConcurrentWorkflows, workerCfg.maxConcurrentActivities,
+                apiKey, mtlsCert, mtlsKey);
         workerStarted = true;
     }
 }
 ```
 
-#### Configuration Example (Config.toml)
+#### Configuration Examples (Config.toml)
+
+**Local (default):**
 ```toml
 [ballerina.workflow.workflowConfig]
-provider = "TEMPORAL"
+mode = "LOCAL"
 url = "localhost:7233"
 namespace = "default"
 
@@ -96,6 +139,35 @@ namespace = "default"
 taskQueue = "my-task-queue"
 maxConcurrentWorkflows = 50
 maxConcurrentActivities = 50
+```
+
+**Cloud with API key:**
+```toml
+[ballerina.workflow.workflowConfig]
+mode = "CLOUD"
+url = "my-ns.my-account.tmprl.cloud:7233"
+namespace = "my-ns.my-account"
+
+[ballerina.workflow.workflowConfig.auth]
+apiKey = "my-api-key"
+
+[ballerina.workflow.workflowConfig.params]
+taskQueue = "my-task-queue"
+```
+
+**Self-hosted with mTLS:**
+```toml
+[ballerina.workflow.workflowConfig]
+mode = "SELF_HOSTED"
+url = "temporal.mycompany.com:7233"
+namespace = "production"
+
+[ballerina.workflow.workflowConfig.auth]
+mtlsCert = "/path/to/client.pem"
+mtlsKey = "/path/to/client.key"
+
+[ballerina.workflow.workflowConfig.params]
+taskQueue = "my-task-queue"
 ```
 
 ### 2. Native Layer
@@ -130,7 +202,10 @@ public static Object initSingletonWorker(
         BString namespace,
         BString workerTaskQueue,
         long maxConcurrentWorkflows,
-        long maxConcurrentActivities) {
+        long maxConcurrentActivities,
+        BString apiKey,
+        BString mtlsCert,
+        BString mtlsKey) {
     
     if (!initialized.compareAndSet(false, true)) {
         LOGGER.debug("Singleton worker already initialized");
@@ -139,10 +214,26 @@ public static Object initSingletonWorker(
 
     try {
         // 1. Create WorkflowServiceStubs (gRPC connection)
-        WorkflowServiceStubsOptions stubsOptions = WorkflowServiceStubsOptions.newBuilder()
-            .setTarget(url.getValue())
-            .build();
-        serviceStubs = WorkflowServiceStubs.newServiceStubs(stubsOptions);
+        WorkflowServiceStubsOptions.Builder stubsBuilder = WorkflowServiceStubsOptions.newBuilder()
+            .setTarget(url.getValue());
+
+        // Configure mTLS if certificate and key are provided
+        if (!mtlsCert.getValue().isEmpty() && !mtlsKey.getValue().isEmpty()) {
+            SslContext sslContext = SslContextBuilder.forClient()
+                .keyManager(new FileInputStream(mtlsCert.getValue()),
+                            new FileInputStream(mtlsKey.getValue()))
+                .build();
+            stubsBuilder.setSslContext(sslContext);
+            stubsBuilder.setEnableHttps(true);
+        }
+
+        // Configure API key authentication if provided
+        if (!apiKey.getValue().isEmpty()) {
+            stubsBuilder.addApiKey(() -> apiKey.getValue());
+            stubsBuilder.setEnableHttps(true);
+        }
+
+        serviceStubs = WorkflowServiceStubs.newServiceStubs(stubsBuilder.build());
 
         // 2. Create WorkflowClient
         workflowClient = WorkflowClient.newInstance(serviceStubs,
@@ -150,10 +241,8 @@ public static Object initSingletonWorker(
                 .setNamespace(namespace.getValue())
                 .build());
 
-        // 3. Create WorkerFactory
+        // 3. Create WorkerFactory and Worker
         workerFactory = WorkerFactory.newInstance(workflowClient);
-
-        // 4. Create Worker with task queue
         taskQueue = workerTaskQueue.getValue();
         WorkerOptions options = WorkerOptions.newBuilder()
             .setMaxConcurrentWorkflowTaskExecutionSize((int) maxConcurrentWorkflows)
@@ -161,7 +250,6 @@ public static Object initSingletonWorker(
             .build();
         singletonWorker = workerFactory.newWorker(taskQueue, options);
 
-        LOGGER.info("Singleton worker initialized - TaskQueue: {}", taskQueue);
         return null;
     } catch (Exception e) {
         initialized.set(false);
@@ -262,6 +350,8 @@ The compiler plugin has **no direct involvement** in the singleton worker patter
    └─> init() called
        ├─> initModule() - capture module reference
        └─> initSingletonWorker()
+           ├─> Extract config from WorkflowConfig union type
+           ├─> Configure auth (mTLS/API key) if provided
            ├─> initWorkerNative()
            └─> Creates: WorkflowServiceStubs, WorkflowClient, WorkerFactory, Worker
 
@@ -277,10 +367,10 @@ The compiler plugin has **no direct involvement** in the singleton worker patter
 3. Module Start
    └─> 'start() called
        └─> startWorker()
-           └─> workerFactory.start() - begin polling Temporal
+           └─> workerFactory.start() - begin polling for tasks
 
 4. Runtime Execution
-   ├─> run() → WorkflowClient.start() → Temporal creates workflow
+   ├─> run() → WorkflowClient.start() → creates workflow
    └─> Worker polls task → BallerinaWorkflowAdapter.execute()
        └─> PROCESS_REGISTRY.get(workflowType) → calls Ballerina function
 
@@ -293,7 +383,7 @@ The compiler plugin has **no direct involvement** in the singleton worker patter
 
 ## Key Design Points
 
-1. **One Worker Per JVM**: The singleton pattern ensures only one Temporal worker exists
+1. **One Worker Per JVM**: The singleton pattern ensures only one workflow worker exists
 2. **Lazy Registration**: Workflows/activities are registered during code generation phase
 3. **Eager Initialization**: Worker is created at module init (before `start()`)
 4. **Late Start**: Worker only starts polling after all registrations complete

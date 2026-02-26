@@ -45,5 +45,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - New `workflow:searchWorkflow()` function to find workflows by correlation keys:
   `searchWorkflow(function workflow, map<anydata> correlationKeys) returns string|error`
+- **[Breaking]** Redesigned `WorkflowConfig` as a union type supporting four deployment modes:
+  - `LocalConfig` - Local development server (default, replaces previous flat config)
+  - `CloudConfig` - Managed cloud deployment with mandatory authentication
+  - `SelfHostedConfig` - Self-hosted server with optional authentication
+  - `InMemoryConfig` - Lightweight in-memory engine (not yet implemented)
+- Added `WorkerConfig` record type (replaces `TemporalParams`) with `taskQueue`, `maxConcurrentWorkflows`, `maxConcurrentActivities`
+- Added mTLS and API key authentication support for cloud and self-hosted deployments
+- Config.toml now uses `mode` field instead of `provider`, and `worker` section instead of `params`
+
+### Removed
+
+- Removed `Provider` enum and `TemporalParams` record type (replaced by union-based `WorkflowConfig`)
+- Removed provider-specific terminology from public API documentation
 
 ### Fixed

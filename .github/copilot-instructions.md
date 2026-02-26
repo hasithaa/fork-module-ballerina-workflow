@@ -15,7 +15,7 @@ A Ballerina standard library module providing durable workflow orchestration via
 
 **Dynamic Workflow/Activity Adapters**: All workflows route through `BallerinaWorkflowAdapter` (implements `DynamicWorkflow`), all activities through `BallerinaActivityAdapter` (implements `DynamicActivity`). See [WorkflowWorkerNative.java](native/src/main/java/io/ballerina/stdlib/workflow/worker/WorkflowWorkerNative.java).
 
-**Singleton Worker**: One Temporal SDK instance per JVM, initialized at module load via configurable variables. No Listener pattern - use `registerProcess()` + `startWorker()`.
+**Singleton Worker**: One workflow SDK instance per JVM, initialized at module load via configurable variables. No Listener pattern - use `registerProcess()` + `startWorker()`.
 
 **Annotations**: `@Workflow`, `@Activity`, and `@CorrelationKey` (for marking correlation fields on record types).
 
@@ -134,8 +134,8 @@ fpValue.metadata = new StrandMetadata(true, fpValue.metadata.properties());
 ### Test Infrastructure
 
 **Module Structure:**
-- `ballerina/tests/` - Unit tests (registration, introspection, no Temporal server needed)
-- `integration-tests/tests/` - Integration tests with actual Temporal workflow execution
+- `ballerina/tests/` - Unit tests (registration, introspection, no workflow server needed)
+- `integration-tests/tests/` - Integration tests with actual workflow execution
 - `compiler-plugin-tests/` - Compiler plugin validation tests
 
 **Integration Tests** use a Temporal CLI dev server managed by Gradle:
@@ -143,20 +143,44 @@ fpValue.metadata = new StrandMetadata(true, fpValue.metadata.properties());
 2. Writes `tests/Config.toml` with server URL
 3. Ballerina tests connect via configurable
 4. `stopSharedTestServer` runs on completion (even on failure via `buildFinished` listener)
-5. **Prerequisite**: `temporal` CLI must be in PATH (install via `brew install temporal` on macOS or `curl -sSf https://temporal.download/cli | sh` on Linux)
+5. **Prerequisite**: `temporal` CLI must be in PATH
 
 ## Configuration
 
-Via `Config.toml` or programmatic defaults:
+Via `Config.toml` or programmatic defaults. The `WorkflowConfig` is a union type supporting four deployment modes:
+
+**Local (default):**
 ```toml
 [ballerina.workflow.workflowConfig]
-provider = "TEMPORAL"
+mode = "LOCAL"
 url = "localhost:7233"
 namespace = "default"
 
 [ballerina.workflow.workflowConfig.params]
 taskQueue = "BALLERINA_WORKFLOW_TASK_QUEUE"
 maxConcurrentWorkflows = 100
+```
+
+**Cloud with API key:**
+```toml
+[ballerina.workflow.workflowConfig]
+mode = "CLOUD"
+url = "my-ns.my-account.tmprl.cloud:7233"
+namespace = "my-ns.my-account"
+
+[ballerina.workflow.workflowConfig.auth]
+apiKey = "my-api-key"
+```
+
+**Self-hosted with mTLS:**
+```toml
+[ballerina.workflow.workflowConfig]
+mode = "SELF_HOSTED"
+url = "temporal.mycompany.com:7233"
+
+[ballerina.workflow.workflowConfig.auth]
+mtlsCert = "/path/to/client.pem"
+mtlsKey = "/path/to/client.key"
 ```
 
 ## Version Requirements

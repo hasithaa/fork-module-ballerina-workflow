@@ -59,7 +59,7 @@ function initModule() = @java:Method {
 } external;
 
 # Initializes the singleton workflow worker with the configured settings.
-# This creates the Temporal client and worker that will be shared across
+# This creates the workflow client and worker that will be shared across
 # all workflow executions in this runtime.
 #
 # + return - An error if initialization fails, otherwise nil
@@ -68,31 +68,69 @@ isolated function initSingletonWorker() returns error? {
         if workerStarted {
             return;
         }
-        check initWorkerNative(
-                workflowConfig.url,
-                workflowConfig.namespace,
-                workflowConfig.params.taskQueue,
-                workflowConfig.params.maxConcurrentWorkflows,
-                workflowConfig.params.maxConcurrentActivities
-        );
+        WorkflowConfig config = workflowConfig;
+        if config is InMemoryConfig {
+            // In-memory mode: no external server needed
+            return error("In-memory workflow mode is not yet implemented");
+        }
+        // Extract connection parameters based on deployment mode
+        string url;
+        string namespace;
+        WorkerConfig workerCfg;
+        string apiKey = "";
+        string mtlsCert = "";
+        string mtlsKey = "";
+        if config is CloudConfig {
+            url = config.url;
+            namespace = config.namespace;
+            workerCfg = config.params;
+            apiKey = config.auth.apiKey ?: "";
+            mtlsCert = config.auth.mtlsCert ?: "";
+            mtlsKey = config.auth.mtlsKey ?: "";
+        } else if config is SelfHostedConfig {
+            url = config.url;
+            namespace = config.namespace;
+            workerCfg = config.params;
+            if config.auth is AuthConfig {
+                AuthConfig auth = <AuthConfig>config.auth;
+                apiKey = auth.apiKey ?: "";
+                mtlsCert = auth.mtlsCert ?: "";
+                mtlsKey = auth.mtlsKey ?: "";
+            }
+        } else {
+            // LocalConfig
+            LocalConfig localCfg = <LocalConfig>config;
+            url = localCfg.url;
+            namespace = localCfg.namespace;
+            workerCfg = localCfg.params;
+        }
+        check initWorkerNative(url, namespace, workerCfg.taskQueue,
+                workerCfg.maxConcurrentWorkflows, workerCfg.maxConcurrentActivities,
+                apiKey, mtlsCert, mtlsKey);
         workerStarted = true;
     }
 }
 
 # Native function to initialize the singleton worker.
 #
-# + url - The Temporal server URL
-# + namespace - The Temporal namespace
+# + url - The workflow server URL
+# + namespace - The workflow namespace
 # + taskQueue - The task queue name
 # + maxConcurrentWorkflows - Maximum concurrent workflow executions
 # + maxConcurrentActivities - Maximum concurrent activity executions
+# + apiKey - API key for authentication (empty string if not used)
+# + mtlsCert - Path to mTLS certificate file (empty string if not used)
+# + mtlsKey - Path to mTLS private key file (empty string if not used)
 # + return - An error if initialization fails, otherwise nil
 isolated function initWorkerNative(
         string url,
         string namespace,
         string taskQueue,
         int maxConcurrentWorkflows,
-        int maxConcurrentActivities
+        int maxConcurrentActivities,
+        string apiKey,
+        string mtlsCert,
+        string mtlsKey
 ) returns error? = @java:Method {
     'class: "io.ballerina.stdlib.workflow.worker.WorkflowWorkerNative",
     name: "initSingletonWorker"

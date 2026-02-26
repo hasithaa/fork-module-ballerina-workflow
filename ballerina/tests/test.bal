@@ -17,7 +17,7 @@
 import ballerina/test;
 
 // Note: Module-level tests focus on registration and introspection.
-// These tests work with the lazy gRPC connection (no active Temporal server needed).
+// These tests work with the lazy gRPC connection (no active workflow server needed).
 // For workflow execution tests (run, sendData), a separate integration test 
 // suite should be created that initializes the embedded test server before registering workflows.
 //
@@ -422,10 +422,10 @@ function testInlineRecordWithActivities() returns error? {
 }
 
 // ============================================================================
-// Workflow Run Tests (require Temporal server - marked for integration)
+// Workflow Run Tests (require workflow server - marked for integration)
 // ============================================================================
 // Note: These tests validate the run API's input validation.
-// Without a running Temporal server, they will get connection errors.
+// Without a running workflow server, they will get connection errors.
 // Full workflow execution tests are in integration-tests module.
 
 // Separate unregistered process for testing run with unregistered process
@@ -437,7 +437,7 @@ function unregisteredProcess(string input) returns string|error {
 @test:Config {groups: ["unit"]}
 function testRunWithUnregisteredProcess() returns error? {
     // Attempt to start a workflow with a process that was NOT registered
-    WorkflowData input = {id: "test-workflow-001"};
+    map<string> input = {id: "test-workflow-001"};
     
     string|error result = run(unregisteredProcess, input);
     
@@ -467,17 +467,17 @@ function testRunWithMissingId() returns error? {
 @test:Config {groups: ["unit"]}
 function testRunWithValidInput() returns error? {
     // Prepare valid input with required 'id' field
-    WorkflowData input = {id: "test-workflow-002", "name": "TestUser"};
+    map<string> input = {id: "test-workflow-002", "name": "TestUser"};
     
-    // This will attempt to connect to Temporal server
-    // Without a running Temporal server, we expect a connection error
+    // This will attempt to connect to the workflow server
+    // Without a running workflow server, we expect a connection error
     string|error result = run(simpleWorkflowProcess, input);
     
     // The result could be:
-    // 1. A workflow ID string if Temporal is running (integration test environment)
+    // 1. A workflow ID string if server is running (integration test environment)
     // 2. An error due to connection failure (expected in unit test environment)
     if result is string {
-        // If Temporal is running, the workflow ID should match our input id
+        // If server is running, the workflow ID should match our input id
         test:assertEquals(result, "test-workflow-002", "Workflow ID should match input id");
     }
     // Either way, the test passes - we're validating the API works correctly

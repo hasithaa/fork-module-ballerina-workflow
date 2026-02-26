@@ -54,6 +54,9 @@ import io.temporal.workflow.Workflow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -121,11 +124,14 @@ public final class WorkflowWorkerNative {
      * Initialize the singleton workflow worker.
      * This is called during Ballerina module initialization with configuration from configurable variables.
      *
-     * @param url Temporal server URL
-     * @param namespace Temporal namespace
+     * @param url Workflow server URL
+     * @param namespace Workflow namespace
      * @param workerTaskQueue Task queue for the worker
      * @param maxConcurrentWorkflows Maximum concurrent workflow executions
      * @param maxConcurrentActivities Maximum concurrent activity executions
+     * @param apiKey API key for authentication (empty string if not used)
+     * @param mtlsCert Path to mTLS certificate file (empty string if not used)
+     * @param mtlsKey Path to mTLS private key file (empty string if not used)
      * @return null on success, error on failure
      */
     public static Object initSingletonWorker(
@@ -133,7 +139,10 @@ public final class WorkflowWorkerNative {
             BString namespace,
             BString workerTaskQueue,
             long maxConcurrentWorkflows,
-            long maxConcurrentActivities) {
+            long maxConcurrentActivities,
+            BString apiKey,
+            BString mtlsCert,
+            BString mtlsKey) {
 
         if (!initialized.compareAndSet(false, true)) {
             LOGGER.debug("Singleton worker already initialized");
@@ -144,14 +153,43 @@ public final class WorkflowWorkerNative {
             String serverUrl = url.getValue();
             String ns = namespace.getValue();
             taskQueue = workerTaskQueue.getValue();
+            String apiKeyValue = apiKey.getValue();
+            String mtlsCertPath = mtlsCert.getValue();
+            String mtlsKeyPath = mtlsKey.getValue();
 
             LOGGER.debug("Initializing singleton workflow worker - URL: {}, Namespace: {}, TaskQueue: {}",
                     serverUrl, ns, taskQueue);
 
-            // Create service stubs (connection to Temporal server)
-            WorkflowServiceStubsOptions stubsOptions = WorkflowServiceStubsOptions.newBuilder()
-                    .setTarget(serverUrl)
-                    .build();
+            // Create service stubs (connection to workflow server)
+            WorkflowServiceStubsOptions.Builder stubsBuilder = WorkflowServiceStubsOptions.newBuilder()
+                    .setTarget(serverUrl);
+
+            // Configure mTLS if certificate and key are provided
+            if (!mtlsCertPath.isEmpty() && !mtlsKeyPath.isEmpty()) {
+                try (InputStream certStream = new FileInputStream(mtlsCertPath);
+                     InputStream keyStream = new FileInputStream(mtlsKeyPath)) {
+                    io.grpc.netty.shaded.io.netty.handler.ssl.SslContext sslContext =
+                            io.grpc.netty.shaded.io.netty.handler.ssl.SslContextBuilder.forClient()
+                                    .keyManager(certStream, keyStream)
+                                    .build();
+                    stubsBuilder.setSslContext(sslContext);
+                    stubsBuilder.setEnableHttps(true);
+                    LOGGER.debug("mTLS configured with cert: {} and key: {}", mtlsCertPath, mtlsKeyPath);
+                } catch (IOException e) {
+                    initialized.set(false);
+                    return ErrorCreator.createError(
+                            StringUtils.fromString("Failed to configure mTLS: " + e.getMessage()));
+                }
+            }
+
+            // Configure API key authentication if provided
+            if (!apiKeyValue.isEmpty()) {
+                stubsBuilder.addApiKey(() -> apiKeyValue);
+                stubsBuilder.setEnableHttps(true);
+                LOGGER.debug("API key authentication configured");
+            }
+
+            WorkflowServiceStubsOptions stubsOptions = stubsBuilder.build();
             serviceStubs = WorkflowServiceStubs.newServiceStubs(stubsOptions);
 
             // Create workflow client

@@ -51,7 +51,7 @@ function processOrderWithPayment(
     }
 
     // Step 2: Wait for payment signal using Ballerina's native wait
-    // The field name 'paymentReceived' maps to the Temporal signal name
+    // The field name 'paymentReceived' maps to the signal name
     io:println(string `[Workflow] Waiting for payment for order: ${request.orderId}`);
     PaymentConfirmation payment = check wait events.paymentReceived;
     

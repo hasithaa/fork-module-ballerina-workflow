@@ -102,7 +102,7 @@ The Workflow library requires a running Temporal server. You can configure the c
 
 ```toml
 [ballerina.workflow.workflowConfig]
-provider = "TEMPORAL"
+mode = "LOCAL"
 url = "localhost:7233"
 namespace = "default"
 
@@ -112,9 +112,9 @@ maxConcurrentWorkflows = 100
 ```
 
 **Configuration Parameters:**
-- `provider` - Workflow provider (currently only "TEMPORAL" is supported)
-- `url` - Temporal server address (default: `localhost:7233`)
-- `namespace` - Temporal namespace (default: `default`)
+- `mode` - Deployment mode: `LOCAL`, `CLOUD`, `SELF_HOSTED`, or `IN_MEMORY`
+- `url` - Workflow server address (default: `localhost:7233`)
+- `namespace` - Workflow namespace (default: `default`)
 - `taskQueue` - Task queue name for workflow and activity execution
 - `maxConcurrentWorkflows` - Maximum number of concurrent workflow executions
 

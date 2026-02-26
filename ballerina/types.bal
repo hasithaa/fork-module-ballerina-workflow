@@ -14,47 +14,95 @@
 // specific language governing permissions and limitations
 // under the License.
 
-# Supported workflow providers.
-public enum Provider {
-    TEMPORAL
-}
+# Configuration for connecting to a local development server.
+# Defaults are tuned for a locally running workflow server (e.g., `temporal server start-dev`).
+#
+# + mode - Deployment mode identifier (always "LOCAL")
+# + url - Server URL (default: "localhost:7233")
+# + namespace - Workflow namespace (default: "default")
+# + params - Worker configuration parameters
+public type LocalConfig record {|
+    "LOCAL" mode = "LOCAL";
+    string url = "localhost:7233";
+    string namespace = "default";
+    WorkerConfig params = {};
+|};
 
-# Temporal-specific configuration parameters.
+# Configuration for connecting to a managed cloud deployment.
+# All connection and authentication parameters are mandatory.
+#
+# + mode - Deployment mode identifier (always "CLOUD")
+# + url - Cloud server URL (e.g., "<namespace>.<account>.tmprl.cloud:7233")
+# + namespace - Cloud namespace (e.g., "<namespace>.<account>")
+# + auth - Authentication configuration (required for cloud)
+# + params - Worker configuration parameters
+public type CloudConfig record {|
+    "CLOUD" mode;
+    string url;
+    string namespace;
+    AuthConfig auth;
+    WorkerConfig params = {};
+|};
+
+# Configuration for connecting to a self-hosted server deployment.
+# Supports optional authentication for secured installations.
+#
+# + mode - Deployment mode identifier (always "SELF_HOSTED")
+# + url - Server URL (e.g., "temporal.mycompany.com:7233")
+# + namespace - Workflow namespace (default: "default")
+# + auth - Optional authentication configuration
+# + params - Worker configuration parameters
+public type SelfHostedConfig record {|
+    "SELF_HOSTED" mode;
+    string url;
+    string namespace = "default";
+    AuthConfig? auth = ();
+    WorkerConfig params = {};
+|};
+
+# Configuration for an in-memory workflow engine.
+# No external server is required. Workflows are not persisted and will be lost on restart.
+# Signal-based communication is not supported in this mode.
+#
+# + mode - Deployment mode identifier (always "IN_MEMORY")
+public type InMemoryConfig record {|
+    "IN_MEMORY" mode = "IN_MEMORY";
+|};
+
+# Workflow module configuration.
+# A union of deployment-specific configuration records, discriminated by the `mode` field.
+#
+# Supported modes:
+# - `LOCAL` - Local development server (default)
+# - `CLOUD` - Managed cloud deployment with mandatory authentication
+# - `SELF_HOSTED` - Self-hosted server with optional authentication
+# - `IN_MEMORY` - Lightweight in-memory engine (no persistence, no signals)
+public type WorkflowConfig LocalConfig|CloudConfig|SelfHostedConfig|InMemoryConfig;
+
+# Worker configuration parameters.
 #
 # + taskQueue - The task queue for workflow execution (default: "BALLERINA_WORKFLOW_TASK_QUEUE")
 # + maxConcurrentWorkflows - Maximum number of concurrent workflow executions (default: 100)
 # + maxConcurrentActivities - Maximum number of concurrent activity executions (default: 100)
-# + authentication - Optional authentication configuration
-public type TemporalParams record {|
+public type WorkerConfig record {|
     string taskQueue = "BALLERINA_WORKFLOW_TASK_QUEUE";
     int maxConcurrentWorkflows = 100;
     int maxConcurrentActivities = 100;
-    AuthConfig? authentication = ();
 |};
 
-# Authentication configuration for workflow provider.
+# Authentication configuration for workflow server connections.
 #
-# + apiKey - Optional API key for authentication
-# + mtlsCert - Optional mTLS certificate path
-# + mtlsKey - Optional mTLS private key path
+# Supports API key authentication and mutual TLS (mTLS).
+# For cloud deployments, provide either an API key or mTLS certificate/key pair.
+# For self-hosted deployments, configure based on your server's security setup.
+#
+# + apiKey - API key for bearer token authentication
+# + mtlsCert - Path to the mTLS client certificate file
+# + mtlsKey - Path to the mTLS client private key file
 public type AuthConfig record {|
     string? apiKey = ();
     string? mtlsCert = ();
     string? mtlsKey = ();
-|};
-
-# Workflow module configuration.
-# This is a generic configuration that can support multiple providers.
-#
-# + provider - The workflow provider to use (currently only TEMPORAL is supported)
-# + url - URL of the workflow server (default: "localhost:7233")
-# + namespace - Workflow namespace (default: "default")
-# + params - Provider-specific parameters
-public type WorkflowConfig record {|
-    Provider provider = TEMPORAL;
-    string url = "localhost:7233";
-    string namespace = "default";
-    TemporalParams params = {};
 |};
 
 # Information about a registered workflow process.
@@ -71,50 +119,6 @@ type ProcessRegistration record {
 # Information about all registered workflows.
 # This is a map where keys are process names and values are their registration info.
 type WorkflowRegistry map<ProcessRegistration>;
-
-# Base input data type for workflow and signal data.
-# All workflow inputs and signal data must include a mandatory "id" field
-# which is used internally by the workflow engine for correlation.
-# This is a type alias for documentation purposes - use `map<anydata>` with "id" field.
-#
-# Expected structure:
-# ```
-# {
-#     id: "unique-identifier",
-#     ... // other fields
-# }
-# ```
-#
-# + id - Unique identifier for the workflow instance or signal (used for correlation)
-public type InputData record {|
-    string id;
-    anydata...;
-|};
-
-# Workflow input data type alias.
-# Used when starting a workflow. The "id" field becomes the workflow ID in Temporal.
-public type WorkflowData InputData;
-
-# Signal input data type alias.
-# Used when sending signals. The "id" field identifies the target workflow instance.
-public type SignalData InputData;
-
-# Type constraint for process input with correlation keys.
-# Use this as a type constraint when you want to enforce correlation key pattern.
-#
-# Example:
-# ```ballerina
-# type MyInput record {|
-#     *workflow:CorrelatedInput;  // Inherit readonly id
-#     string data;
-# |};
-# ```
-#
-# + id - The correlation identifier (readonly for type safety)
-public type CorrelatedInput record {|
-    readonly string id;
-    anydata...;
-|};
 
 # Information about an activity invocation (for testing/introspection).
 # + activityName - The name of the activity that was invoked

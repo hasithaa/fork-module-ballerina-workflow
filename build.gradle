@@ -328,7 +328,7 @@ def writeTestConfig(String path, String serverUrl, boolean isExternal) {
     configFile.text = """# Auto-generated test configuration
 
 [ballerina.workflow.workflowConfig]
-provider = "TEMPORAL"
+mode = "LOCAL"
 url = "${serverUrl}"
 namespace = "default"
 

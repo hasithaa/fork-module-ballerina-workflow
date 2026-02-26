@@ -96,7 +96,8 @@ private static final Map<String, List<String>> EVENT_REGISTRY;
 **Singleton worker management:**
 ```java
 public static Object initSingletonWorker(BString url, BString namespace, 
-    BString taskQueue, long maxWorkflows, long maxActivities);
+    BString taskQueue, long maxWorkflows, long maxActivities,
+    BString apiKey, BString mtlsCert, BString mtlsKey);
 public static Object registerProcessWithWorker(BFunctionPointer processFunc, 
     BString processName, BMap activities);
 public static Object startSingletonWorker();

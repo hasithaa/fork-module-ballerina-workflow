@@ -117,7 +117,7 @@ Each sample uses following workflow executor initialization configuration in `Co
 ```toml
 # Config.toml
 [ballerina.workflow.workflowConfig]
-provider = "TEMPORAL"
+mode = "LOCAL"
 url = "localhost:7233"
 namespace = "default"
 
