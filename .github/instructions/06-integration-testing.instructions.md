@@ -125,7 +125,7 @@ The `startSharedTestServer` task checks port 7233 first. If a server is already 
 ```ballerina
 @test:Config {}
 function testWorkflowExecution() returns error? {
-    string wfId = check workflow:createInstance(orderProcess, {id: "order-1"});
+    string wfId = check workflow:run(orderProcess, {id: "order-1"});
     _ = check workflow:sendData(orderProcess, {id: "order-1", approved: true}, "approval");
     // Wait and verify result
 }

@@ -30,7 +30,7 @@ import ballerina/io;
 # + request - Order request with orderId (readonly for correlation) and item
 # + events - Record containing futures for expected signals
 # + return - Order result or error
-@workflow:Process
+@workflow:Workflow
 function processOrderWithPayment(
     workflow:Context ctx, 
     OrderRequest request,

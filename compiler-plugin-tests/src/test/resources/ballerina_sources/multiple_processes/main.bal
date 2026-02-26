@@ -51,7 +51,7 @@ function logEvent(string eventType, string message) returns boolean|error {
 }
 
 // First process function - user signup
-@workflow:Process
+@workflow:Workflow
 function userSignupProcess(UserSignupInput input) returns UserResult|error {
     // Validate email using activity
     boolean isValid = check validateEmail(input.email);
@@ -69,7 +69,7 @@ function userSignupProcess(UserSignupInput input) returns UserResult|error {
 }
 
 // Second process function - order creation
-@workflow:Process
+@workflow:Workflow
 function orderCreationProcess(OrderInput input) returns OrderResult|error {
     // Log order initiation
     _ = check logEvent("ORDER", "Order started for user " + input.userId);
@@ -81,7 +81,7 @@ function orderCreationProcess(OrderInput input) returns OrderResult|error {
 }
 
 // Third process function - no activity calls
-@workflow:Process
+@workflow:Workflow
 function simpleProcess(string input) returns string {
     return "Processed: " + input;
 }

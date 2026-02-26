@@ -32,7 +32,7 @@ import ballerina/workflow;
 function testSingleNoArgActivityExecution() returns error? {
     string testId = uniqueId("no-arg-single");
     NoArgWorkflowInput input = {id: testId};
-    string workflowId = check workflow:createInstance(singleNoArgActivityWorkflow, input);
+    string workflowId = check workflow:run(singleNoArgActivityWorkflow, input);
     
     // Verify workflow ID is generated
     test:assertTrue(workflowId.length() > 0, "Workflow ID should be generated");
@@ -52,7 +52,7 @@ function testSingleNoArgActivityExecution() returns error? {
 function testMultipleNoArgActivitiesExecution() returns error? {
     string testId = uniqueId("no-arg-multi");
     NoArgWorkflowInput input = {id: testId};
-    string workflowId = check workflow:createInstance(multipleNoArgActivitiesWorkflow, input);
+    string workflowId = check workflow:run(multipleNoArgActivitiesWorkflow, input);
     
     // Verify workflow ID is generated
     test:assertTrue(workflowId.length() > 0, "Workflow ID should be generated");

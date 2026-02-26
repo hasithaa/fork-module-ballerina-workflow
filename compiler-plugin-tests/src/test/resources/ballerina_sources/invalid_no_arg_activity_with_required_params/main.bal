@@ -28,7 +28,7 @@ function processData(string id, int count) returns string|error {
 
 // Process function that incorrectly calls activity without required args
 // This should produce WORKFLOW_109 error for missing required parameters
-@workflow:Process
+@workflow:Workflow
 function invalidNoArgProcess(workflow:Context ctx, ProcessInput input) returns string|error {
     // ERROR: Calling activity that requires parameters with empty args record
     string result = check ctx->callActivity(processData, {});

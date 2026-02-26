@@ -34,7 +34,7 @@ type TestResult record {|
 |};
 
 // Process with three signals of same type - ambiguous
-@workflow:Process
+@workflow:Workflow
 function threeAmbiguousSignalProcess(
     workflow:Context ctx,
     TestInput input,

@@ -22,7 +22,7 @@ applyTo: "**/build.gradle,**/gradle.properties,**/Ballerina.toml"
 module-ballerina-workflow/
 ├── ballerina/              # Core Ballerina module (types, annotations, API)
 ├── native/                 # Java native implementation (Temporal integration)
-├── compiler-plugin/        # @Process/@Activity validation plugin
+├── compiler-plugin/        # @Workflow/@Activity validation plugin
 ├── compiler-plugin-tests/  # Compiler plugin test suite
 ├── integration-tests/      # Full workflow integration tests
 ├── build-config/           # Shared build configuration (checkstyle, spotbugs)

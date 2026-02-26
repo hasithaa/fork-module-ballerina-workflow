@@ -34,7 +34,7 @@ function validateOrderActivity(OrderInput input) returns boolean|error {
 // Invalid: Process function that directly calls @Activity function
 // This should produce WORKFLOW_108 error
 // Users must use ctx->callActivity(activityFunc, args...) instead
-@workflow:Process
+@workflow:Workflow
 function orderProcess(workflow:Context ctx, OrderInput input) returns OrderResult|error {
     // ERROR: Direct call to @Activity function is not allowed
     boolean isValid = check validateOrderActivity(input);

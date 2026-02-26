@@ -46,7 +46,7 @@ function processData(string id) returns string|error {
 }
 
 // Process function that calls activities - both with and without args
-@workflow:Process
+@workflow:Workflow
 function noArgActivityProcess(workflow:Context ctx, ProcessInput input) returns ProcessResult|error {
     // Call activity WITHOUT args (passing empty record for no-arg activity)
     string timestamp = check ctx->callActivity(getCurrentTimestamp, {});

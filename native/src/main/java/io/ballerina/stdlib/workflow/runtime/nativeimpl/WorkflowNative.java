@@ -58,7 +58,7 @@ import java.util.concurrent.TimeUnit;
  * defined in the Ballerina workflow module:
  * <ul>
  *   <li>callActivity - Execute an activity within a workflow</li>
- *   <li>createInstance - Start a new workflow process</li>
+ *   <li>run - Start a new workflow</li>
  *   <li>sendData - Send data to a running workflow</li>
  *   <li>registerProcess - Register a process function with the runtime</li>
  * </ul>
@@ -72,9 +72,9 @@ public final class WorkflowNative {
     }
 
     /**
-     * Native implementation for createInstance function.
+     * Native implementation for run function.
      * <p>
-     * Starts a new workflow process with the given input.
+     * Starts a new workflow with the given input.
      * Returns the workflow ID that can be used to track and interact with the workflow.
      * <p>
      * Automatically starts the singleton worker if not already started.
@@ -84,7 +84,7 @@ public final class WorkflowNative {
      * @param input the optional input data for the process (nil or map)
      * @return the workflow ID as a string, or an error
      */
-    public static Object createInstance(Environment env, BFunctionPointer processFunction,
+    public static Object run(Environment env, BFunctionPointer processFunction,
                                         Object input) {
         return env.yieldAndRun(() -> {
             CompletableFuture<Object> balFuture = new CompletableFuture<>();

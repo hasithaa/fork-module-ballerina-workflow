@@ -40,7 +40,7 @@ type TestResult record {|
 |};
 
 // Valid: Process with ambiguous signal types BUT sendEvent provides explicit signalName
-@workflow:Process
+@workflow:Workflow
 function ambiguousSignalProcess(
     workflow:Context ctx,
     TestInput input,

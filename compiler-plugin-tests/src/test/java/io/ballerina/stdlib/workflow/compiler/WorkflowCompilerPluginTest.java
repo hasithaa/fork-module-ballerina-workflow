@@ -32,8 +32,8 @@ import java.nio.file.Paths;
 
 /**
  * Tests for workflow compiler plugin.
- * Tests the code modifier that detects @Process functions and transforms @Activity calls.
- * Also tests the validator that checks @Process and @Activity function signatures.
+ * Tests the code modifier that detects @Workflow functions and transforms @Activity calls.
+ * Also tests the validator that checks @Workflow and @Activity function signatures.
  *
  * @since 0.1.0
  */
@@ -158,7 +158,7 @@ public class WorkflowCompilerPluginTest {
         String packagePath = "invalid_direct_activity_call";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertTrue(diagnosticResult.errorCount() > 0,
-                "Expected validation error for direct @Activity function call in @Process function");
+                "Expected validation error for direct @Activity function call in @Workflow function");
         assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_108);
     }
 

@@ -33,7 +33,7 @@ type OrderResult record {|
 |};
 
 // Process with events but NO @CorrelationKey fields
-@workflow:Process
+@workflow:Workflow
 function orderProcessNoCorrelation(
     workflow:Context ctx,
     OrderInput input,

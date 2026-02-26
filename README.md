@@ -20,12 +20,12 @@ The Workflow library facilitates building stateful, durable workflows that can s
 
 ### Key Features
 
-#### @Process Annotation
+#### @Workflow Annotation
 
 Marks a function as a workflow process. Process functions define the workflow orchestration logic:
 
 ```ballerina
-@workflow:Process
+@workflow:Workflow
 function processOrder(workflow:Context ctx, OrderRequest request) returns OrderResult|error {
     // Deterministic workflow orchestration logic
     InventoryStatus inventory = check ctx->callActivity(checkInventory, {item: request.item, quantity: request.quantity});
@@ -77,7 +77,7 @@ public type PaymentEvent record {|
     decimal amount;
 |};
 
-@workflow:Process
+@workflow:Workflow
 function processOrderWithPayment(
     workflow:Context ctx, 
     OrderInput input,

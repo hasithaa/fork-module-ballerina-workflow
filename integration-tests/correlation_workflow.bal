@@ -143,7 +143,7 @@ function validatePaymentActivity(string orderId, decimal amount) returns boolean
 # + input - The workflow input with correlation keys
 # + signals - Record containing futures for each expected signal
 # + return - The order result or error
-@workflow:Process
+@workflow:Workflow
 function correlatedOrderWorkflow(
     workflow:Context ctx, 
     CorrelatedOrderInput input,
@@ -231,7 +231,7 @@ type SimpleCorrelatedResult record {|
 # + input - The input with single readonly correlation key
 # + signals - Record with the response signal future
 # + return - The result or error
-@workflow:Process
+@workflow:Workflow
 function simpleCorrelatedWorkflow(
     workflow:Context ctx,
     SimpleCorrelatedInput input,

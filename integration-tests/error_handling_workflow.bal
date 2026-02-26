@@ -70,7 +70,7 @@ function successActivity(string name) returns string|error {
 # + ctx - The workflow context for calling activities
 # + input - The workflow input with error control flag
 # + return - Result message or error
-@workflow:Process
+@workflow:Workflow
 function errorHandlingWorkflow(workflow:Context ctx, ErrorHandlingInput input) returns string|error {
     if input.shouldFail {
         string|error result = ctx->callActivity(failingActivity, {"reason": "Intentional failure"});

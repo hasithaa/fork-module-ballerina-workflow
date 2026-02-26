@@ -35,7 +35,7 @@ type OrderResult record {|
 
 // Valid: Process with events but NO @CorrelationKey fields.
 // This is valid because signals can be routed via workflowId + signalName.
-@workflow:Process
+@workflow:Workflow
 function orderProcessNoCorrelation(
     workflow:Context ctx,
     OrderInput input,

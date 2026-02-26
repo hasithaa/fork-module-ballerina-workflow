@@ -45,8 +45,7 @@ service /orders on new http:Listener(9094) {
     # Body: {"orderId": "ORD-001", "item": "laptop"}
     # ```
     resource function post .(OrderRequest request) returns json|error {
-        // Start workflow using @workflow:Process function
-        string workflowId = check workflow:createInstance(processOrderWithPayment, request);
+        string workflowId = check workflow:run(processOrderWithPayment, request);
 
         io:println(string `Started order workflow: ${workflowId}`);
 

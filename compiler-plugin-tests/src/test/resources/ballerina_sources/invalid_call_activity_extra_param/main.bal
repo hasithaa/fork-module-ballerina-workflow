@@ -33,7 +33,7 @@ function processOrder(string orderId) returns boolean|error {
 
 // Invalid: Process function calling ctx->callActivity() with extra parameter
 // This should produce WORKFLOW_110 error
-@workflow:Process
+@workflow:Workflow
 function orderProcess(workflow:Context ctx, OrderInput input) returns OrderResult|error {
     // ERROR: Extra parameter 'quantity' - not in activity function signature
     boolean isValid = check ctx->callActivity(processOrder, {"orderId": input.orderId, "quantity": input.quantity});

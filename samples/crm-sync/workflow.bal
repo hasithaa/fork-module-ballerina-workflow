@@ -29,7 +29,7 @@ import ballerina/io;
 # + ctx - Workflow context for calling activities
 # + contact - Source contact to sync
 # + return - Sync result or error
-@workflow:Process
+@workflow:Workflow
 function syncContact(workflow:Context ctx, SourceContact contact) returns SyncResult|error {
     io:println(string `[Workflow] Starting contact sync for: ${contact.email}`);
 

@@ -7,7 +7,7 @@ This directory contains vendor-neutral workflow samples demonstrating the Baller
 ### 1. Order Processing (`order-processing/`)
 
 Simple order processing workflow demonstrating:
-- Basic workflow structure with @Process and @Activity
+- Basic workflow structure with @Workflow and @Activity
 - Inventory checking and stock reservation
 - Error handling and validation
 - Mock inventory backend
@@ -81,12 +81,12 @@ sample-name/
 
 ## Key Concepts
 
-### @Process Annotation
+### @Workflow Annotation
 
 Marks the workflow entry point:
 
 ```ballerina
-@workflow:Process
+@workflow:Workflow
 function processOrder(workflow:Context ctx, OrderRequest request) returns OrderResult|error {
     // Workflow orchestration logic
 }
@@ -164,7 +164,7 @@ type PaymentEvent record {|
 
 ```ballerina
 // In workflow - use events record with future<T> fields
-@workflow:Process
+@workflow:Workflow
 function orderProcess(
     workflow:Context ctx,
     OrderInput input,

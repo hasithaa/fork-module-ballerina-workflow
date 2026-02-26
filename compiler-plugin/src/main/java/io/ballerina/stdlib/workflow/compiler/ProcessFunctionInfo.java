@@ -22,7 +22,7 @@ import java.util.Collections;
 import java.util.Map;
 
 /**
- * Holds information about a @Process annotated function.
+ * Holds information about a @Workflow annotated function.
  * <p>
  * Contains the function name and a map of activity functions called within it.
  *

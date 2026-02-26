@@ -15,7 +15,7 @@ Inspired by CRM integration patterns used in automation platforms.
 
 ## Features Demonstrated
 
-- **@Process annotation**: Workflow entry point
+- **@Workflow annotation**: Workflow entry point
 - **@Activity annotation**: External system interactions
 - **Error handling**: Graceful handling of sync failures
 - **Duplicate detection**: Check existing contacts

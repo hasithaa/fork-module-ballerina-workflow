@@ -17,18 +17,18 @@
 import ballerina/jballerina.java;
 
 
-# Creates a new workflow process instance.
+# Runs a new workflow instance.
 #
-# Creates a new instance of the specified workflow process and begins execution.
+# Creates a new instance of the specified workflow and begins execution.
 # Returns a unique workflow ID that can be used to track, query, or send signals
 # to the running workflow.
 #
-# + processFunction - The process function to execute (must be annotated with @Process)
+# + processFunction - The process function to execute (must be annotated with @Workflow)
 # + input - Optional workflow input data. If nil, the workflow is created with no input.
-# + return - The unique workflow ID as a string, or an error if the process fails to start
-public isolated function createInstance(function processFunction, map<anydata>? input = ()) returns string|error = @java:Method {
+# + return - The unique workflow ID as a string, or an error if the workflow fails to start
+public isolated function run(function processFunction, map<anydata>? input = ()) returns string|error = @java:Method {
     'class: "io.ballerina.stdlib.workflow.runtime.nativeimpl.WorkflowNative",
-    name: "createInstance"
+    name: "run"
 } external;
 
 # Sends data to a running workflow process.
@@ -54,12 +54,12 @@ public isolated function sendData(function processFunction, string? workflowId =
 
 # Registers a workflow process function with the singleton worker.
 #
-# Makes the process available for execution when `createInstance` is called.
+# Makes the process available for execution when `run` is called.
 # The process is registered with the singleton worker that was created at
 # module initialization time. This function should be called during
 # application initialization to register all workflow processes.
 #
-# + processFunction - The process function to register (must be annotated with @Process)
+# + processFunction - The process function to register (must be annotated with @Workflow)
 # + processName - The unique name to register the process under
 # + activities - Optional map of activity function pointers used by the process
 # + return - `true` if registration was successful, or an error if registration fails

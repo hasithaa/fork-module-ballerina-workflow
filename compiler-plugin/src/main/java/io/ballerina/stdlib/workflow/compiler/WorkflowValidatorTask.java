@@ -58,11 +58,11 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Validation task for workflow @Process and @Activity function signatures.
+ * Validation task for workflow @Workflow and @Activity function signatures.
  * <p>
  * Validates:
  * <ul>
- *   <li>@Process functions have valid signature: (Context?, anydata input, record{future<anydata>...} events?)</li>
+ *   <li>@Workflow functions have valid signature: (Context?, anydata input, record{future<anydata>...} events?)</li>
  *   <li>@Activity functions have anydata parameters and anydata|error return type</li>
  * </ul>
  *
@@ -78,7 +78,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
 
         SemanticModel semanticModel = context.semanticModel();
 
-        // Check if function has @Process annotation
+        // Check if function has @Workflow annotation
         if (hasAnnotation(functionNode, semanticModel, WorkflowConstants.PROCESS_ANNOTATION)) {
             validateProcessFunction(functionNode, context);
             // Validate callActivity calls within the process function
@@ -99,7 +99,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
     }
 
     /**
-     * Validates @Process function signature.
+     * Validates @Workflow function signature.
      * <ul>
      *   <li>Optional first parameter: workflow:Context</li>
      *   <li>Optional input parameter: subtype of anydata</li>
@@ -700,7 +700,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
     }
 
     /**
-     * Validates that no direct @Activity function calls are made within @Process functions.
+     * Validates that no direct @Activity function calls are made within @Workflow functions.
      * Users must use ctx->callActivity(activityFunc, args...) pattern.
      */
     private void validateNoDirectActivityCalls(FunctionDefinitionNode functionNode, SyntaxNodeAnalysisContext context) {

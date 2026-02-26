@@ -78,7 +78,7 @@ function getTimestampActivity() returns string|error {
 # + ctx - The workflow context for calling activities
 # + input - The workflow input containing id and name
 # + return - A map with all activity results or error
-@workflow:Process
+@workflow:Workflow
 function multiActivityWorkflow(workflow:Context ctx, MultiActivityInput input) returns map<anydata>|error {
     string greeting = check ctx->callActivity(multiGreetActivity, {"name": input.name});
     

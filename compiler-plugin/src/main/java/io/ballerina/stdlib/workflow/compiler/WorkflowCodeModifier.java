@@ -30,7 +30,7 @@ import java.util.Map;
  * Code modifier that transforms workflow process functions.
  * <p>
  * This modifier:
- * 1. Detects functions annotated with @workflow:Process
+ * 1. Detects functions annotated with @workflow:Workflow
  * 2. Analyzes process function bodies to find @workflow:Activity calls
  * 3. Replaces activity calls with callActivity(functionPointer, args...)
  * 4. Adds registerProcess call at module level

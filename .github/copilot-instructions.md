@@ -8,7 +8,7 @@ A Ballerina standard library module providing durable workflow orchestration via
 ### Module Structure
 - `ballerina/` - Core Ballerina module (types, annotations, context, public API)
 - `native/` - Java native implementation (Temporal SDK integration, worker management)
-- `compiler-plugin/` - Validates `@Process`/`@Activity` annotations, transforms activity calls
+- `compiler-plugin/` - Validates `@Workflow`/`@Activity` annotations, transforms activity calls
 - `compiler-plugin-tests/` - Compiler plugin test suite
 
 ### Key Design Patterns
@@ -17,20 +17,20 @@ A Ballerina standard library module providing durable workflow orchestration via
 
 **Singleton Worker**: One Temporal SDK instance per JVM, initialized at module load via configurable variables. No Listener pattern - use `registerProcess()` + `startWorker()`.
 
-**Annotations**: `@Process`, `@Activity`, and `@CorrelationKey` (for marking correlation fields on record types).
+**Annotations**: `@Workflow`, `@Activity`, and `@CorrelationKey` (for marking correlation fields on record types).
 
 **Context Client Class**: `workflow:Context` is a client class with `callActivity` as a remote method. Users **must** call activities via `ctx->callActivity(activityFunc, args...)`. Direct activity function calls are not allowed. Parameters use `map<anydata>` type.
 
 **Compiler Plugin Validation**: The plugin at [WorkflowCompilerPlugin.java](compiler-plugin/src/main/java/io/ballerina/stdlib/workflow/compiler/WorkflowCompilerPlugin.java) performs validation:
 1. Validates that `ctx->callActivity()` calls use functions with `@Activity` annotation (produces `WORKFLOW_107` error otherwise)
-2. Validates that `@Activity` functions are not called directly inside `@Process` functions (produces `WORKFLOW_108` error)
-3. Auto-generates `registerProcess()` call at module level for each `@Process` function
+2. Validates that `@Activity` functions are not called directly inside `@Workflow` functions (produces `WORKFLOW_108` error)
+3. Auto-generates `registerProcess()` call at module level for each `@Workflow` function
 
 ## Key Conventions
 
-### Process Function Signature
+### Workflow Function Signature
 ```ballerina
-@workflow:Process
+@workflow:Workflow
 function processName(
     workflow:Context ctx,           // Required for calling activities
     T input,                        // Input data (anydata subtype)
@@ -51,13 +51,13 @@ function sendEmailActivity(string email) returns boolean|error {
 ```
 - Parameters and return types must be `anydata` subtypes
 - Activities are non-deterministic - executed once, results cached during replay
-- **Must** be called via `ctx->callActivity()` within `@Process` functions (direct calls produce `WORKFLOW_108` error)
+- **Must** be called via `ctx->callActivity()` within `@Workflow` functions (direct calls produce `WORKFLOW_108` error)
 
 ### Calling Activities
-Activities **must** be called using `ctx->callActivity()` within `@Process` functions:
+Activities **must** be called using `ctx->callActivity()` within `@Workflow` functions:
 
 ```ballerina
-@workflow:Process
+@workflow:Workflow
 function orderProcess(workflow:Context ctx, OrderInput input) returns OrderResult|error {
     // Call activity using Context client remote method
     string result = check ctx->callActivity(sendEmailActivity, input.email);
@@ -73,12 +73,12 @@ string result = check sendEmailActivity(input.email);  // ❌ Not allowed
 
 The compiler plugin validates:
 1. All `ctx->callActivity()` calls use functions with `@Activity` annotation
-2. No direct calls to `@Activity` functions inside `@Process` functions
+2. No direct calls to `@Activity` functions inside `@Workflow` functions
 
 ### Error Handling
 Temporal errors are valid Ballerina errors. Use standard error handling:
 ```ballerina
-@workflow:Process
+@workflow:Workflow
 function processWithErrorHandling(workflow:Context ctx, Input input) returns Output|error {
     Output|error result = ctx->callActivity(riskyActivity, input.data);
     if result is error {

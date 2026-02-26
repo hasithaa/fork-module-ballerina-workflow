@@ -66,7 +66,7 @@ type SingleSignalInferResult record {|
 # + input - The workflow input
 # + signals - Record containing the signal future
 # + return - The result combining input and signal data
-@workflow:Process
+@workflow:Workflow
 function singleSignalInferWorkflow(
     workflow:Context ctx,
     SingleSignalInferInput input,
@@ -148,7 +148,7 @@ type DistinctTypesResult record {|
 # + input - The workflow input
 # + signals - Record containing the signal futures
 # + return - The result combining all signal data
-@workflow:Process
+@workflow:Workflow
 function distinctTypesWorkflow(
     workflow:Context ctx,
     DistinctTypesInput input,
@@ -219,7 +219,7 @@ type ExplicitSignalResult record {|
 # + input - The workflow input
 # + signals - Record containing the signal futures
 # + return - The result with values from both signals
-@workflow:Process
+@workflow:Workflow
 function explicitSignalNameWorkflow(
     workflow:Context ctx,
     ExplicitSignalInput input,
@@ -275,7 +275,7 @@ type MixedSignalsResult record {|
 # + input - The workflow input
 # + signals - Record containing the signal future
 # + return - The result with the status code from the signal
-@workflow:Process
+@workflow:Workflow
 function mixedSignalsWorkflow(
     workflow:Context ctx,
     MixedSignalsInput input,

@@ -294,7 +294,7 @@ private static String inferSignalName(
 
 ### Single Signal (Always Inferable)
 ```ballerina
-@workflow:Process
+@workflow:Workflow
 function singleSignalWorkflow(
     workflow:Context ctx,
     Input input,
@@ -311,7 +311,7 @@ _ = check workflow:sendData(singleSignalWorkflow, signalData = data);
 
 ### Distinct Signal Types (Structure-Based Inference)
 ```ballerina
-@workflow:Process
+@workflow:Workflow
 function distinctSignalsWorkflow(
     workflow:Context ctx,
     Input input,
@@ -331,7 +331,7 @@ _ = check workflow:sendData(distinctSignalsWorkflow, signalData = payment);
 
 ### Ambiguous Signal Types (Requires Explicit signalName)
 ```ballerina
-@workflow:Process
+@workflow:Workflow
 function ambiguousSignalsWorkflow(
     workflow:Context ctx,
     Input input,

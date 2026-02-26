@@ -27,7 +27,7 @@ public annotation CorrelationKey on record field;
 #### Public API Functions ([functions.bal](ballerina/functions.bal))
 ```ballerina
 # Start a new workflow instance
-public isolated function createInstance(function processFunction, map<anydata>? input = ()) 
+public isolated function run(function processFunction, map<anydata>? input = ()) 
     returns string|error;
 
 # Send data to a running workflow
@@ -65,16 +65,16 @@ public client class Context {
 
 #### WorkflowCompilerPlugin ([WorkflowCompilerPlugin.java](compiler-plugin/src/main/java/io/ballerina/stdlib/workflow/compiler/WorkflowCompilerPlugin.java))
 - Registers analysis and code modification tasks
-- Validates `@Process` and `@Activity` function signatures
+- Validates `@Workflow` and `@Activity` function signatures
 
 #### WorkflowValidatorTask ([WorkflowValidatorTask.java](compiler-plugin/src/main/java/io/ballerina/stdlib/workflow/compiler/WorkflowValidatorTask.java))
 - **WORKFLOW_107**: Validates `ctx->callActivity()` calls use `@Activity` functions
-- **WORKFLOW_108**: Prevents direct calls to `@Activity` functions inside `@Process`
+- **WORKFLOW_108**: Prevents direct calls to `@Activity` functions inside `@Workflow`
 - Validates process function signature: `(Context?, anydata, record{future<T>...}?)`
 - Validates activity function parameters and return types are `anydata` subtypes
 
 #### WorkflowCodeModifier ([WorkflowCodeModifier.java](compiler-plugin/src/main/java/io/ballerina/stdlib/workflow/compiler/WorkflowCodeModifier.java))
-- Auto-generates `registerProcess()` calls for each `@Process` function at module level
+- Auto-generates `registerProcess()` calls for each `@Workflow` function at module level
 - Extracts activity functions used in each process
 
 ### 3. Native Layer ([native/](native/))
@@ -118,13 +118,13 @@ public static class BallerinaActivityAdapter implements DynamicActivity {
 #### WorkflowNative.java
 Location: [WorkflowNative.java](native/src/main/java/io/ballerina/stdlib/workflow/runtime/nativeimpl/WorkflowNative.java)
 
-Implements `createInstance()` and `sendData()` by interacting with Temporal's `WorkflowClient`.
+Implements `run()` and `sendData()` by interacting with Temporal's `WorkflowClient`.
 
 ## Usage Patterns
 
 ### Process Function Signature
 ```ballerina
-@workflow:Process
+@workflow:Workflow
 function processName(
     workflow:Context ctx,           // Optional, must be first if calling activities
     T input,                        // Input data (anydata subtype)
@@ -144,7 +144,7 @@ function activityName(T param1, U param2) returns R|error {
 
 ### Calling Activities (Required Pattern)
 ```ballerina
-@workflow:Process
+@workflow:Workflow
 function myProcess(workflow:Context ctx, Input input) returns Result|error {
     // ✅ Correct: Use ctx->callActivity() with a Parameters record
     boolean result = check ctx->callActivity(sendEmail, {"email": input.email, "subject": "Subject"});
@@ -158,7 +158,7 @@ function myProcess(workflow:Context ctx, Input input) returns Result|error {
 
 ### Waiting for Events
 ```ballerina
-@workflow:Process
+@workflow:Workflow
 function processWithEvents(
     workflow:Context ctx,
     Input input,
@@ -191,14 +191,14 @@ function processWithEvents(
 ## Success Criteria
 
 ✅ **Compilation:**
-- `@Process` functions compile with valid signatures
+- `@Workflow` functions compile with valid signatures
 - `@Activity` functions compile with `anydata` parameters and return types
 - `ctx->callActivity()` calls compile when targeting `@Activity` functions
 - Direct activity calls produce WORKFLOW_108 compiler error
 - Calls to non-activity functions via `callActivity()` produce WORKFLOW_107 error
 
 ✅ **Runtime Behavior:**
-- `createInstance()` successfully starts workflows and returns workflow ID
+- `run()` successfully starts workflows and returns workflow ID
 - `sendData()` successfully sends data to running workflows
 - `ctx->callActivity()` executes activities and returns results
 - Process functions execute deterministically (same inputs → same outputs)
@@ -207,6 +207,6 @@ function processWithEvents(
 - Workflows handle errors properly with Ballerina error semantics
 
 ✅ **Code Generation:**
-- Compiler plugin auto-generates `registerProcess()` calls for each `@Process` function
+- Compiler plugin auto-generates `registerProcess()` calls for each `@Workflow` function
 - Generated code includes activity map for each process
 - Build succeeds without manual registration code

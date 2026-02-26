@@ -16,7 +16,7 @@ The workflow module implements a **Future-based approach** where signal listener
 Workflows receive signals via a record parameter with `future<T>` fields:
 
 ```ballerina
-@workflow:Process
+@workflow:Workflow
 function orderProcess(
     workflow:Context ctx,
     OrderInput input,

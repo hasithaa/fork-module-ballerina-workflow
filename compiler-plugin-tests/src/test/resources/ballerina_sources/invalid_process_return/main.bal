@@ -35,7 +35,7 @@ class InvalidResult {
 
 // Invalid: Process function with non-anydata return type
 // Should trigger WORKFLOW_105 error
-@workflow:Process
+@workflow:Workflow
 function processWithInvalidReturn(OrderInput input) returns InvalidResult|error {
     return new InvalidResult("DONE");
 }

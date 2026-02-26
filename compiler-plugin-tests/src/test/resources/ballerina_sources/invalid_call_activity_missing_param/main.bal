@@ -33,7 +33,7 @@ function processOrder(string orderId, int quantity) returns boolean|error {
 
 // Invalid: Process function calling ctx->callActivity() with missing required parameter
 // This should produce WORKFLOW_109 error
-@workflow:Process
+@workflow:Workflow
 function orderProcess(workflow:Context ctx, OrderInput input) returns OrderResult|error {
     // ERROR: Missing required parameter 'quantity'
     boolean isValid = check ctx->callActivity(processOrder, {"orderId": input.orderId});

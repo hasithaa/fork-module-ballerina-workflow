@@ -47,7 +47,7 @@ function testSimpleCorrelatedWorkflow() returns error? {
     };
     
     // Start the workflow - workflow ID is timestamp-based, correlation keys are search attributes
-    string workflowId = check workflow:createInstance(simpleCorrelatedWorkflow, input);
+    string workflowId = check workflow:run(simpleCorrelatedWorkflow, input);
     
     // Verify the workflow ID starts with the process name
     // Format: simpleCorrelatedWorkflow-<timestamp>
@@ -102,7 +102,7 @@ function testCorrelatedOrderWorkflow() returns error? {
     };
     
     // Start the workflow - workflow ID is timestamp-based, correlation keys are search attributes
-    string workflowId = check workflow:createInstance(correlatedOrderWorkflow, input);
+    string workflowId = check workflow:run(correlatedOrderWorkflow, input);
     
     // Verify the workflow ID starts with the process name (correlation keys are in search attributes)
     test:assertTrue(workflowId.startsWith("correlatedOrderWorkflow-"), 
@@ -172,7 +172,7 @@ function testCorrelatedOrderWorkflowInvalidPayment() returns error? {
     };
     
     // Start the workflow
-    string workflowId = check workflow:createInstance(correlatedOrderWorkflow, input);
+    string workflowId = check workflow:run(correlatedOrderWorkflow, input);
     
     runtime:sleep(1);
     
@@ -217,8 +217,8 @@ function testMultipleConcurrentCorrelatedWorkflows() returns error? {
     SimpleCorrelatedInput input1 = {requestId: requestId1, message: "First workflow"};
     SimpleCorrelatedInput input2 = {requestId: requestId2, message: "Second workflow"};
     
-    string workflowId1 = check workflow:createInstance(simpleCorrelatedWorkflow, input1);
-    string workflowId2 = check workflow:createInstance(simpleCorrelatedWorkflow, input2);
+    string workflowId1 = check workflow:run(simpleCorrelatedWorkflow, input1);
+    string workflowId2 = check workflow:run(simpleCorrelatedWorkflow, input2);
     
     runtime:sleep(1);
     

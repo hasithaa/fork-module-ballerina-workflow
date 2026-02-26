@@ -34,7 +34,7 @@ type TestResult record {|
 |};
 
 // Valid: Process with single signal - no ambiguity possible
-@workflow:Process
+@workflow:Workflow
 function singleSignalProcess(
     workflow:Context ctx,
     TestInput input,

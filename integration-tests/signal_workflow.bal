@@ -111,7 +111,7 @@ function sendNotificationActivity(string orderId, string message) returns boolea
 # + input - The workflow input data
 # + signals - Record containing futures for each expected signal
 # + return - The approval result or error
-@workflow:Process
+@workflow:Workflow
 function approvalWorkflow(
     workflow:Context ctx, 
     ApprovalInput input,
@@ -207,7 +207,7 @@ type SimpleSignalResult record {|
 # + input - The workflow input
 # + signals - Record containing the signal future
 # + return - The result combining input and signal data
-@workflow:Process
+@workflow:Workflow
 function simpleSignalWorkflow(
     workflow:Context ctx,
     SimpleSignalInput input,

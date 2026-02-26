@@ -34,7 +34,7 @@ function processOrder(string orderId, string... additionalParams) returns boolea
 
 // Process function calling ctx->callActivity() with rest params activity
 // This should produce WORKFLOW_111 error
-@workflow:Process
+@workflow:Workflow
 function orderProcess(workflow:Context ctx, OrderInput input) returns OrderResult|error {
     // ERROR: Activity function has rest parameters which are not supported
     boolean isValid = check ctx->callActivity(processOrder, {"orderId": input.orderId});

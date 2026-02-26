@@ -42,7 +42,7 @@ function testSingleSignalInference() returns error? {
     SingleSignalInferInput input = {id: testId, data: "test input data"};
     
     // Start the workflow
-    string workflowId = check workflow:createInstance(singleSignalInferWorkflow, input);
+    string workflowId = check workflow:run(singleSignalInferWorkflow, input);
     
     // Give the workflow time to start
     runtime:sleep(1);
@@ -78,7 +78,7 @@ function testDistinctTypesSignalInference() returns error? {
     DistinctTypesInput input = {id: testId, requestId: "REQ-001"};
     
     // Start the workflow
-    string workflowId = check workflow:createInstance(distinctTypesWorkflow, input);
+    string workflowId = check workflow:run(distinctTypesWorkflow, input);
     
     // Give the workflow time to start
     runtime:sleep(1);
@@ -137,7 +137,7 @@ function testExplicitSignalNameWithAmbiguousTypes() returns error? {
     ExplicitSignalInput input = {id: testId, message: "test message"};
     
     // Start the workflow
-    string workflowId = check workflow:createInstance(explicitSignalNameWorkflow, input);
+    string workflowId = check workflow:run(explicitSignalNameWorkflow, input);
     
     // Give the workflow time to start
     runtime:sleep(1);
@@ -180,7 +180,7 @@ function testMixedSignalsWorkflow() returns error? {
     MixedSignalsInput input = {id: testId, orderId: "ORD-999"};
     
     // Start the workflow
-    string workflowId = check workflow:createInstance(mixedSignalsWorkflow, input);
+    string workflowId = check workflow:run(mixedSignalsWorkflow, input);
     
     // Give the workflow time to start
     runtime:sleep(1);

@@ -23,11 +23,11 @@ import io.ballerina.projects.plugins.CodeAnalysisContext;
 import io.ballerina.projects.plugins.CodeAnalyzer;
 
 /**
- * Code analyzer for validating workflow @Process and @Activity function signatures.
+ * Code analyzer for validating workflow @Workflow and @Activity function signatures.
  * <p>
  * This analyzer validates:
  * <ul>
- *   <li>@Process functions have valid signature: (Context?, anydata input, record{future<anydata>...} events?)</li>
+ *   <li>@Workflow functions have valid signature: (Context?, anydata input, record{future<anydata>...} events?)</li>
  *   <li>@Activity functions have anydata parameters and anydata|error return type</li>
  *   <li>sendEvent calls have explicit signalName when events record has ambiguous types</li>
  * </ul>

@@ -40,7 +40,7 @@ type TestResult record {|
 |};
 
 // Process with ambiguous signal types (same structure)
-@workflow:Process
+@workflow:Workflow
 function ambiguousSignalProcess(
     workflow:Context ctx,
     TestInput input,

@@ -40,7 +40,7 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Analysis task that detects @Process annotated functions and collects
+ * Analysis task that detects @Workflow annotated functions and collects
  * information about @Activity function calls within them.
  *
  * @since 0.1.0
@@ -59,7 +59,7 @@ public class ProcessFunctionAnalysisTask implements AnalysisTask<SyntaxNodeAnaly
             return;
         }
 
-        // Check if this function has @workflow:Process annotation
+        // Check if this function has @workflow:Workflow annotation
         if (!hasProcessAnnotation(functionNode, context.semanticModel())) {
             return;
         }

@@ -42,7 +42,7 @@ type TestResult record {|
 |};
 
 // Valid: Process with distinct signal types - no ambiguity
-@workflow:Process
+@workflow:Workflow
 function distinctSignalProcess(
     workflow:Context ctx,
     TestInput input,

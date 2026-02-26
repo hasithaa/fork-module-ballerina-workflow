@@ -266,7 +266,7 @@ The compiler plugin has **no direct involvement** in the singleton worker patter
            └─> Creates: WorkflowServiceStubs, WorkflowClient, WorkerFactory, Worker
 
 2. Compiler Plugin Code Generation
-   └─> For each @Process function
+   └─> For each @Workflow function
        └─> Generates: registerProcess(myProcess, "myProcess", activities)
            └─> registerProcessWithWorker() called
                ├─> PROCESS_REGISTRY.put(name, function)
@@ -280,7 +280,7 @@ The compiler plugin has **no direct involvement** in the singleton worker patter
            └─> workerFactory.start() - begin polling Temporal
 
 4. Runtime Execution
-   ├─> createInstance() → WorkflowClient.start() → Temporal creates workflow
+   ├─> run() → WorkflowClient.start() → Temporal creates workflow
    └─> Worker polls task → BallerinaWorkflowAdapter.execute()
        └─> PROCESS_REGISTRY.get(workflowType) → calls Ballerina function
 
