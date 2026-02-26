@@ -77,18 +77,31 @@ OrderInput input = {
 string workflowId = check workflow:run(orderProcess, input);
 ```
 
-#### Sending Signals with Correlation
+#### Sending Signals with Workflow ID
 ```ballerina
-// Signal is routed using correlation keys (no workflowId needed)
+// Send signal directly using a known workflow ID
+string workflowId = check workflow:run(orderProcess, input);
+
 PaymentSignal payment = {
-    orderId: "ORD-12345",      // Correlation key
-    customerId: "CUST-789",    // Correlation key
+    orderId: "ORD-12345",
+    customerId: "CUST-789",
     amount: 99.99d,
     transactionRef: "TXN-001"
 };
 
-// Lookup by correlation keys, then send signal
-_ = check workflow:sendData(orderProcess, signalName = "payment", signalData = payment);
+check workflow:sendData(orderProcess, workflowId, "payment", payment);
+```
+
+#### Searching by Correlation Keys
+```ballerina
+// When you don't have the workflow ID, search by correlation keys first
+string workflowId = check workflow:searchWorkflow(orderProcess, {
+    "orderId": "ORD-12345",
+    "customerId": "CUST-789"
+});
+
+// Then send data using the found workflow ID
+check workflow:sendData(orderProcess, workflowId, "payment", payment);
 ```
 
 #### Duplicate Detection
@@ -124,7 +137,6 @@ Location: [WorkflowValidatorTask.java](compiler-plugin/src/main/java/io/ballerin
 - **WORKFLOW_113**: Input type must be a record type (not plain anydata)
 - **WORKFLOW_114**: Signal constraint types must have same @CorrelationKey fields as input type
 - **WORKFLOW_115**: @CorrelationKey field type mismatch between input and signal types
-- **WORKFLOW_120**: sendData without workflowId requires @CorrelationKey fields in the process
 
 ```java
 /**
@@ -132,10 +144,10 @@ Location: [WorkflowValidatorTask.java](compiler-plugin/src/main/java/io/ballerin
  * 
  * Rules:
  * 1. @CorrelationKey fields are NOT mandatory for processes with events
- *    (signals can be sent via workflowId + signalName without correlation keys)
+ *    (signals are sent via workflowId + dataName in new API)
  * 2. If @CorrelationKey fields exist, they must be readonly (WORKFLOW_117)
  * 3. If @CorrelationKey fields exist, signal types must have matching fields
- * 4. WORKFLOW_120 enforces @CorrelationKey only when sendData is called without workflowId
+ * 4. Users can use searchWorkflow() to find workflows by correlation keys separately
  */
 private void validateCorrelationKeys(
         FunctionDefinitionNode functionNode,
@@ -147,9 +159,8 @@ private void validateCorrelationKeys(
     Map<String, TypeSymbol> inputCorrelationFields = extractCorrelationKeyFields(inputType);
     
     // If no @CorrelationKey fields, that's valid.
-    // Signals can be sent via workflowId + signalName without correlation keys.
-    // WORKFLOW_120 in SendEventValidatorTask enforces correlation keys
-    // only when sendData is called without workflowId.
+    // Signals are sent via explicit workflowId in the new API.
+    // Users can use searchWorkflow() to find workflows by correlation keys separately.
     if (inputCorrelationFields.isEmpty()) {
         return;
     }
@@ -513,53 +524,35 @@ private TypedSearchAttributes buildTypedSearchAttributes(Map<String, Object> att
 }
 ```
 
-#### WorkflowRuntime.java - sendData with Correlation Lookup
+#### WorkflowRuntime.java - searchWorkflow via Correlation Lookup
 ```java
 /**
- * Sends a signal to a workflow using correlation keys for lookup.
+ * Finds a workflow by correlation keys using Temporal Visibility API.
+ * Called by the searchWorkflow() Ballerina function via WorkflowNative.
  * 
- * Signal routing:
- * 1. Extract correlation keys (readonly fields) from signal data
- * 2. Build a visibility query using Search Attributes
- * 3. Find matching workflow ID with retry for eventual consistency
- * 4. Send signal to that workflow
+ * @param processName the workflow type name
+ * @param correlationKeys the correlation keys to match
+ * @return workflow ID if found, null otherwise
  */
-public boolean sendEvent(String processName, Object eventData, String signalName) {
-    BFunctionPointer processFunction = WorkflowWorkerNative.getProcessRegistry().get(processName);
-    RecordType signalRecordType = EventExtractor.getSignalRecordType(processFunction, signalName);
-    
-    BMap<BString, Object> eventMap = (BMap<BString, Object>) eventData;
-    Map<String, Object> correlationKeys;
-    
-    if (eventMap.getType() instanceof RecordType) {
-        correlationKeys = CorrelationExtractor.extractCorrelationKeysFromMap(eventMap);
-    } else {
-        correlationKeys = CorrelationExtractor.extractCorrelationKeys(eventMap, signalRecordType);
-    }
-    
-    if (correlationKeys.isEmpty()) {
-        throw new RuntimeException(
-            "Signal data has no readonly fields for correlation. " +
-            "Cannot route signal without correlation keys.");
-    }
-    
-    // Use Visibility API with retry to find workflow by Search Attributes
-    // withRetry=true for eventual consistency (up to 10 retries with exponential backoff)
-    String workflowId = findWorkflowByCorrelationKeys(processName, correlationKeys, true, true);
-    
-    if (workflowId == null) {
-        throw new RuntimeException("No running workflow found for correlation keys: " + correlationKeys);
-    }
-    
-    // Send signal
+public String findWorkflowByCorrelationKeys(
+        String processName,
+        Map<String, Object> correlationKeys) {
+    // Delegates to internal method with retry for eventual consistency
+    return findWorkflowByCorrelationKeys(processName, correlationKeys, true, true);
+}
+```
+
+#### WorkflowRuntime.java - sendSignalToWorkflow (Direct)
+```java
+/**
+ * Sends a signal directly to a workflow by ID.
+ * Called by sendData() - no correlation lookup needed.
+ */
+public void sendSignalToWorkflow(String workflowId, String signalName, Object signalData) {
     WorkflowClient client = WorkflowWorkerNative.getWorkflowClient();
     WorkflowStub workflowStub = client.newUntypedWorkflowStub(workflowId);
-    workflowStub.signal(signalName, eventData);
-    
-    LOGGER.info("Sent signal '{}' to workflow: {} (found via correlation: {})",
-        signalName, workflowId, correlationKeys);
-    
-    return true;
+    workflowStub.signal(signalName, signalData);
+    LOGGER.info("Sent signal '{}' to workflow: {}", signalName, workflowId);
 }
 
 /**
@@ -737,12 +730,11 @@ if result is error {
 ## Success Criteria
 
 ✅ **Compile-Time Validation:**
-- sendData without workflowId requires @CorrelationKey fields in process (WORKFLOW_120 if missing)
 - If @CorrelationKey fields exist, signal types must have matching fields (WORKFLOW_114 if missing)
 - @CorrelationKey field types must match between input and signals (WORKFLOW_115 if mismatch)
 - @CorrelationKey fields must also be readonly (WORKFLOW_117 if not)
 - Input type must be record type (WORKFLOW_113 if not)
-- Process with events but no @CorrelationKey is valid (signals sent via workflowId)
+- Process with events but no @CorrelationKey is valid (signals sent via explicit workflowId)
 
 ✅ **Runtime Behavior:**
 - Workflow ID generated using UUID v7 (time-ordered, unique)
@@ -760,11 +752,10 @@ if result is error {
 - Eventual consistency handled with retry (up to 10 retries, exponential backoff)
 
 ✅ **Signal Routing:**
-- Signals find target workflow using correlation keys
-- No need to know workflow ID when sending signals
-- Retry logic handles eventual consistency
+- sendData() sends signals directly to workflows by ID
+- searchWorkflow() finds target workflows using correlation keys
+- Retry logic handles eventual consistency for searchWorkflow
 - Clear error when no workflow found for correlation keys
-- Clear error when signal data has no readonly fields
 
 ✅ **Error Messages:**
 - Duplicate workflow error includes existing workflow ID

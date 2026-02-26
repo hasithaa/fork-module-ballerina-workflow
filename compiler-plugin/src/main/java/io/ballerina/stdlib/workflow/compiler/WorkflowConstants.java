@@ -50,6 +50,7 @@ public final class WorkflowConstants {
 
     // Function names for validation
     public static final String SEND_SIGNAL_FUNCTION = "sendData";
+    public static final String SEARCH_WORKFLOW_FUNCTION = "searchWorkflow";
 
     // Deprecated function names (for backward compatibility detection)
     public static final String SEND_EVENT_FUNCTION = "sendEvent";

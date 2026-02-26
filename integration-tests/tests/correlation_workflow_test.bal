@@ -57,13 +57,12 @@ function testSimpleCorrelatedWorkflow() returns error? {
     // Give the workflow time to start and wait for signal
     runtime:sleep(1);
     
-    // Send the response signal using correlation key
+    // Send the response signal using workflowId directly
     SimpleCorrelatedResponse signalData = {
         requestId: requestId,
         response: "Correlated response!"
     };
-    boolean sent = check workflow:sendData(simpleCorrelatedWorkflow, signalName = "response", signalData = signalData);
-    test:assertTrue(sent, "Signal should be sent successfully");
+    check workflow:sendData(simpleCorrelatedWorkflow, workflowId, "response", signalData);
     
     // Wait for workflow to complete
     workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
@@ -111,7 +110,7 @@ function testCorrelatedOrderWorkflow() returns error? {
     // Give the workflow time to start
     runtime:sleep(1);
     
-    // Send payment signal with matching correlation keys
+    // Send payment signal with workflowId
     CorrelatedPaymentSignal payment = {
         customerId: customerId,
         orderId: orderId,
@@ -119,21 +118,19 @@ function testCorrelatedOrderWorkflow() returns error? {
         amount: 999.99,
         paymentMethod: "CREDIT_CARD"
     };
-    boolean paymentSent = check workflow:sendData(correlatedOrderWorkflow, signalName = "payment", signalData = payment);
-    test:assertTrue(paymentSent, "Payment signal should be sent successfully");
+    check workflow:sendData(correlatedOrderWorkflow, workflowId, "payment", payment);
     
     // Give workflow time to process payment
     runtime:sleep(1);
     
-    // Send shipment signal with matching correlation keys
+    // Send shipment signal with workflowId
     CorrelatedShipmentSignal shipment = {
         customerId: customerId,
         orderId: orderId,
         trackingNumber: "TRACK-456",
         carrier: "FedEx"
     };
-    boolean shipmentSent = check workflow:sendData(correlatedOrderWorkflow, signalName = "shipment", signalData = shipment);
-    test:assertTrue(shipmentSent, "Shipment signal should be sent successfully");
+    check workflow:sendData(correlatedOrderWorkflow, workflowId, "shipment", shipment);
     
     // Wait for workflow to complete
     workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
@@ -184,8 +181,7 @@ function testCorrelatedOrderWorkflowInvalidPayment() returns error? {
         amount: 0.0,  // Invalid amount
         paymentMethod: "CASH"
     };
-    boolean paymentSent = check workflow:sendData(correlatedOrderWorkflow, signalName = "payment", signalData = payment);
-    test:assertTrue(paymentSent, "Payment signal should be sent");
+    check workflow:sendData(correlatedOrderWorkflow, workflowId, "payment", payment);
     
     // Wait for workflow to complete (with payment invalid status)
     workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
@@ -222,15 +218,19 @@ function testMultipleConcurrentCorrelatedWorkflows() returns error? {
     
     runtime:sleep(1);
     
-    // Send signals - each should go to the correct workflow based on correlation
+    // Send signals using searchWorkflow to find workflows by correlation keys
     SimpleCorrelatedResponse signal1 = {requestId: requestId1, response: "Response 1"};
     SimpleCorrelatedResponse signal2 = {requestId: requestId2, response: "Response 2"};
     
-    // Send in reverse order to verify correct correlation routing
-    boolean sent2 = check workflow:sendData(simpleCorrelatedWorkflow, signalName = "response", signalData = signal2);
-    boolean sent1 = check workflow:sendData(simpleCorrelatedWorkflow, signalName = "response", signalData = signal1);
+    // Use searchWorkflow to find workflow by correlation key, then send data
+    string foundId2 = check workflow:searchWorkflow(simpleCorrelatedWorkflow, {"requestId": requestId2});
+    check workflow:sendData(simpleCorrelatedWorkflow, foundId2, "response", signal2);
     
-    test:assertTrue(sent1 && sent2, "Both signals should be sent");
+    string foundId1 = check workflow:searchWorkflow(simpleCorrelatedWorkflow, {"requestId": requestId1});
+    check workflow:sendData(simpleCorrelatedWorkflow, foundId1, "response", signal1);
+    
+    test:assertEquals(foundId1, workflowId1, "searchWorkflow should find correct workflow ID");
+    test:assertEquals(foundId2, workflowId2, "searchWorkflow should find correct workflow ID");
     
     // Verify each workflow got the correct signal
     workflow:WorkflowExecutionInfo execInfo1 = check workflow:getWorkflowResult(workflowId1, 30);

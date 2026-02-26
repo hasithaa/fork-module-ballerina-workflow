@@ -262,9 +262,8 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         List<RecordTypeSymbol> signalTypes = extractSignalTypes(eventsType);
 
         // If process has events but no @CorrelationKey fields, that's valid.
-        // Signals can be sent via workflowId + signalName without correlation keys.
-        // The SendEventValidatorTask (WORKFLOW_120) will enforce correlation keys
-        // only when sendData is called without workflowId.
+        // Signals can be sent via workflowId + dataName without correlation keys.
+        // Users can use searchWorkflow() to find workflows by correlation keys separately.
         if (inputCorrelationFields.isEmpty()) {
             return;
         }

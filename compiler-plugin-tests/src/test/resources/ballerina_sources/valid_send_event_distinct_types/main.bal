@@ -16,7 +16,7 @@
 
 import ballerina/workflow;
 
-// Types with DIFFERENT structure (not ambiguous)
+// Types with DIFFERENT structure
 type ApprovalSignal record {|
     @workflow:CorrelationKey
     readonly string id;
@@ -41,7 +41,7 @@ type TestResult record {|
     string status;
 |};
 
-// Valid: Process with distinct signal types - no ambiguity
+// Valid: Process with distinct signal types
 @workflow:Workflow
 function distinctSignalProcess(
     workflow:Context ctx,
@@ -55,8 +55,8 @@ function distinctSignalProcess(
     return {status: "OK"};
 }
 
-// This is VALID - distinct types allow signal name inference without explicit signalName
+// Valid: sendData with all required params
 function validSendWithoutSignalName() returns error? {
     ApprovalSignal data = {id: "test-1", approved: true, approver: "admin"};
-    _ = check workflow:sendData(distinctSignalProcess, signalData = data);
+    check workflow:sendData(distinctSignalProcess, "wf-12345", "approval", data);
 }

@@ -45,11 +45,8 @@ function orderProcessNoCorrelation(
     return {status: a.approved ? "approved" : "rejected"};
 }
 
-// INVALID: sendData without workflowId on a process that has no @CorrelationKey fields
-// Should trigger WORKFLOW_120 error
-function invalidSendSignalNoCorrelation() returns error? {
+// Valid: sendData with all required params (no correlation keys needed)
+function validSendSignalNoCorrelation() returns error? {
     ApprovalSignal data = {approved: true, approver: "admin"};
-    // No workflowId provided, and process has no @CorrelationKey fields → cannot route
-    _ = check workflow:sendData(orderProcessNoCorrelation,
-        signalName = "approval", signalData = data);
+    check workflow:sendData(orderProcessNoCorrelation, "wf-12345", "approval", data);
 }

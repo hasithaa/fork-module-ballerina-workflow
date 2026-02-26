@@ -70,8 +70,8 @@ public enum WorkflowDiagnostic {
             DiagnosticSeverity.ERROR),
     WORKFLOW_112("WORKFLOW_112",
             "The process '%s' has structurally equivalent signal types '%s' and '%s'. "
-                    + "You must provide an explicit signalName parameter to disambiguate",
-            DiagnosticSeverity.ERROR),
+                    + "Signal types in the events record should have distinct structures",
+            DiagnosticSeverity.WARNING),
     WORKFLOW_114("WORKFLOW_114",
             "Signal type '%s' is missing @CorrelationKey field '%s' required for correlation with process input",
             DiagnosticSeverity.ERROR),
@@ -85,17 +85,6 @@ public enum WorkflowDiagnostic {
             DiagnosticSeverity.ERROR),
     WORKFLOW_117("WORKFLOW_117",
             "@CorrelationKey field '%s' must also be declared as 'readonly'",
-            DiagnosticSeverity.ERROR),
-    WORKFLOW_118("WORKFLOW_118",
-            "sendData requires at least workflowId with signalName, or signalName with signalData "
-                    + "for correlation-based routing",
-            DiagnosticSeverity.ERROR),
-    WORKFLOW_119("WORKFLOW_119",
-            "sendData with workflowId requires signalName to be provided",
-            DiagnosticSeverity.ERROR),
-    WORKFLOW_120("WORKFLOW_120",
-            "sendData without workflowId requires the process '%s' to have @CorrelationKey "
-                    + "fields defined in its input type for correlation-based data routing",
             DiagnosticSeverity.ERROR);
 
     private final String code;

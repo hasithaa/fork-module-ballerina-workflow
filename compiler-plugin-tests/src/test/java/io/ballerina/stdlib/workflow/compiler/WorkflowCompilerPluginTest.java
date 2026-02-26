@@ -280,14 +280,14 @@ public class WorkflowCompilerPluginTest {
                 + getDiagnosticMessages(diagnosticResult));
     }
 
-    // ===== sendData validation test cases - Ambiguous signal types =====
+    // ===== sendData validation test cases =====
 
     @Test(groups = "valid")
     public void testValidSendEventWithExplicitSignalName() {
         String packagePath = "valid_send_event_with_signal_name";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertEquals(diagnosticResult.errorCount(), 0,
-                "Expected no errors when sendData provides explicit signalName with ambiguous signals. Errors: "
+                "Expected no errors when sendData provides all required params. Errors: "
                         + getDiagnosticMessages(diagnosticResult));
     }
 
@@ -296,7 +296,7 @@ public class WorkflowCompilerPluginTest {
         String packagePath = "valid_send_event_distinct_types";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertEquals(diagnosticResult.errorCount(), 0,
-                "Expected no errors when signal types are structurally different. Errors: "
+                "Expected no errors when sendData is called with all required params. Errors: "
                         + getDiagnosticMessages(diagnosticResult));
     }
 
@@ -305,26 +305,26 @@ public class WorkflowCompilerPluginTest {
         String packagePath = "valid_send_event_single_signal";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertEquals(diagnosticResult.errorCount(), 0,
-                "Expected no errors when process has only one signal. Errors: "
+                "Expected no errors when sendData is called with all required params. Errors: "
                         + getDiagnosticMessages(diagnosticResult));
     }
 
-    @Test(groups = "invalid")
-    public void testInvalidSendEventAmbiguousNoSignalName() {
+    @Test(groups = "valid")
+    public void testValidSendEventAmbiguousWithDataName() {
         String packagePath = "invalid_send_event_ambiguous_no_signal_name";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
-        Assert.assertTrue(diagnosticResult.errorCount() > 0,
-                "Expected validation error for sendData without signalName when signals are ambiguous");
-        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_112);
+        Assert.assertEquals(diagnosticResult.errorCount(), 0,
+                "Expected no errors when sendData provides dataName for ambiguous signals. Errors: "
+                        + getDiagnosticMessages(diagnosticResult));
     }
 
-    @Test(groups = "invalid")
-    public void testInvalidSendEventAmbiguousThreeSignals() {
+    @Test(groups = "valid")
+    public void testValidSendEventThreeSignalsWithDataName() {
         String packagePath = "invalid_send_event_ambiguous_three_signals";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
-        Assert.assertTrue(diagnosticResult.errorCount() > 0,
-                "Expected validation error for sendData without signalName when three signals are ambiguous");
-        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_112);
+        Assert.assertEquals(diagnosticResult.errorCount(), 0,
+                "Expected no errors when sendData provides dataName for three signals. Errors: "
+                        + getDiagnosticMessages(diagnosticResult));
     }
 
     // ===== sendData with workflowId (no @CorrelationKey needed) =====
@@ -338,12 +338,12 @@ public class WorkflowCompilerPluginTest {
                         + getDiagnosticMessages(diagnosticResult));
     }
 
-    @Test(groups = "invalid")
-    public void testInvalidSendDataNoCorrelation() {
+    @Test(groups = "valid")
+    public void testValidSendDataNoCorrelation() {
         String packagePath = "invalid_send_signal_no_correlation";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
-        Assert.assertTrue(diagnosticResult.errorCount() > 0,
-                "Expected validation error for sendData without workflowId when process has no @CorrelationKey");
-        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_120);
+        Assert.assertEquals(diagnosticResult.errorCount(), 0,
+                "Expected no errors when sendData is called with all required params. Errors: "
+                        + getDiagnosticMessages(diagnosticResult));
     }
 }

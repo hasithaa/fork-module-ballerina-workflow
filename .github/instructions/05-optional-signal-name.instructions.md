@@ -1,35 +1,34 @@
-# Optional signalName in sendData
+# Explicit sendData and searchWorkflow API
 
-applyTo: "**/SendEventValidatorTask.java,**/EventExtractor.java,**/WorkflowNative.java"
+applyTo: "**/SendEventValidatorTask.java,**/WorkflowNative.java"
 
 ---
 
 ## Overview
 
-The `sendData()` function supports optional `workflowId`, `signalName`, and `signalData` parameters. When `signalName` is omitted, the signal name is inferred at runtime by matching the signal data structure against the workflow's events record. If ambiguous signal types exist, a compile-time error (WORKFLOW_112) is reported.
+The `sendData()` function requires all parameters explicitly: the workflow function, the target workflow ID, the data name (matching an event field name), and the data payload. There is no signal name inference or automatic correlation-based routing.
 
-Two routing modes are supported:
-1. **workflowId-based**: Direct signal delivery to a specific workflow instance (requires `workflowId` + `signalName`)
-2. **Correlation-based**: Signal routing via `@CorrelationKey` fields in the signal data (requires `signalData` with correlation fields)
+For finding workflows by correlation keys, a separate `searchWorkflow()` function is provided. This clean separation gives users full control over workflow identification and data delivery.
 
 ## Current Implementation
 
 ### 1. Ballerina Layer
 
-#### API Signature ([functions.bal](ballerina/functions.bal))
+#### API Signatures ([functions.bal](ballerina/functions.bal))
 ```ballerina
-# Send data to a running workflow
-# + processFunction - The process function identifying the workflow type
-# + workflowId - Optional workflow ID for direct data delivery
-# + signalName - Optional signal name. If not provided, inferred from data structure
-# + signalData - Optional data (must contain @CorrelationKey fields for correlation-based routing)
-# + return - `true` if successful, error otherwise
-public isolated function sendData(
-    function processFunction,
-    string? workflowId = (),
-    string? signalName = (),
-    map<anydata>? signalData = ()
-) returns boolean|error;
+# Send data to a running workflow process.
+# + workflow - The workflow function (must be annotated with @Workflow)
+# + workflowId - The unique workflow ID to send data to
+# + dataName - The name identifying the data (must match a field in the events record)
+# + data - The data to send
+# + return - An error if sending fails, otherwise nil
+public isolated function sendData(function workflow, string workflowId, string dataName, anydata data) returns error?;
+
+# Search for a running workflow by correlation keys.
+# + workflow - The workflow function (must be annotated with @Workflow)
+# + correlationKeys - Map of correlation key names to values
+# + return - The workflow ID if found, or an error
+public isolated function searchWorkflow(function workflow, map<anydata> correlationKeys) returns string|error;
 ```
 
 ### 2. Compiler Plugin Layer
@@ -37,335 +36,129 @@ public isolated function sendData(
 #### SendEventValidatorTask.java
 Location: [SendEventValidatorTask.java](compiler-plugin/src/main/java/io/ballerina/stdlib/workflow/compiler/SendEventValidatorTask.java)
 
-**Purpose**: Validates `sendEvent()` calls at compile-time to detect ambiguous signal scenarios.
+**Purpose**: Minimal validation for `sendData()` calls. Since all parameters are now required, the Ballerina type system enforces correct usage. The task exists as a placeholder for potential future validations (e.g., WORKFLOW_112 warning for ambiguous signal types).
 
 ```java
 public class SendEventValidatorTask implements AnalysisTask<SyntaxNodeAnalysisContext> {
     @Override
     public void perform(SyntaxNodeAnalysisContext context) {
-        if (!(context.node() instanceof FunctionCallExpressionNode)) {
-            return;
-        }
-
-        FunctionCallExpressionNode callNode = (FunctionCallExpressionNode) context.node();
-        
-        // Check if this is a sendEvent call
-        if (!isSendEventCall(callNode, context.semanticModel())) {
-            return;
-        }
-        
-        // Check if signalName is provided (3rd argument)
-        SeparatedNodeList<FunctionArgumentNode> arguments = callNode.arguments();
-        boolean hasSignalName = arguments.size() >= 3;
-        
-        if (hasSignalName) {
-            // signalName provided - no validation needed
-            return;
-        }
-        
-        // Get the process function from first argument
-        ExpressionNode processExpr = extractProcessFunctionExpression(arguments);
-        Optional<TypeSymbol> typeOpt = context.semanticModel().typeOf(processExpr);
-        
-        if (typeOpt.isEmpty()) {
-            return;
-        }
-        
-        // Get function symbol to examine signature
-        Optional<Symbol> symbolOpt = context.semanticModel().symbol(processExpr);
-        if (symbolOpt.isEmpty() || symbolOpt.get().kind() != SymbolKind.FUNCTION) {
-            return;
-        }
-        
-        FunctionSymbol functionSymbol = (FunctionSymbol) symbolOpt.get();
-        Optional<FunctionTypeSymbol> typeSymbolOpt = functionSymbol.typeDescriptor();
-        
-        if (typeSymbolOpt.isEmpty()) {
-            return;
-        }
-        
-        // Get events record parameter (3rd parameter)
-        Optional<List<ParameterSymbol>> paramsOpt = typeSymbolOpt.get().params();
-        if (paramsOpt.isEmpty() || paramsOpt.get().size() < 3) {
-            // No events parameter - no ambiguity possible
-            return;
-        }
-        
-        ParameterSymbol eventsParam = paramsOpt.get().get(2);
-        TypeSymbol eventsType = eventsParam.typeDescriptor();
-        
-        if (eventsType.typeKind() != TypeDescKind.RECORD) {
-            return;
-        }
-        
-        RecordTypeSymbol recordType = (RecordTypeSymbol) eventsType;
-        Map<String, RecordFieldSymbol> fields = recordType.fieldDescriptors();
-        
-        if (fields.size() <= 1) {
-            // Single signal or none - no ambiguity
-            return;
-        }
-        
-        // Check for structural equivalence between signal types
-        // Extract constraint types from future<T> fields
-        List<TypeSymbol> signalTypes = new ArrayList<>();
-        for (RecordFieldSymbol field : fields.values()) {
-            TypeSymbol fieldType = field.typeDescriptor();
-            if (fieldType.typeKind() == TypeDescKind.FUTURE) {
-                FutureTypeSymbol futureType = (FutureTypeSymbol) fieldType;
-                Optional<TypeSymbol> constraintOpt = futureType.typeParameter();
-                if (constraintOpt.isPresent()) {
-                    signalTypes.add(constraintOpt.get());
-                }
-            }
-        }
-        
-        // Check if any two signal types are structurally equivalent
-        boolean hasAmbiguity = checkForStructuralEquivalence(signalTypes);
-        
-        if (hasAmbiguity) {
-            // Report WORKFLOW_112 error
-            DiagnosticInfo diagnosticInfo = new DiagnosticInfo(
-                WorkflowConstants.WORKFLOW_112,
-                "Ambiguous signal types detected. Provide explicit 'signalName' parameter.",
-                DiagnosticSeverity.ERROR
-            );
-            context.reportDiagnostic(DiagnosticFactory.createDiagnostic(
-                diagnosticInfo, callNode.location()
-            ));
-        }
-    }
-    
-    private boolean checkForStructuralEquivalence(List<TypeSymbol> types) {
-        // Compare each pair of types for structural equivalence
-        for (int i = 0; i < types.size(); i++) {
-            for (int j = i + 1; j < types.size(); j++) {
-                if (areStructurallyEquivalent(types.get(i), types.get(j))) {
-                    return true;  // Found ambiguous pair
-                }
-            }
-        }
-        return false;
-    }
-    
-    private boolean areStructurallyEquivalent(TypeSymbol type1, TypeSymbol type2) {
-        // Check if two types have the same structure (same fields, same types)
-        if (type1.typeKind() != type2.typeKind()) {
-            return false;
-        }
-        
-        if (type1.typeKind() == TypeDescKind.RECORD) {
-            RecordTypeSymbol record1 = (RecordTypeSymbol) type1;
-            RecordTypeSymbol record2 = (RecordTypeSymbol) type2;
-            
-            Map<String, RecordFieldSymbol> fields1 = record1.fieldDescriptors();
-            Map<String, RecordFieldSymbol> fields2 = record2.fieldDescriptors();
-            
-            if (fields1.size() != fields2.size()) {
-                return false;
-            }
-            
-            // Check if all fields match
-            for (String fieldName : fields1.keySet()) {
-                if (!fields2.containsKey(fieldName)) {
-                    return false;
-                }
-                
-                TypeSymbol fieldType1 = fields1.get(fieldName).typeDescriptor();
-                TypeSymbol fieldType2 = fields2.get(fieldName).typeDescriptor();
-                
-                // Recursively check field types
-                if (!fieldType1.signature().equals(fieldType2.signature())) {
-                    return false;
-                }
-            }
-            
-            return true;  // All fields match - structurally equivalent
-        }
-        
-        // For non-record types, compare signatures
-        return type1.signature().equals(type2.signature());
+        // All parameters are now required - type system handles validation
+        // Future: could warn about ambiguous signal types (WORKFLOW_112)
     }
 }
 ```
 
 ### 3. Native Layer
 
-#### WorkflowNative.java - sendEvent Implementation
+#### WorkflowNative.java - sendData Implementation
 Location: [WorkflowNative.java](native/src/main/java/io/ballerina/stdlib/workflow/runtime/nativeimpl/WorkflowNative.java)
 
 ```java
-public static Object sendEvent(
-        BFunctionPointer processFunction,
-        BMap<BString, Object> eventData,
-        Object signalName) {
-    
+public static Object sendData(Environment env, BFunctionPointer workflowFunction,
+        BString workflowId, BString dataName, Object data) {
     try {
-        // 1. Extract workflow type from process function
-        String workflowType = extractProcessName(processFunction);
-        
-        // 2. Extract workflow ID from event data (for correlation)
-        String workflowId = extractWorkflowId(eventData);
-        
-        // 3. Determine signal name
-        String actualSignalName;
-        if (signalName != null && signalName instanceof BString) {
-            // Explicit signal name provided
-            actualSignalName = ((BString) signalName).getValue();
-        } else {
-            // Infer signal name from event data structure
-            actualSignalName = inferSignalName(processFunction, eventData);
-        }
-        
-        // 4. Get workflow client
-        WorkflowClient client = WorkflowWorkerNative.getWorkflowClient();
-        
-        // 5. Create workflow stub by ID
-        WorkflowStub stub = client.newUntypedWorkflowStub(workflowId);
-        
-        // 6. Send signal
-        Object javaEventData = TypesUtil.convertBallerinaToJavaType(eventData);
-        stub.signal(actualSignalName, javaEventData);
-        
-        return true;
-        
+        String workflowIdStr = workflowId.getValue();
+        String dataNameStr = dataName.getValue();
+        Object javaData = TypesUtil.convertBallerinaToJavaType(data);
+        WorkflowRuntime.getInstance().sendSignalToWorkflow(workflowIdStr, dataNameStr, javaData);
+        return null; // success (error? return type)
     } catch (Exception e) {
         return ErrorCreator.createError(
-            StringUtils.fromString("Failed to send event: " + e.getMessage())
-        );
+            StringUtils.fromString("Failed to send data: " + e.getMessage()));
     }
 }
+```
 
-// Infer signal name by matching event data structure to events record
-private static String inferSignalName(
-        BFunctionPointer processFunction,
-        BMap<BString, Object> eventData) throws Exception {
-    
-    // 1. Get events record type from process function signature
-    RecordType eventsRecordType = EventExtractor.getEventsRecordType(processFunction);
-    
-    if (eventsRecordType == null) {
-        throw new IllegalArgumentException("Process has no events parameter");
-    }
-    
-    Map<String, Field> fields = eventsRecordType.getFields();
-    
-    if (fields.size() == 1) {
-        // Single signal - use its name
-        return fields.keySet().iterator().next();
-    }
-    
-    // 2. Match event data structure to signal types
-    // Extract constraint type from each future<T> field and compare with eventData
-    String matchedSignalName = null;
-    int matchCount = 0;
-    
-    for (Map.Entry<String, Field> entry : fields.entrySet()) {
-        String fieldName = entry.getKey();
-        Type fieldType = entry.getValue().getFieldType();
-        
-        // Extract T from future<T>
-        Type constraintType = extractConstraintType(fieldType);
-        
-        // Check if eventData structure matches constraintType
-        if (isStructuralMatch(eventData, constraintType)) {
-            matchedSignalName = fieldName;
-            matchCount++;
+#### WorkflowNative.java - searchWorkflow Implementation
+```java
+public static Object searchWorkflow(Environment env, BFunctionPointer workflowFunction,
+        BMap<BString, Object> correlationKeys) {
+    try {
+        String workflowType = WorkflowNative.extractProcessName(workflowFunction);
+        Map<String, Object> javaCorrelationKeys = new LinkedHashMap<>();
+        for (BString key : correlationKeys.getKeys()) {
+            Object value = correlationKeys.get(key);
+            javaCorrelationKeys.put(key.getValue(),
+                value instanceof BString ? ((BString) value).getValue() : value);
         }
+        String workflowId = WorkflowRuntime.getInstance()
+            .findWorkflowByCorrelationKeys(workflowType, javaCorrelationKeys);
+        if (workflowId == null) {
+            return ErrorCreator.createError(
+                StringUtils.fromString("No running workflow found for correlation keys"));
+        }
+        return StringUtils.fromString(workflowId);
+    } catch (Exception e) {
+        return ErrorCreator.createError(
+            StringUtils.fromString("Failed to search workflow: " + e.getMessage()));
     }
-    
-    if (matchCount == 0) {
-        throw new IllegalArgumentException(
-            "Event data does not match any signal type in process"
-        );
-    }
-    
-    if (matchCount > 1) {
-        throw new IllegalArgumentException(
-            "Event data matches multiple signal types. Provide explicit signalName."
-        );
-    }
-    
-    return matchedSignalName;
 }
 ```
 
 ## Usage Examples
 
-### Single Signal (Always Inferable)
+### Direct Workflow ID (Most Common)
+```ballerina
+// Start workflow and get ID
+string workflowId = check workflow:run(orderProcess, input);
+
+// Send data using the workflow ID
+check workflow:sendData(orderProcess, workflowId, "approval", approvalData);
+check workflow:sendData(orderProcess, workflowId, "payment", paymentData);
+```
+
+### With Correlation-Based Lookup
+```ballerina
+// When you don't have the workflow ID, search by correlation keys
+string workflowId = check workflow:searchWorkflow(orderProcess, {
+    "orderId": "ORD-12345",
+    "customerId": "CUST-789"
+});
+
+// Then send data using the found workflow ID
+check workflow:sendData(orderProcess, workflowId, "payment", paymentData);
+```
+
+### Multiple Signals to Same Workflow
 ```ballerina
 @workflow:Workflow
-function singleSignalWorkflow(
+function orderProcess(
     workflow:Context ctx,
-    Input input,
-    record {| future<SignalData> onlySignal; |} events
-) returns Result|error {
-    SignalData data = check wait events.onlySignal;
-    return {status: "completed"};
+    OrderInput input,
+    record {|
+        future<ApprovalSignal> approval;
+        future<PaymentSignal> payment;
+    |} events
+) returns OrderResult|error {
+    ApprovalSignal decision = check wait events.approval;
+    if decision.status {
+        PaymentSignal pay = check wait events.payment;
+        return processPayment(pay);
+    }
+    return {status: "REJECTED"};
 }
 
-// ✅ signalName omitted - only one signal
-SignalData data = {id: workflowId, value: "test"};
-_ = check workflow:sendData(singleSignalWorkflow, signalData = data);
-```
-
-### Distinct Signal Types (Structure-Based Inference)
-```ballerina
-@workflow:Workflow
-function distinctSignalsWorkflow(
-    workflow:Context ctx,
-    Input input,
-    record {|
-        future<ApprovalSignal> approval;  // {id, approved, approverName}
-        future<PaymentSignal> payment;    // {id, amount, transactionRef}
-    |} events
-) returns Result|error { }
-
-// ✅ Each type has unique structure - inference works
-ApprovalSignal approval = {id: wfId, approved: true, approverName: "John"};
-_ = check workflow:sendData(distinctSignalsWorkflow, signalData = approval);
-
-PaymentSignal payment = {id: wfId, amount: 100.0, transactionRef: "TXN123"};
-_ = check workflow:sendData(distinctSignalsWorkflow, signalData = payment);
-```
-
-### Ambiguous Signal Types (Requires Explicit signalName)
-```ballerina
-@workflow:Workflow
-function ambiguousSignalsWorkflow(
-    workflow:Context ctx,
-    Input input,
-    record {|
-        future<SignalType> signal1;  // Same structure
-        future<SignalType> signal2;  // Same structure
-    |} events
-) returns Result|error { }
-
-SignalType data = {id: wfId, value: "test"};
-
-// ❌ COMPILE ERROR: WORKFLOW_112 - Ambiguous without explicit signalName
-_ = check workflow:sendData(ambiguousSignalsWorkflow, signalData = data);
-
-// ✅ FIX: Provide explicit signalName
-_ = check workflow:sendData(ambiguousSignalsWorkflow, signalName = "signal1", signalData = data);
+// Send each signal with explicit data name
+string wfId = check workflow:run(orderProcess, input);
+check workflow:sendData(orderProcess, wfId, "approval", {approved: true, approverName: "John"});
+check workflow:sendData(orderProcess, wfId, "payment", {amount: 100.0, transactionRef: "TXN123"});
 ```
 
 ## Success Criteria
 
 ✅ **Compile-Time Validation:**
-- Single signal workflows compile without signalName parameter
-- Distinct signal types compile without signalName parameter
-- Ambiguous signal types produce WORKFLOW_112 error without signalName
-- Explicit signalName parameter always compiles successfully
+- All `sendData()` parameters are required - enforced by type system
+- `searchWorkflow()` parameters are required - enforced by type system
+- WORKFLOW_112 warning for ambiguous signal types (same structure) in workflow definition
 
 ✅ **Runtime Behavior:**
-- Single signal: Signal name correctly inferred from field name
-- Distinct types: Signal name correctly inferred by matching structure
-- Explicit signalName: Uses provided name, skips inference
-- Invalid structure: Runtime error if event data doesn't match any signal type
-- Multiple matches: Runtime error if event data matches multiple signals (should be caught at compile-time)
+- `sendData()` delivers data to the correct workflow by ID
+- `searchWorkflow()` finds workflows by correlation key values
+- Clear error when workflow ID is invalid or not found
+- Clear error when no workflow matches correlation keys
 
 ✅ **Error Messages:**
-- WORKFLOW_112 error clearly indicates ambiguity
-- Runtime errors clearly explain mismatch or ambiguity
-- Suggests providing explicit signalName as solution
+- Invalid workflow ID: descriptive error about workflow not found
+- Search miss: descriptive error about no matching workflow for given correlation keys
+- Type mismatch: runtime error if data doesn't match expected signal type
+

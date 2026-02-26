@@ -36,19 +36,26 @@ public isolated function run(function processFunction, map<anydata>? input = ())
 # Data can be sent to running workflows to trigger state changes.
 # The workflow can wait for and react to this data using future-based event handling.
 #
-# There are two modes of sending data:
-# 1. **By workflowId**: Provide `workflowId` and `signalName` to send directly to a known workflow.
-# 2. **By correlation**: Omit `workflowId` and provide `signalName` and `signalData`. The workflow
-#    must have `@CorrelationKey` fields defined to enable lookup by correlation keys.
+# + workflow - The workflow function that identifies the workflow type (must be annotated with @Workflow)
+# + workflowId - The unique workflow ID to send the data to (obtained from `run` or `searchWorkflow`)
+# + dataName - The name identifying the data. Must match a field name in the workflow's
+#              events record parameter.
+# + data - The data to send to the workflow
+# + return - An error if sending fails, otherwise nil
+public isolated function sendData(function workflow, string workflowId, string dataName, anydata data) returns error? = @java:Method {
+    'class: "io.ballerina.stdlib.workflow.runtime.nativeimpl.WorkflowNative"
+} external;
+
+# Searches for a running workflow instance by correlation keys.
 #
-# + processFunction - The process function that identifies the workflow type
-# + workflowId - Optional workflow ID to send the data to directly.
-#                If provided, `signalName` must also be provided.
-# + signalName - Optional name identifying the data. Must match a field name in the workflow's
-#                events record parameter.
-# + signalData - Optional data to send.
-# + return - `true` if the data was sent successfully, or an error if sending fails
-public isolated function sendData(function processFunction, string? workflowId = (), string? signalName = (), map<anydata>? signalData = ()) returns boolean|error = @java:Method {
+# Find a workflow that matches the given correlation key values.
+# The workflow must have `@CorrelationKey` fields defined in its input type for this to work.
+#
+# + workflow - The workflow function that identifies the workflow type (must be annotated with @Workflow)
+# + correlationKeys - A map of correlation key names to their values.
+#                     The keys must match `@CorrelationKey` fields in the workflow's input type.
+# + return - The unique workflow ID if found, or an error if no matching workflow exists
+public isolated function searchWorkflow(function workflow, map<anydata> correlationKeys) returns string|error = @java:Method {
     'class: "io.ballerina.stdlib.workflow.runtime.nativeimpl.WorkflowNative"
 } external;
 

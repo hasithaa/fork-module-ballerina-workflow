@@ -435,7 +435,7 @@ public final class WorkflowRuntime {
      * @param correlationKeys the correlation key values
      * @return the workflow ID if found, null otherwise
      */
-    private String findWorkflowByCorrelationKeys(String processName, Map<String, Object> correlationKeys) {
+    public String findWorkflowByCorrelationKeys(String processName, Map<String, Object> correlationKeys) {
         return findWorkflowByCorrelationKeys(processName, correlationKeys, true, true);
     }
 

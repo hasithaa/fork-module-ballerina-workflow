@@ -32,7 +32,6 @@ import io.ballerina.runtime.api.values.BString;
 import io.ballerina.stdlib.workflow.ModuleUtils;
 import io.ballerina.stdlib.workflow.runtime.DuplicateWorkflowException;
 import io.ballerina.stdlib.workflow.runtime.WorkflowRuntime;
-import io.ballerina.stdlib.workflow.utils.EventExtractor;
 import io.ballerina.stdlib.workflow.utils.TypesUtil;
 import io.ballerina.stdlib.workflow.worker.WorkflowWorkerNative;
 import io.temporal.api.enums.v1.WorkflowExecutionStatus;
@@ -43,10 +42,9 @@ import io.temporal.client.WorkflowClient;
 import io.temporal.client.WorkflowStub;
 
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -124,58 +122,41 @@ public final class WorkflowNative {
     /**
      * Native implementation for sendData function.
      * <p>
-     * Sends data to a running workflow process. Supports two modes:
-     * 1. By workflowId: Direct data delivery to a known workflow (requires workflowId + signalName)
-     * 2. By correlation: Lookup workflow by correlation keys (requires signalName + signalData)
+     * Sends data to a running workflow process by workflow ID and data name.
+     * All parameters are required.
      *
      * @param env the Ballerina runtime environment
-     * @param processFunction the process function to send the data to
-     * @param workflowId optional workflow ID for direct data delivery
-     * @param signalName optional signal name
-     * @param signalData optional signal data
-     * @return BBoolean true if the data was sent successfully, or an error
+     * @param workflowFunction the workflow function to identify the workflow type
+     * @param workflowId the workflow ID to send the data to
+     * @param dataName the name identifying the data (must match an events record field)
+     * @param data the data to send
+     * @return null on success, or an error
      */
-    public static Object sendData(Environment env, BFunctionPointer processFunction, 
-            Object workflowId, Object signalName, Object signalData) {
+    public static Object sendData(Environment env, BFunctionPointer workflowFunction, 
+            BString workflowId, BString dataName, Object data) {
         return env.yieldAndRun(() -> {
             CompletableFuture<Object> balFuture = new CompletableFuture<>();
 
             WorkflowRuntime.getInstance().getExecutor().execute(() -> {
                 try {
-                    // Get the process name from the function pointer
-                    String processName = processFunction.getType().getName();
+                    String workflowIdStr = workflowId.getValue();
+                    String dataNameStr = dataName.getValue();
 
-                    // Extract workflowId (can be null/nil)
-                    String workflowIdStr = extractStringParam(workflowId);
-
-                    // Extract signal name (can be null/nil)
-                    String signalNameStr = extractStringParam(signalName);
-
-                    // Extract signal data (can be null/nil)
-                    Object javaSignalData = null;
-                    if (signalData != null && signalData instanceof BMap) {
-                        javaSignalData = TypesUtil.convertBallerinaToJavaType(
-                                (BMap<BString, Object>) signalData);
-                    }
-
-                    // If signal name not provided and we have signal data, try to infer
-                    if ((signalNameStr == null || signalNameStr.isEmpty()) && signalData instanceof BMap) {
-                        signalNameStr = inferSignalName(processFunction, (BMap<BString, Object>) signalData);
-                    }
-
-                    // Send through the appropriate path
-                    boolean result;
-                    if (workflowIdStr != null && !workflowIdStr.isEmpty()) {
-                        // Direct signal by workflowId
-                        result = WorkflowRuntime.getInstance().sendSignalToWorkflow(
-                                workflowIdStr, signalNameStr, javaSignalData);
+                    // Convert data to Java type if it's a BMap
+                    Object javaData = null;
+                    if (data instanceof BMap) {
+                        @SuppressWarnings("unchecked")
+                        BMap<BString, Object> bMapData = (BMap<BString, Object>) data;
+                        javaData = TypesUtil.convertBallerinaToJavaType(bMapData);
                     } else {
-                        // Correlation-based signal routing
-                        result = WorkflowRuntime.getInstance().sendEvent(
-                                processName, javaSignalData, signalNameStr);
+                        javaData = data;
                     }
 
-                    balFuture.complete(result);
+                    // Send directly by workflowId
+                    WorkflowRuntime.getInstance().sendSignalToWorkflow(
+                            workflowIdStr, dataNameStr, javaData);
+
+                    balFuture.complete(null);
 
                 } catch (Exception e) {
                     balFuture.complete(ErrorCreator.createError(
@@ -188,77 +169,56 @@ public final class WorkflowNative {
     }
 
     /**
-     * Extracts a string parameter from an Object that may be null, BString, or Ballerina nil.
-     */
-    private static String extractStringParam(Object param) {
-        if (param == null) {
-            return null;
-        }
-        if (param instanceof BString) {
-            return ((BString) param).getValue();
-        }
-        if (param instanceof String) {
-            return (String) param;
-        }
-        // Check for Ballerina nil value
-        String strVal = param.toString();
-        if ("()".equals(strVal)) {
-            return null;
-        }
-        return strVal;
-    }
-
-    /**
-     * Infers the signal name from event data structure by matching against the process function's
-     * events record type.
+     * Native implementation for searchWorkflow function.
      * <p>
-     * If the event data structure matches exactly one signal type, returns that signal name.
-     * If ambiguous (multiple matches) or no matches, throws a descriptive error.
+     * Searches for a running workflow instance by correlation keys using
+     * the Temporal Visibility API.
      *
-     * @param processFunction the process function with events definition
-     * @param eventData the event data being sent
-     * @return the inferred signal name
-     * @throws RuntimeException if signal name cannot be determined (ambiguous or no match)
+     * @param env the Ballerina runtime environment
+     * @param workflowFunction the workflow function to identify the workflow type
+     * @param correlationKeys a map of correlation key names to their values
+     * @return the workflow ID as BString, or an error
      */
-    private static String inferSignalName(BFunctionPointer processFunction, BMap<BString, Object> eventData) {
-        // Get the keys from event data
-        Set<String> eventDataKeys = new HashSet<>();
-        for (BString key : eventData.getKeys()) {
-            eventDataKeys.add(key.getValue());
-        }
-        
-        // Try to infer the signal name from the event data structure
-        String inferredSignal = EventExtractor.inferSignalName(processFunction, eventDataKeys);
-        
-        if (inferredSignal != null) {
-            return inferredSignal;
-        }
-        
-        // If inference failed, get the matching signals for error message
-        List<String> matchingSignals = EventExtractor.getMatchingSignals(processFunction, eventDataKeys);
-        
-        if (matchingSignals.isEmpty()) {
-            // Check if the process has any events at all
-            List<String> allEventNames = EventExtractor.extractEventNames(processFunction);
-            if (allEventNames.isEmpty()) {
-                throw new RuntimeException(
-                        "Process '" + processFunction.getType().getName() + 
-                        "' does not have any events defined. Cannot send signal without explicit signalName.");
-            } else {
-                throw new RuntimeException(
-                        "Event data structure does not match any signal type in process '" + 
-                        processFunction.getType().getName() + "'. Expected signals: " + 
-                        String.join(", ", allEventNames) + 
-                        ". Provide an explicit signalName parameter.");
-            }
-        } else {
-            // Multiple matches - ambiguous
-            throw new RuntimeException(
-                    "Ambiguous signal: Event data structure matches multiple signals [" +
-                    String.join(", ", matchingSignals) + "] in process '" + 
-                    processFunction.getType().getName() + 
-                    "'. Provide an explicit signalName parameter to disambiguate.");
-        }
+    public static Object searchWorkflow(Environment env, BFunctionPointer workflowFunction,
+            BMap<BString, Object> correlationKeys) {
+        return env.yieldAndRun(() -> {
+            CompletableFuture<Object> balFuture = new CompletableFuture<>();
+
+            WorkflowRuntime.getInstance().getExecutor().execute(() -> {
+                try {
+                    String processName = workflowFunction.getType().getName();
+
+                    // Convert BMap correlation keys to Java Map
+                    Map<String, Object> javaCorrelationKeys = new LinkedHashMap<>();
+                    for (BString key : correlationKeys.getKeys()) {
+                        Object value = correlationKeys.get(key);
+                        if (value instanceof BString) {
+                            javaCorrelationKeys.put(key.getValue(), ((BString) value).getValue());
+                        } else {
+                            javaCorrelationKeys.put(key.getValue(), value);
+                        }
+                    }
+
+                    String workflowId = WorkflowRuntime.getInstance()
+                            .findWorkflowByCorrelationKeys(processName, javaCorrelationKeys);
+
+                    if (workflowId == null) {
+                        balFuture.complete(ErrorCreator.createError(
+                                StringUtils.fromString(
+                                    "No running workflow found for process '" + processName
+                                    + "' with correlation keys: " + javaCorrelationKeys)));
+                    } else {
+                        balFuture.complete(StringUtils.fromString(workflowId));
+                    }
+
+                } catch (Exception e) {
+                    balFuture.complete(ErrorCreator.createError(
+                            StringUtils.fromString("Failed to search workflow: " + e.getMessage())));
+                }
+            });
+
+            return getResult(balFuture);
+        });
     }
 
     /**

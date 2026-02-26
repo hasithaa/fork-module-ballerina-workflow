@@ -31,8 +31,12 @@ public isolated function run(function processFunction, map<anydata>? input = ())
     returns string|error;
 
 # Send data to a running workflow
-public isolated function sendData(function processFunction, string? workflowId = (),
-    string? signalName = (), map<anydata>? signalData = ()) returns boolean|error;
+public isolated function sendData(function workflow, string workflowId,
+    string dataName, anydata data) returns error?;
+
+# Search for a running workflow by correlation keys
+public isolated function searchWorkflow(function workflow, map<anydata> correlationKeys)
+    returns string|error;
 
 # Register a process with the singleton worker
 public isolated function registerProcess(function processFunction, string processName, 
@@ -118,7 +122,7 @@ public static class BallerinaActivityAdapter implements DynamicActivity {
 #### WorkflowNative.java
 Location: [WorkflowNative.java](native/src/main/java/io/ballerina/stdlib/workflow/runtime/nativeimpl/WorkflowNative.java)
 
-Implements `run()` and `sendData()` by interacting with Temporal's `WorkflowClient`.
+Implements `run()`, `sendData()`, and `searchWorkflow()` by interacting with Temporal's `WorkflowClient`.
 
 ## Usage Patterns
 
@@ -186,7 +190,7 @@ function processWithEvents(
 | Activity params | Subtype of `anydata` |
 | Activity return | Subtype of `anydata` or `error` |
 | Signal futures | `future<T>` where `T` is subtype of `anydata` |
-| Event data | Subtype of `anydata`, must include correlation key fields for signal routing |
+| Event data | Subtype of `anydata` |
 
 ## Success Criteria
 

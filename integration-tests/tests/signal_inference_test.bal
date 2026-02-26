@@ -15,14 +15,12 @@
 // under the License.
 
 // ================================================================================
-// SIGNAL INFERENCE WORKFLOW - TESTS
+// SIGNAL WORKFLOW - TESTS WITH EXPLICIT DATA NAME
 // ================================================================================
 //
-// Tests for the optional signalName feature in sendEvent.
-// These tests verify that signal names can be inferred when:
-// 1. There's only one signal in the events record
-// 2. Signal types have distinct structures (different fields)
-// 3. Explicit signalName works correctly with ambiguous types
+// Tests for sendData with explicit dataName parameter.
+// These tests verify that data can be sent to workflows using specific
+// data names that match the events record field names.
 //
 // ================================================================================
 
@@ -31,7 +29,7 @@ import ballerina/test;
 import ballerina/workflow;
 
 // ================================================================================
-// TEST 1: Single signal - signal name should be inferred automatically
+// TEST 1: Single signal - send with explicit dataName
 // ================================================================================
 
 @test:Config {
@@ -47,10 +45,9 @@ function testSingleSignalInference() returns error? {
     // Give the workflow time to start
     runtime:sleep(1);
     
-    // Send signal WITHOUT explicit signalName - should be inferred (only one signal)
+    // Send signal with explicit dataName
     SingleInferSignal signalData = {id: testId, response: "inferred response"};
-    boolean sent = check workflow:sendData(singleSignalInferWorkflow, signalData = signalData);
-    test:assertTrue(sent, "Signal should be sent successfully without explicit signalName");
+    check workflow:sendData(singleSignalInferWorkflow, workflowId, "onlySignal", signalData);
     
     // Wait for workflow to complete
     workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
@@ -67,7 +64,7 @@ function testSingleSignalInference() returns error? {
 }
 
 // ================================================================================
-// TEST 2: Distinct types - signal name inferred by type structure matching
+// TEST 2: Distinct types - send each with explicit dataName
 // ================================================================================
 
 @test:Config {
@@ -83,24 +80,21 @@ function testDistinctTypesSignalInference() returns error? {
     // Give the workflow time to start
     runtime:sleep(1);
     
-    // Send approval signal WITHOUT explicit signalName - distinct type (has 'approved' boolean)
+    // Send approval signal with explicit dataName
     ApprovalTypeSignal approvalData = {id: testId, approved: true, approverName: "Manager"};
-    boolean approvalSent = check workflow:sendData(distinctTypesWorkflow, signalData = approvalData);
-    test:assertTrue(approvalSent, "Approval signal should be inferred by type structure");
+    check workflow:sendData(distinctTypesWorkflow, workflowId, "approval", approvalData);
     
     runtime:sleep(1);
     
-    // Send payment signal WITHOUT explicit signalName - distinct type (has 'amount' decimal)
+    // Send payment signal with explicit dataName
     PaymentTypeSignal paymentData = {id: testId, amount: 250.50, transactionRef: "TXN-123"};
-    boolean paymentSent = check workflow:sendData(distinctTypesWorkflow, signalData = paymentData);
-    test:assertTrue(paymentSent, "Payment signal should be inferred by type structure");
+    check workflow:sendData(distinctTypesWorkflow, workflowId, "payment", paymentData);
     
     runtime:sleep(1);
     
-    // Send feedback signal WITHOUT explicit signalName - distinct type (has 'rating' int)
+    // Send feedback signal with explicit dataName
     FeedbackTypeSignal feedbackData = {id: testId, rating: 5, comment: "Excellent"};
-    boolean feedbackSent = check workflow:sendData(distinctTypesWorkflow, signalData = feedbackData);
-    test:assertTrue(feedbackSent, "Feedback signal should be inferred by type structure");
+    check workflow:sendData(distinctTypesWorkflow, workflowId, "feedback", feedbackData);
     
     // Wait for workflow to complete
     workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
@@ -126,7 +120,7 @@ function testDistinctTypesSignalInference() returns error? {
 }
 
 // ================================================================================
-// TEST 3: Explicit signalName with ambiguous types - must provide name
+// TEST 3: Ambiguous signal types - explicit dataName disambiguates
 // ================================================================================
 
 @test:Config {
@@ -142,17 +136,15 @@ function testExplicitSignalNameWithAmbiguousTypes() returns error? {
     // Give the workflow time to start
     runtime:sleep(1);
     
-    // Send first ambiguous signal WITH explicit signalName
+    // Send first signal with explicit dataName
     AmbiguousSignal1 signal1Data = {id: testId, value: "value from signal 1"};
-    boolean sent1 = check workflow:sendData(explicitSignalNameWorkflow, signalName = "ambig1", signalData = signal1Data);
-    test:assertTrue(sent1, "First ambiguous signal should be sent with explicit name");
+    check workflow:sendData(explicitSignalNameWorkflow, workflowId, "ambig1", signal1Data);
     
     runtime:sleep(1);
     
-    // Send second ambiguous signal WITH explicit signalName
+    // Send second signal with explicit dataName
     AmbiguousSignal2 signal2Data = {id: testId, value: "value from signal 2"};
-    boolean sent2 = check workflow:sendData(explicitSignalNameWorkflow, signalName = "ambig2", signalData = signal2Data);
-    test:assertTrue(sent2, "Second ambiguous signal should be sent with explicit name");
+    check workflow:sendData(explicitSignalNameWorkflow, workflowId, "ambig2", signal2Data);
     
     // Wait for workflow to complete
     workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
@@ -169,7 +161,7 @@ function testExplicitSignalNameWithAmbiguousTypes() returns error? {
 }
 
 // ================================================================================
-// TEST 4: Mixed workflow - single distinct signal type
+// TEST 4: Mixed workflow - single signal with explicit dataName
 // ================================================================================
 
 @test:Config {
@@ -185,10 +177,9 @@ function testMixedSignalsWorkflow() returns error? {
     // Give the workflow time to start
     runtime:sleep(1);
     
-    // Send status update signal without explicit name - should be inferred (only one signal)
+    // Send status update signal with explicit dataName
     StatusUpdateSignal statusData = {id: testId, statusCode: 200, description: "Success"};
-    boolean sent = check workflow:sendData(mixedSignalsWorkflow, signalData = statusData);
-    test:assertTrue(sent, "Status signal should be inferred (single signal in record)");
+    check workflow:sendData(mixedSignalsWorkflow, workflowId, "statusUpdate", statusData);
     
     // Wait for workflow to complete
     workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
@@ -202,8 +193,4 @@ function testMixedSignalsWorkflow() returns error? {
         test:assertFail("Result should be a map");
     }
 }
-
-// NOTE: Test for runtime error on ambiguous types was removed because this scenario
-// is now validated at compile time by the SendEventValidatorTask. The compiler plugin
-// test testInvalidSendEventAmbiguousNoSignalName covers this validation.
 

@@ -33,7 +33,7 @@ type TestResult record {|
     string status;
 |};
 
-// Valid: Process with single signal - no ambiguity possible
+// Valid: Process with single signal
 @workflow:Workflow
 function singleSignalProcess(
     workflow:Context ctx,
@@ -46,8 +46,8 @@ function singleSignalProcess(
     return {status: "OK"};
 }
 
-// This is VALID - single signal can always be inferred
+// Valid: sendData with all required params
 function validSendToSingleSignalProcess() returns error? {
     ResponseSignal data = {id: "test-1", message: "hello"};
-    _ = check workflow:sendData(singleSignalProcess, signalData = data);
+    check workflow:sendData(singleSignalProcess, "wf-12345", "response", data);
 }

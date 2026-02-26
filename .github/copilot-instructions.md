@@ -39,8 +39,8 @@ function processName(
 ```
 
 - **Context** (`workflow:Context`): Client class as first parameter. **Required** if calling activities. Provides `callActivity` remote method.
-- **Input**: Workflow input data. If process has events, must have `@workflow:CorrelationKey` annotated `readonly` fields for correlation (e.g., `@workflow:CorrelationKey readonly string customerId`)
-- **Events**: Optional record with `future<T>` fields for receiving signals. Wait using `check events.event1`. **Requires @CorrelationKey fields in input for correlation.**
+- **Input**: Workflow input data. If using correlation-based lookup via `searchWorkflow()`, must have `@workflow:CorrelationKey` annotated `readonly` fields.
+- **Events**: Optional record with `future<T>` fields for receiving signals. Wait using `check events.event1`.
 
 ### Activity Functions
 ```ballerina
@@ -170,20 +170,17 @@ maxConcurrentWorkflows = 100
 |------|-------|-------|
 | WORKFLOW_107 | callActivity target not @Activity | Calling non-activity via ctx->callActivity() |
 | WORKFLOW_108 | Direct activity call | Direct call to @Activity function (must use ctx->callActivity()) |
-| WORKFLOW_112 | Ambiguous signal types | Multiple signals with same structure, need explicit signalName |
+| WORKFLOW_112 | Ambiguous signal types (warning) | Multiple signals with same structure in workflow definition |
 | WORKFLOW_113 | Input not record type | Process input must be record type for correlation |
 | WORKFLOW_114 | Missing correlation key | Signal missing @CorrelationKey field present in input |
 | WORKFLOW_115 | Correlation type mismatch | @CorrelationKey field type differs between input and signal |
-| WORKFLOW_116 | Events need correlation | sendData without workflowId on process lacking @CorrelationKey fields (see WORKFLOW_120) |
+| WORKFLOW_116 | Events need correlation | Process with events lacks @CorrelationKey fields |
 | WORKFLOW_117 | CorrelationKey not readonly | @CorrelationKey field must also be declared as readonly |
-| WORKFLOW_118 | sendData missing params | sendData requires workflowId+signalName or signalName+signalData |
-| WORKFLOW_119 | workflowId needs signalName | sendData with workflowId requires signalName |
-| WORKFLOW_120 | No correlation keys | sendData without workflowId requires @CorrelationKey fields in process |
 
 ## Common Pitfalls
 - Register all test processes in `@test:BeforeSuite` - registry cannot be cleared with singleton pattern
 - Process functions must be deterministic - no I/O, use activities instead
-- Workflows with events (signals) must have `@workflow:CorrelationKey` `readonly` fields in input for correlation
+- Workflows with events (signals) should have `@workflow:CorrelationKey` `readonly` fields in input if correlation-based lookup is needed via `searchWorkflow()`
 - Don't mix Listener pattern (deprecated) with singleton pattern
 - **Never use Java blocking calls** in workflow code (causes `PotentialDeadlockException`)
 - Signal waiting uses `TemporalFutureValue.getAndSetWaited()` to intercept Ballerina's `wait` and use `Workflow.await()` instead of blocking `CompletableFuture.get()`

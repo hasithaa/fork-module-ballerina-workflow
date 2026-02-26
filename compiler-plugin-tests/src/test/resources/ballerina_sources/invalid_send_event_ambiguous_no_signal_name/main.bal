@@ -16,7 +16,7 @@
 
 import ballerina/workflow;
 
-// Types with SAME structure - this creates ambiguity
+// Types with SAME structure - previously caused ambiguity errors
 type SignalType1 record {|
     @workflow:CorrelationKey
     readonly string id;
@@ -39,7 +39,7 @@ type TestResult record {|
     string status;
 |};
 
-// Process with ambiguous signal types (same structure)
+// Process with structurally equivalent signal types
 @workflow:Workflow
 function ambiguousSignalProcess(
     workflow:Context ctx,
@@ -53,10 +53,8 @@ function ambiguousSignalProcess(
     return {status: "OK"};
 }
 
-// INVALID: sendData without signalName when signals are ambiguous
-// Should trigger WORKFLOW_112 error
-function invalidSendWithoutSignalName() returns error? {
+// Valid: sendData with all required params - dataName disambiguates
+function validSendWithDataName() returns error? {
     SignalType1 data = {id: "test-1", value: "test"};
-    // Missing signalName parameter - ambiguous, cannot infer which signal to send
-    _ = check workflow:sendData(ambiguousSignalProcess, signalData = data);
+    check workflow:sendData(ambiguousSignalProcess, "wf-12345", "signal1", data);
 }

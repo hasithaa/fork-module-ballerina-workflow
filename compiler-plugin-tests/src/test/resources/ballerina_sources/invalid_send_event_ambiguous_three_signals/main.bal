@@ -16,7 +16,7 @@
 
 import ballerina/workflow;
 
-// Three signals with same structure - tests detection of first two ambiguous signals
+// Three signals with same structure
 type StringSignal record {|
     @workflow:CorrelationKey
     readonly string id;
@@ -33,7 +33,7 @@ type TestResult record {|
     string status;
 |};
 
-// Process with three signals of same type - ambiguous
+// Process with three signals of same type
 @workflow:Workflow
 function threeAmbiguousSignalProcess(
     workflow:Context ctx,
@@ -48,9 +48,8 @@ function threeAmbiguousSignalProcess(
     return {status: "OK"};
 }
 
-// INVALID: sendData without signalName when three signals are ambiguous
-// Should trigger WORKFLOW_112 error
-function invalidSendToThreeAmbiguousSignals() returns error? {
+// Valid: sendData with all required params - dataName selects specific signal
+function validSendToSpecificSignal() returns error? {
     StringSignal data = {id: "test-1", data: "test"};
-    _ = check workflow:sendData(threeAmbiguousSignalProcess, signalData = data);
+    check workflow:sendData(threeAmbiguousSignalProcess, "wf-12345", "signalA", data);
 }

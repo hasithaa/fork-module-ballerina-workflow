@@ -34,7 +34,7 @@ type OrderResult record {|
 |};
 
 // Valid: Process with events but NO @CorrelationKey fields.
-// This is valid because signals can be routed via workflowId + signalName.
+// This is valid because signals are routed via workflowId + dataName.
 @workflow:Workflow
 function orderProcessNoCorrelation(
     workflow:Context ctx,
@@ -47,9 +47,8 @@ function orderProcessNoCorrelation(
     return {status: a.approved ? "approved" : "rejected"};
 }
 
-// Valid: sendData with workflowId + signalName (no correlation keys needed)
+// Valid: sendData with all required params (no correlation keys needed)
 function validSendSignalWithWorkflowId() returns error? {
     ApprovalSignal data = {approved: true, approver: "admin"};
-    _ = check workflow:sendData(orderProcessNoCorrelation,
-        workflowId = "wf-12345", signalName = "approval", signalData = data);
+    check workflow:sendData(orderProcessNoCorrelation, "wf-12345", "approval", data);
 }

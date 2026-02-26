@@ -33,7 +33,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - **[Breaking]** Renamed `@workflow:Process` annotation to `@workflow:Workflow`
 - **[Breaking]** Renamed `workflow:createInstance()` function to `workflow:run()`
+- **[Breaking]** Changed `workflow:sendData()` to require all parameters explicitly:
+  `sendData(function workflow, string workflowId, string dataName, anydata data) returns error?`
+  (previously used optional named parameters with `boolean|error` return)
+- **[Breaking]** Removed automatic correlation-based signal routing from `sendData()`
+- Removed compiler plugin error codes WORKFLOW_118, WORKFLOW_119, WORKFLOW_120 (no longer applicable with required sendData params)
+- Changed WORKFLOW_112 (ambiguous signal types) from error to warning
 
 ### Added
+
+- New `workflow:searchWorkflow()` function to find workflows by correlation keys:
+  `searchWorkflow(function workflow, map<anydata> correlationKeys) returns string|error`
 
 ### Fixed

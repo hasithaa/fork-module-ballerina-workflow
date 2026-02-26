@@ -126,7 +126,7 @@ The `startSharedTestServer` task checks port 7233 first. If a server is already 
 @test:Config {}
 function testWorkflowExecution() returns error? {
     string wfId = check workflow:run(orderProcess, {id: "order-1"});
-    _ = check workflow:sendData(orderProcess, {id: "order-1", approved: true}, "approval");
+    check workflow:sendData(orderProcess, wfId, "approval", {id: "order-1", approved: true});
     // Wait and verify result
 }
 ```
