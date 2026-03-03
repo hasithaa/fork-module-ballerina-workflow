@@ -1113,12 +1113,12 @@ public final class WorkflowWorkerNative {
     static io.temporal.failure.ApplicationFailure berrorToApplicationFailure(BError err,
                                                                             String typeName) {
         // Hard limit to prevent unbounded traversal of cause chains.
-        final int MAX_DEPTH = 64;
+        final int maxDepth = 64;
 
         // 1. Walk the BError cause chain and collect each node's data.
         List<BError> chain = new ArrayList<>();
         BError current = err;
-        while (current != null && chain.size() < MAX_DEPTH) {
+        while (current != null && chain.size() < maxDepth) {
             chain.add(current);
             Throwable cause = current.getCause();
             current = (cause instanceof BError) ? (BError) cause : null;

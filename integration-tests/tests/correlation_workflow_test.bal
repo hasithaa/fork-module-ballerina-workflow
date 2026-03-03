@@ -49,8 +49,8 @@ function testSimpleCorrelatedWorkflow() returns error? {
     // Start the workflow - workflow ID is timestamp-based, fields are search attributes
     string workflowId = check workflow:run(simpleCorrelatedWorkflow, input);
     
-    // Verify the workflow ID is generated (UUID v7)
-    test:assertTrue(workflowId.length() > 0, "Workflow ID should be generated");
+    // Verify the workflow ID is a valid UUID v7
+    test:assertTrue(isValidUuidV7(workflowId), "Workflow ID should be a valid UUID v7");
     
     // Give the workflow time to start and wait for signal
     runtime:sleep(1);
@@ -101,8 +101,8 @@ function testCorrelatedOrderWorkflow() returns error? {
     // Start the workflow - workflow ID is timestamp-based, fields are search attributes
     string workflowId = check workflow:run(correlatedOrderWorkflow, input);
     
-    // Verify the workflow ID is generated (UUID v7, fields are in search attributes)
-    test:assertTrue(workflowId.length() > 0, "Workflow ID should be generated");
+    // Verify the workflow ID is a valid UUID v7
+    test:assertTrue(isValidUuidV7(workflowId), "Workflow ID should be a valid UUID v7");
     
     // Give the workflow time to start
     runtime:sleep(1);

@@ -22,7 +22,7 @@
 # + item - Item name/SKU
 # + quantity - Number of items requested
 public type OrderRequest record {|
-    readonly string orderId;  // readonly for correlation
+    string orderId;
     string item;
     int quantity;
 |};

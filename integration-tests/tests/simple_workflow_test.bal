@@ -29,8 +29,8 @@ function testSimpleWorkflowExecution() returns error? {
     SimpleInput input = {id: testId, name: "TestUser"};
     string workflowId = check workflow:run(simpleWorkflow, input);
     
-    // Workflow ID is a UUID v7, just verify it's not empty
-    test:assertTrue(workflowId.length() > 0, "Workflow ID should be generated");
+    // Workflow ID must be a valid UUID v7
+    test:assertTrue(isValidUuidV7(workflowId), "Workflow ID should be a valid UUID v7");
     
     workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
     

@@ -18,6 +18,10 @@ import ballerina/http;
 import ballerina/workflow;
 import ballerina/io;
 
+// Tracks running workflow IDs keyed by orderId so payment signals can be
+// routed to the correct workflow instance.
+map<string> orderWorkflowIds = {};
+
 # HTTP Service for Order Processing with Payment
 # 
 # This service provides REST endpoints for:
@@ -46,6 +50,7 @@ service /orders on new http:Listener(9094) {
     # ```
     resource function post .(OrderRequest request) returns json|error {
         string workflowId = check workflow:run(processOrderWithPayment, request);
+        orderWorkflowIds[request.orderId] = workflowId;
 
         io:println(string `Started order workflow: ${workflowId}`);
 
@@ -73,22 +78,20 @@ service /orders on new http:Listener(9094) {
     # Body: {"amount": 1999.99}
     # ```
     resource function post [string orderId]/payment(record {decimal amount;} paymentData) returns json|error {
-        // Send payment data
-        // The field name 'paymentReceived' in the events record determines the signal name
-        PaymentConfirmation payment = {orderId: orderId, amount: paymentData.amount};
-        boolean sent = check workflow:sendData(processOrderWithPayment, payment, "paymentReceived");
-
-        if sent {
-            io:println(string `Payment signal sent for order: ${orderId}`);
-            return {
-                "status": "success",
-                "message": "Payment received"
-            };
+        string? workflowId = orderWorkflowIds[orderId];
+        if workflowId is () {
+            return error(string `No workflow found for order: ${orderId}`);
         }
 
+        // Send payment data to the waiting workflow.
+        // The field name 'paymentReceived' in the data events record determines the signal name.
+        PaymentConfirmation payment = {amount: paymentData.amount};
+        check workflow:sendData(processOrderWithPayment, workflowId, "paymentReceived", payment);
+
+        io:println(string `Payment signal sent for order: ${orderId}`);
         return {
-            "status": "error",
-            "message": "Failed to send payment signal"
+            "status": "success",
+            "message": "Payment received"
         };
     }
 

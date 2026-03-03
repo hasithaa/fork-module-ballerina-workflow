@@ -34,8 +34,8 @@ function testSingleNoArgActivityExecution() returns error? {
     NoArgWorkflowInput input = {id: testId};
     string workflowId = check workflow:run(singleNoArgActivityWorkflow, input);
     
-    // Verify workflow ID is generated (UUID v7)
-    test:assertTrue(workflowId.length() > 0, "Workflow ID should be generated");
+    // Verify workflow ID is a valid UUID v7
+    test:assertTrue(isValidUuidV7(workflowId), "Workflow ID should be a valid UUID v7");
     
     workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
     
@@ -52,8 +52,8 @@ function testMultipleNoArgActivitiesExecution() returns error? {
     NoArgWorkflowInput input = {id: testId};
     string workflowId = check workflow:run(multipleNoArgActivitiesWorkflow, input);
     
-    // Verify workflow ID is generated (UUID v7)
-    test:assertTrue(workflowId.length() > 0, "Workflow ID should be generated");
+    // Verify workflow ID is a valid UUID v7
+    test:assertTrue(isValidUuidV7(workflowId), "Workflow ID should be a valid UUID v7");
     
     workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
     

@@ -79,6 +79,22 @@ subprojects {
         ballerinaStdLibs "io.ballerina.stdlib:io-ballerina:${stdlibIoVersion}"
         ballerinaStdLibs "io.ballerina.stdlib:log-ballerina:${stdlibLogVersion}"
         ballerinaStdLibs "io.ballerina.stdlib:time-ballerina:${stdlibTimeVersion}"
+        ballerinaStdLibs "io.ballerina.stdlib:url-ballerina:${stdlibUrlVersion}"
+        ballerinaStdLibs "io.ballerina.stdlib:constraint-ballerina:${stdlibConstraintVersion}"
+        ballerinaStdLibs "io.ballerina.stdlib:crypto-ballerina:${stdlibCryptoVersion}"
+        ballerinaStdLibs "io.ballerina.stdlib:os-ballerina:${stdlibOsVersion}"
+        ballerinaStdLibs "io.ballerina.stdlib:task-ballerina:${stdlibTaskVersion}"
+        ballerinaStdLibs "io.ballerina.stdlib:cache-ballerina:${stdlibCacheVersion}"
+        ballerinaStdLibs "io.ballerina.stdlib:file-ballerina:${stdlibFileVersion}"
+        ballerinaStdLibs "io.ballerina.stdlib:mime-ballerina:${stdlibMimeVersion}"
+        ballerinaStdLibs "io.ballerina.stdlib:uuid-ballerina:${stdlibUuidVersion}"
+        ballerinaStdLibs "io.ballerina.stdlib:auth-ballerina:${stdlibAuthVersion}"
+        ballerinaStdLibs "io.ballerina.stdlib:jwt-ballerina:${stdlibJwtVersion}"
+        ballerinaStdLibs "io.ballerina.stdlib:oauth2-ballerina:${stdlibOAuth2Version}"
+        ballerinaStdLibs "io.ballerina.lib:data.jsondata-ballerina:${stdlibDataJsonDataVersion}"
+        ballerinaStdLibs "io.ballerina.stdlib:http-ballerina:${stdlibHttpVersion}"
+        ballerinaStdLibs "io.ballerina.stdlib:observe-ballerina:${observeVersion}"
+        ballerinaStdLibs "io.ballerina:observe-ballerina:${observeInternalVersion}"
     }
 }
 
@@ -87,66 +103,121 @@ task build {
     dependsOn(':workflow-native:build')
     dependsOn(':workflow-ballerina:build')
     dependsOn(':workflow-compiler-plugin-tests:test')
+    dependsOn('buildSamples')
 }
 
-// Task to publish workflow module to local Maven repository
-// This makes the module available for samples to use as a local dependency
-task publishWorkflowToLocal {
-    description = 'Publishes the workflow module to local Maven repository and Ballerina local repository'
-    group = 'publishing'
+import org.apache.tools.ant.taskdefs.condition.Os
+
+// Map of sample directory names to their Ballerina package names
+def samplePackageNames = [
+    'crm-sync': 'crm_sync_sample',
+    'order-processing': 'order_processing_sample',
+    'order-with-payment': 'order_with_payment_sample'
+]
+
+// Helper: generate a Ballerina.toml for a sample
+def generateSampleToml = { String packageName ->
+    return """[package]
+org = "ballerina"
+name = "${packageName}"
+version = "0.1.0"
+distribution = "2201.13.0"
+
+[build-options]
+observabilityIncluded = true
+"""
+}
+
+// Build samples using the same distribution pack used for integration tests.
+// The distribution already contains the locally built workflow module.
+task buildSamples {
+    description = 'Builds all sample projects using the locally built workflow module'
+    group = 'build'
     dependsOn(':workflow-ballerina:build')
-    
+
     doLast {
-        logger.lifecycle("Publishing workflow module to Ballerina local repository...")
-        
-        def tomlVersion = project.version.replace("-SNAPSHOT", "")
-        def balaFile = file("${project(':workflow-ballerina').buildDir}/bal_build_target/bala/ballerina-workflow-java21-${tomlVersion}.bala")
-        def localRepoDir = file("${System.getProperty('user.home')}/.ballerina/repositories/local/bala/ballerina/workflow/${tomlVersion}/java21")
-        
-        localRepoDir.mkdirs()
-        
-        // Extract bala contents to local repository
-        exec {
-            workingDir localRepoDir
-            commandLine 'unzip', '-o', balaFile.absolutePath
+        def samplesDir = file("${project.rootDir}/samples")
+        def ballerinaDist = "${project.rootDir}/target/ballerina-runtime"
+        def distributionBinPath = "${ballerinaDist}/bin"
+
+        samplesDir.eachDir { sampleDir ->
+            def packageName = samplePackageNames[sampleDir.name]
+            if (packageName == null) {
+                logger.lifecycle("Skipping ${sampleDir.name} (not a registered sample)")
+                return
+            }
+
+            logger.lifecycle("Building sample: ${sampleDir.name}")
+
+            // Update Ballerina.toml
+            def tomlFile = new File(sampleDir, "Ballerina.toml")
+            tomlFile.text = generateSampleToml(packageName)
+
+            // Delete stale Dependencies.toml so it gets regenerated
+            def depsToml = new File(sampleDir, "Dependencies.toml")
+            if (depsToml.exists()) depsToml.delete()
+
+            // Clean old build artifacts
+            def targetDir = new File(sampleDir, "target")
+            if (targetDir.exists()) targetDir.deleteDir()
+
+            exec {
+                workingDir sampleDir
+                environment "JAVA_OPTS", "-DBALLERINA_DEV_COMPILE_BALLERINA_ORG=true"
+                if (Os.isFamily(Os.FAMILY_WINDOWS)) {
+                    commandLine 'cmd', '/c', "${distributionBinPath}/bal.bat build"
+                } else {
+                    commandLine 'sh', '-c', "${distributionBinPath}/bal build"
+                }
+            }
         }
-        
-        logger.lifecycle("Workflow module published to local repository successfully")
+
+        logger.lifecycle("All samples built successfully")
     }
 }
 
-// Build samples after publishing workflow module to local repo
-task buildSamples {
-    description = 'Builds all sample projects'
-    group = 'build'
-    dependsOn('publishWorkflowToLocal')
-    
+// Test samples against a running Temporal server.
+// Uses the same distribution pack used for integration tests.
+task testSamples {
+    description = 'Runs tests for all sample projects'
+    group = 'verification'
+    dependsOn(':workflow-ballerina:build')
+    dependsOn(':startSharedTestServer')
+
     doLast {
-        logger.lifecycle("Building workflow samples...")
-        
         def samplesDir = file("${project.rootDir}/samples")
-        if (!samplesDir.exists()) {
-            logger.warn("Samples directory not found at: ${samplesDir}")
-            return
-        }
-        
+        def ballerinaDist = "${project.rootDir}/target/ballerina-runtime"
+        def distributionBinPath = "${ballerinaDist}/bin"
+
         samplesDir.eachDir { sampleDir ->
-            // Skip empty directories (check for Ballerina.toml)
-            def tomlFile = new File(sampleDir, "Ballerina.toml")
-            if (!tomlFile.exists()) {
-                logger.lifecycle("Skipping ${sampleDir.name} (not a Ballerina package)")
+            def packageName = samplePackageNames[sampleDir.name]
+            if (packageName == null) {
+                logger.lifecycle("Skipping ${sampleDir.name} (not a registered sample)")
                 return
             }
-            
-            logger.lifecycle("Building sample: ${sampleDir.name}")
-            
+
+            logger.lifecycle("Testing sample: ${sampleDir.name}")
+
+            // Update Ballerina.toml
+            def tomlFile = new File(sampleDir, "Ballerina.toml")
+            tomlFile.text = generateSampleToml(packageName)
+
+            // Delete stale Dependencies.toml so it gets regenerated
+            def depsToml = new File(sampleDir, "Dependencies.toml")
+            if (depsToml.exists()) depsToml.delete()
+
             exec {
                 workingDir sampleDir
-                commandLine 'bal', 'build'
+                environment "JAVA_OPTS", "-DBALLERINA_DEV_COMPILE_BALLERINA_ORG=true"
+                if (Os.isFamily(Os.FAMILY_WINDOWS)) {
+                    commandLine 'cmd', '/c', "${distributionBinPath}/bal.bat test"
+                } else {
+                    commandLine 'sh', '-c', "${distributionBinPath}/bal test"
+                }
             }
         }
-        
-        logger.lifecycle("All samples built successfully")
+
+        logger.lifecycle("All sample tests passed")
     }
 }
 

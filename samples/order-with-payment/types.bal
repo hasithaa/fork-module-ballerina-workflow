@@ -14,27 +14,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import ballerina/workflow;
-
 # Represents an order request initiated by a customer.
-# The orderId field is readonly to enable workflow correlation.
 #
-# + orderId - Unique identifier for the order (readonly for correlation)
+# + orderId - Unique identifier for the order
 # + item - Name of the item being ordered
 public type OrderRequest record {|
-    @workflow:correlationKey
-    readonly string orderId;
+    string orderId;
     string item;
 |};
 
 # Represents payment confirmation received for an order.
 # Used as a signal payload to confirm payment has been processed.
 #
-# + orderId - Order ID for which payment is being confirmed (readonly for correlation)
 # + amount - Payment amount received
 public type PaymentConfirmation record {|
-    @workflow:correlationKey
-    readonly string orderId;
     decimal amount;
 |};
 
