@@ -177,13 +177,17 @@ def isServerRunning = { String host, int port ->
     }
 }
 
-// Helper: find temporal CLI binary in system PATH
+// Helper: find temporal CLI binary in system PATH (cross-platform)
 def findTemporalCli = {
+    def isWindows = System.getProperty('os.name', '').toLowerCase().contains('win')
     try {
-        def process = ['which', 'temporal'].execute()
+        def command = isWindows ? ['cmd', '/c', 'where', 'temporal'] : ['which', 'temporal']
+        def process = command.execute()
         process.waitFor()
         if (process.exitValue() == 0) {
             def path = process.text.trim()
+            // 'where' on Windows may return multiple lines; take the first
+            if (path.contains('\n')) path = path.split('\n')[0].trim()
             if (path && new File(path).exists()) return path
         }
     } catch (Exception ignored) {}
@@ -252,9 +256,8 @@ task startSharedTestServer {
             throw new GradleException(
                 "Temporal CLI not found in PATH. Please install it:\n" +
                 "  macOS:   brew install temporal\n" +
-                "  Linux:   curl -sL https://github.com/temporalio/cli/releases/download/v1.6.0/temporal_cli_1.6.0_linux_amd64.tar.gz | tar xz\n" +
-                "  Windows: https://github.com/temporalio/cli/releases\n" +
-                "  Or download from: https://github.com/temporalio/cli/releases")
+                "  Linux:   curl -sSf https://temporal.download/cli | sh\n" +
+                "  Windows: Download from https://github.com/temporalio/cli/releases")
         }
 
         logger.lifecycle("Starting Temporal dev server on port ${testServerPort}...")

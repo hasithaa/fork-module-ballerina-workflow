@@ -17,6 +17,7 @@ The root `build.gradle` manages the Temporal CLI dev server lifecycle with two t
 **Prerequisite**: The `temporal` CLI must be installed and available in PATH:
 - macOS: `brew install temporal`
 - Linux: `curl -sSf https://temporal.download/cli | sh`
+- Windows: Download from https://github.com/temporalio/cli/releases
 - CI: Installed via workflow step (see `.github/workflows/`)
 
 #### startSharedTestServer
