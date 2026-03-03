@@ -16,7 +16,7 @@ The workflow module implements a **Future-based approach** where signal listener
 Workflows receive signals via a record parameter with `future<T>` fields:
 
 ```ballerina
-@workflow:Process
+@workflow:Workflow
 function orderProcess(
     workflow:Context ctx,
     OrderInput input,
@@ -283,7 +283,7 @@ private void validateProcessFunction(FunctionDefinitionNode node, SyntaxNodeAnal
        └─> completableFuture.get() → Returns immediately (already done)
 
 4. Signal Arrives (External)
-   └─> workflow:sendEvent(processFunc, eventData, "approval")
+   └─> workflow:sendData(processFunc, workflowId, "approval", eventData)
        └─> Temporal delivers signal → DynamicSignalHandler.signal()
            └─> signalWrapper.handleSignal("approval", data)
                ├─> promise.complete(SignalData) → Temporal promise complete
@@ -327,7 +327,6 @@ private void validateProcessFunction(FunctionDefinitionNode node, SyntaxNodeAnal
 - Signal promise failures propagate to Ballerina error
 
 ✅ **Integration:**
-- `sendEvent()` successfully delivers signals to running workflows
-- Field name inference works for single-signal workflows
-- Explicit `signalName` parameter works for ambiguous cases
+- `sendData()` successfully delivers signals to running workflows
+- Explicit `dataName` parameter specifies which signal to deliver
 - Signals work correctly with correlation (readonly fields)

@@ -63,4 +63,12 @@
         <Class name="io.ballerina.stdlib.workflow.worker.WorkflowWorkerNative$BallerinaWorkflowAdapter" />
         <Bug pattern="UPM_UNCALLED_PRIVATE_METHOD" />
     </Match>
+
+    <!-- Vacuous instanceof in berrorToApplicationFailure: getCause() returns Throwable,
+         but SpotBugs infers it is always BError. The check is intentional for safety. -->
+    <Match>
+        <Class name="io.ballerina.stdlib.workflow.worker.WorkflowWorkerNative" />
+        <Method name="berrorToApplicationFailure" />
+        <Bug pattern="BC_VACUOUS_INSTANCEOF" />
+    </Match>
 </FindBugsFilter>

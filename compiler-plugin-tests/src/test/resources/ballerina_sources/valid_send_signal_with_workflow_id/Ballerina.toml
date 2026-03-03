@@ -1,0 +1,13 @@
+[package]
+org = "test"
+name = "valid_send_signal_with_workflow_id"
+version = "0.1.0"
+distribution = "2201.13.0"
+
+[[dependency]]
+org = "ballerina"
+name = "workflow"
+version = "0.2.0"
+
+[build-options]
+observabilityIncluded = false

@@ -25,7 +25,7 @@
 # + phone - Phone number (optional)
 # + company - Company name (optional)
 public type SourceContact record {|
-    readonly string id;  // readonly for correlation
+    string id;
     string email;
     string firstName;
     string lastName;

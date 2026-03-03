@@ -59,7 +59,7 @@ function infoTestActivity(string name) returns string|error {
 # + ctx - The workflow context for calling activities
 # + input - The workflow input
 # + return - The processed result or error
-@workflow:Process
+@workflow:Workflow
 function infoTestWorkflow(workflow:Context ctx, InfoTestInput input) returns string|error {
     string result = check ctx->callActivity(infoTestActivity, {"name": input.name});
     return result;

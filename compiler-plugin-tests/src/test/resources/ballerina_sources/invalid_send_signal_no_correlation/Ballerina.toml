@@ -1,14 +1,13 @@
 [package]
 org = "test"
-name = "invalid_send_event_ambiguous_no_signal_name"
+name = "invalid_send_signal_no_correlation"
 version = "0.1.0"
 distribution = "2201.13.0"
 
 [[dependency]]
 org = "ballerina"
 name = "workflow"
-version = "0.1.0"
-repository = "local"
+version = "0.2.0"
 
 [build-options]
 observabilityIncluded = false

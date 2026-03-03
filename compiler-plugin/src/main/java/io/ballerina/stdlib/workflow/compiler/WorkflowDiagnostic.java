@@ -29,13 +29,13 @@ import io.ballerina.tools.diagnostics.DiagnosticSeverity;
 public enum WorkflowDiagnostic {
 
     WORKFLOW_100("WORKFLOW_100",
-            "@Process function's first parameter must be 'workflow:Context' if context is used",
+            "@Workflow function's first parameter must be 'workflow:Context' if context is used",
             DiagnosticSeverity.ERROR),
     WORKFLOW_101("WORKFLOW_101",
-            "@Process function's input parameter must be a subtype of 'anydata'",
+            "@Workflow function's input parameter must be a subtype of 'anydata'",
             DiagnosticSeverity.ERROR),
     WORKFLOW_102("WORKFLOW_102",
-            "@Process function's events parameter must be a record type with only future<T> fields",
+            "@Workflow function's events parameter must be a record type with only future<T> fields",
             DiagnosticSeverity.ERROR),
     WORKFLOW_103("WORKFLOW_103",
             "@Activity function parameters must be subtypes of 'anydata'",
@@ -44,10 +44,10 @@ public enum WorkflowDiagnostic {
             "@Activity function return type must be a subtype of 'anydata' or 'error'",
             DiagnosticSeverity.ERROR),
     WORKFLOW_105("WORKFLOW_105",
-            "@Process function return type must be a subtype of 'anydata' or 'error'",
+            "@Workflow function return type must be a subtype of 'anydata' or 'error'",
             DiagnosticSeverity.ERROR),
     WORKFLOW_106("WORKFLOW_106",
-            "@Process function can have at most 3 parameters: Context, input, and events",
+            "@Workflow function can have at most 3 parameters: Context, input, and events",
             DiagnosticSeverity.ERROR),
     WORKFLOW_107("WORKFLOW_107",
             "The first argument of 'callActivity' must be a function with @Activity annotation",
@@ -70,18 +70,8 @@ public enum WorkflowDiagnostic {
             DiagnosticSeverity.ERROR),
     WORKFLOW_112("WORKFLOW_112",
             "The process '%s' has structurally equivalent signal types '%s' and '%s'. "
-                    + "You must provide an explicit signalName parameter to disambiguate",
-            DiagnosticSeverity.ERROR),
-    WORKFLOW_114("WORKFLOW_114",
-            "Signal type '%s' is missing readonly field '%s' required for correlation with process input",
-            DiagnosticSeverity.ERROR),
-    WORKFLOW_115("WORKFLOW_115",
-            "Readonly field '%s' type mismatch: input has '%s', signal '%s' has '%s'",
-            DiagnosticSeverity.ERROR),
-    WORKFLOW_116("WORKFLOW_116",
-            "Process with events must have readonly fields in input for correlation. "
-                    + "Add 'readonly' modifier to fields used for correlation (e.g., 'readonly string customerId')",
-            DiagnosticSeverity.ERROR);
+                    + "Signal types in the events record should have distinct structures",
+            DiagnosticSeverity.WARNING);
 
     private final String code;
     private final String message;

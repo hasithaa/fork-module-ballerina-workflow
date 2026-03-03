@@ -48,7 +48,7 @@ import java.util.Map;
  * <p>
  * This modifier performs AST transformations:
  * 1. Replaces activity function calls with callActivity(funcPtr, args...)
- * 2. Adds registerProcess call at module level for each @Process function
+ * 2. Adds registerProcess call at module level for each @Workflow function
  *
  * @since 0.1.0
  */

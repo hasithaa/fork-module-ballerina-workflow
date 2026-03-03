@@ -47,7 +47,7 @@ type SimpleInput record {|
 #
 # + input - The workflow input containing id and name
 # + return - A greeting string or error
-@workflow:Process
+@workflow:Workflow
 function simpleWorkflow(SimpleInput input) returns string|error {
     return "Hello from workflow: " + input.name;
 }

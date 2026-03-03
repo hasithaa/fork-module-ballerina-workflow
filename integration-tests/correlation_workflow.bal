@@ -15,67 +15,65 @@
 // under the License.
 
 // ================================================================================
-// CORRELATION WORKFLOW - Readonly Field Based Correlation
+// CORRELATION WORKFLOW - Multi-Signal Workflow with Multiple Signal Types
 // ================================================================================
 // 
-// This workflow demonstrates the correlation key pattern where readonly fields
-// in record types are used for workflow-signal correlation.
+// This workflow demonstrates a multi-signal workflow pattern where multiple
+// signal types are used to coordinate workflow progression.
 //
 // Key concepts:
-// 1. Readonly fields in process input become correlation keys
-// 2. Signal types must have the same readonly fields (name AND type)
-// 3. Composite workflow ID is generated: processName-key1=value1-key2=value2
-// 4. Correlation keys become Temporal Search Attributes for visibility
+// 1. Workflow receives multiple signal types (payment, shipment)
+// 2. Workflow ID is generated as UUID v7
+// 3. Signals are sent using workflowId-based sendData
 //
 // ================================================================================
 
 import ballerina/workflow;
 
 // ================================================================================
-// TYPES WITH CORRELATION KEYS (READONLY FIELDS)
+// TYPES
 // ================================================================================
 
-# Order workflow input with correlation keys.
-# The readonly fields (customerId, orderId) become correlation keys.
+# Order workflow input.
 #
-# + customerId - The customer identifier (correlation key)
-# + orderId - The order identifier (correlation key)
+# + customerId - The customer identifier
+# + orderId - The order identifier
 # + product - The product name
 # + quantity - The quantity ordered
 # + price - The unit price
 type CorrelatedOrderInput record {|
-    readonly string customerId;  // Correlation key
-    readonly string orderId;     // Correlation key
-    string product;              // Regular field
-    int quantity;                // Regular field
-    decimal price;               // Regular field
+    string customerId;
+    string orderId;
+    string product;
+    int quantity;
+    decimal price;
 |};
 
-# Payment signal with matching correlation keys.
-# Must have same readonly fields (name AND type) as CorrelatedOrderInput.
+# Payment signal .
+
 #
-# + customerId - The customer identifier (must match CorrelatedOrderInput)
-# + orderId - The order identifier (must match CorrelatedOrderInput)
+# + customerId - The customer identifier
+# + orderId - The order identifier
 # + txnId - The transaction identifier
 # + amount - The payment amount
 # + paymentMethod - The payment method used
 type CorrelatedPaymentSignal record {|
-    readonly string customerId;  // Must match CorrelatedOrderInput
-    readonly string orderId;     // Must match CorrelatedOrderInput
-    string txnId;                // Signal-specific data
-    decimal amount;              // Signal-specific data
-    string paymentMethod;        // Signal-specific data
+    string customerId;  // 
+    string orderId;     // 
+    string txnId;                // 
+    decimal amount;              // 
+    string paymentMethod;        // 
 |};
 
-# Shipment signal with matching correlation keys.
+# Shipment signal .
 #
-# + customerId - The customer identifier (must match CorrelatedOrderInput)
-# + orderId - The order identifier (must match CorrelatedOrderInput)
+# + customerId - The customer identifier
+# + orderId - The order identifier
 # + trackingNumber - The shipment tracking number
 # + carrier - The carrier name
 type CorrelatedShipmentSignal record {|
-    readonly string customerId;
-    readonly string orderId;
+    string customerId;
+    string orderId;
     string trackingNumber;
     string carrier;
 |};
@@ -125,19 +123,19 @@ function validatePaymentActivity(string orderId, decimal amount) returns boolean
 // CORRELATED WORKFLOW DEFINITION
 // ================================================================================
 
-# A workflow that uses readonly fields as correlation keys.
+# A workflow that uses fields for correlation.
 # 
 # This demonstrates:
-# 1. Readonly fields (customerId, orderId) are extracted as correlation keys
+# 1. Readonly fields (customerId, orderId) are used as identifiers for workflow correlation
 # 2. Workflow ID is generated as: correlatedOrderWorkflow-customerId=C123-orderId=O456
-# 3. Signals must have matching correlation keys to be routed correctly
-# 4. No explicit "id" field needed when using readonly correlation keys
+# 3. Signals are sent using workflowId
+# 4. No explicit "id" field needed when using correlation fields
 #
 # + ctx - The workflow context for calling activities
-# + input - The workflow input with correlation keys
+# + input - The workflow input with fields
 # + signals - Record containing futures for each expected signal
 # + return - The order result or error
-@workflow:Process
+@workflow:Workflow
 function correlatedOrderWorkflow(
     workflow:Context ctx, 
     CorrelatedOrderInput input,
@@ -147,13 +145,13 @@ function correlatedOrderWorkflow(
     |} signals
 ) returns CorrelatedOrderResult|error {
     
-    // Process the order using correlation keys
+    // Process the order using fields
     string _ = check ctx->callActivity(
         processCorrelatedOrderActivity, 
         {"customerId": input.customerId, "orderId": input.orderId}
     );
     
-    // Wait for payment signal - will be matched by correlation keys
+    // Wait for payment signal - will be matched by fields
     CorrelatedPaymentSignal paymentConfirmation = check wait signals.payment;
     
     // Validate payment
@@ -188,21 +186,21 @@ function correlatedOrderWorkflow(
 // SIMPLE CORRELATION WORKFLOW (SINGLE KEY)
 // ================================================================================
 
-# Simple input with single correlation key.
+# Simple input with single field.
 #
-# + requestId - The request identifier (correlation key)
+# + requestId - The request identifier
 # + message - The message content
 type SimpleCorrelatedInput record {|
-    readonly string requestId;
+    string requestId;
     string message;
 |};
 
-# Simple response signal with matching correlation key.
+# Simple response signal with matching field.
 #
-# + requestId - The request identifier (must match SimpleCorrelatedInput)
+# + requestId - The request identifier
 # + response - The response content
 type SimpleCorrelatedResponse record {|
-    readonly string requestId;
+    string requestId;
     string response;
 |};
 
@@ -217,13 +215,13 @@ type SimpleCorrelatedResult record {|
     string response;
 |};
 
-# A simple workflow demonstrating single correlation key.
+# A simple workflow demonstrating single field.
 #
 # + ctx - The workflow context
-# + input - The input with single readonly correlation key
+# + input - The input with single field
 # + signals - Record with the response signal future
 # + return - The result or error
-@workflow:Process
+@workflow:Workflow
 function simpleCorrelatedWorkflow(
     workflow:Context ctx,
     SimpleCorrelatedInput input,

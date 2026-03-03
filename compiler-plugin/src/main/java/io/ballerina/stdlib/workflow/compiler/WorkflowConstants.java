@@ -34,7 +34,7 @@ public final class WorkflowConstants {
     public static final String PACKAGE_NAME = "workflow";
 
     // Annotation names
-    public static final String PROCESS_ANNOTATION = "Process";
+    public static final String PROCESS_ANNOTATION = "Workflow";
     public static final String ACTIVITY_ANNOTATION = "Activity";
 
     // Function names
@@ -48,5 +48,6 @@ public final class WorkflowConstants {
     public static final String IS_ANALYSIS_COMPLETED = "workflow.analysis.completed";
 
     // Function names for validation
-    public static final String SEND_EVENT_FUNCTION = "sendEvent";
+    public static final String SEND_DATA_FUNCTION = "sendData";
+    public static final String RUN_FUNCTION = "run";
 }

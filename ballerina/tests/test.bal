@@ -17,8 +17,8 @@
 import ballerina/test;
 
 // Note: Module-level tests focus on registration and introspection.
-// These tests work with the lazy gRPC connection (no active Temporal server needed).
-// For workflow execution tests (createInstance, sendEvent), a separate integration test 
+// These tests work with the lazy gRPC connection (no active workflow server needed).
+// For workflow execution tests (run, sendData), a separate integration test 
 // suite should be created that initializes the embedded test server before registering workflows.
 //
 // IMPORTANT: With the singleton worker pattern, we cannot clear the registry between tests.
@@ -39,7 +39,7 @@ type SingleEventRecord record {|
 // ============================================================================
 
 // Test process function for workflow registration tests.
-@Process
+@Workflow
 function testProcessFunction(string input) returns string|error {
     return "processed: " + input;
 }
@@ -57,9 +57,9 @@ function testActivityFunction2(int value) returns int|error {
 }
 
 // Test process that calls activities using Context client.
-@Process
+@Workflow
 function processWithActivities(Context ctx, string input) returns string|error {
-    // Use Context client's callActivity remote method with Parameters record
+    // Use Context client's callActivity remote method with map<anydata> args
     string result1 = check ctx->callActivity(testActivityFunction, {"input": input});
     int result2 = check ctx->callActivity(testActivityFunction2, {"value": 10});
     return result1 + " - " + result2.toString();
@@ -67,20 +67,20 @@ function processWithActivities(Context ctx, string input) returns string|error {
 
 // Test process with events for event extraction tests.
 // Events are modeled as a record with future fields.
-@Process
+@Workflow
 function processWithEvents(Context ctx, string input, MultiEventRecord events) returns string|error {
     // This would normally wait for events
     return "processed with events: " + input;
 }
 
 // Test process with only optional Context and events (no separate input).
-@Process
+@Workflow
 function processWithContextAndEvents(Context ctx, SingleEventRecord events) returns boolean|error {
     return true;
 }
 
 // Test process with inline record for events (multiple events).
-@Process
+@Workflow
 function processWithInlineEvents(Context ctx, string input, record {|
     future<string> approvalEvent;
     future<int> paymentEvent;
@@ -90,7 +90,7 @@ function processWithInlineEvents(Context ctx, string input, record {|
 }
 
 // Test process with inline record for single event.
-@Process
+@Workflow
 function processWithSingleInlineEvent(Context ctx, record {|
     future<boolean> confirmEvent;
 |} events) returns boolean|error {
@@ -98,7 +98,7 @@ function processWithSingleInlineEvent(Context ctx, record {|
 }
 
 // Test process with inline record having different future types.
-@Process
+@Workflow
 function processWithMixedInlineEvents(Context ctx, string input, record {|
     future<string> textEvent;
     future<int> numberEvent;
@@ -108,15 +108,15 @@ function processWithMixedInlineEvents(Context ctx, string input, record {|
 }
 
 // Test process with inline record without Context parameter.
-@Process
+@Workflow
 function processWithInlineEventsNoContext(string input, record {|
     future<string> simpleEvent;
 |} events) returns string|error {
     return "no context: " + input;
 }
 
-// Simple workflow process for testing createInstance
-@Process
+// Simple workflow process for testing run
+@Workflow
 function simpleWorkflowProcess(string input) returns string|error {
     return "Hello, " + input;
 }
@@ -168,7 +168,7 @@ function setupTests() returns error? {
     };
     _ = check registerProcess(processWithInlineEvents, "inline-with-activities", activities3);
     
-    // Process for createInstance tests
+    // Process for run tests
     _ = check registerProcess(simpleWorkflowProcess, "simple-workflow");
 }
 
@@ -422,24 +422,24 @@ function testInlineRecordWithActivities() returns error? {
 }
 
 // ============================================================================
-// Workflow Creation Tests (require Temporal server - marked for integration)
+// Workflow Run Tests (require workflow server - marked for integration)
 // ============================================================================
-// Note: These tests validate the createInstance API's input validation.
-// Without a running Temporal server, they will get connection errors.
+// Note: These tests validate the run API's input validation.
+// Without a running workflow server, they will get connection errors.
 // Full workflow execution tests are in integration-tests module.
 
-// Separate unregistered process for testing createInstance with unregistered process
-@Process
+// Separate unregistered process for testing run with unregistered process
+@Workflow
 function unregisteredProcess(string input) returns string|error {
     return "This process is intentionally not registered: " + input;
 }
 
 @test:Config {groups: ["unit"]}
-function testCreateInstanceWithUnregisteredProcess() returns error? {
+function testRunWithUnregisteredProcess() returns error? {
     // Attempt to start a workflow with a process that was NOT registered
-    WorkflowData input = {id: "test-workflow-001"};
+    map<string> input = {id: "test-workflow-001"};
     
-    string|error result = createInstance(unregisteredProcess, input);
+    string|error result = run(unregisteredProcess, input);
     
     // Should fail because the process is not registered
     test:assertTrue(result is error, "Starting unregistered process should fail");
@@ -450,11 +450,11 @@ function testCreateInstanceWithUnregisteredProcess() returns error? {
 }
 
 @test:Config {groups: ["unit"]}
-function testCreateInstanceWithMissingId() returns error? {
+function testRunWithMissingId() returns error? {
     // Attempt to start workflow without 'id' field using a registered process
     map<anydata> inputWithoutId = {"name": "test"};
     
-    string|error result = createInstance(simpleWorkflowProcess, inputWithoutId);
+    string|error result = run(simpleWorkflowProcess, inputWithoutId);
     
     // Should fail because 'id' field is required
     test:assertTrue(result is error, "Starting workflow without 'id' should fail");
@@ -465,20 +465,25 @@ function testCreateInstanceWithMissingId() returns error? {
 }
 
 @test:Config {groups: ["unit"]}
-function testCreateInstanceWithValidInput() returns error? {
+function testRunWithValidInput() returns error? {
     // Prepare valid input with required 'id' field
-    WorkflowData input = {id: "test-workflow-002", "name": "TestUser"};
+    map<string> input = {id: "test-workflow-002", "name": "TestUser"};
     
-    // This will attempt to connect to Temporal server
-    // Without a running Temporal server, we expect a connection error
-    string|error result = createInstance(simpleWorkflowProcess, input);
+    // This will attempt to connect to the workflow server
+    // Without a running workflow server, we expect a connection error
+    string|error result = run(simpleWorkflowProcess, input);
     
     // The result could be:
-    // 1. A workflow ID string if Temporal is running (integration test environment)
+    // 1. A workflow ID string if server is running (integration test environment)
     // 2. An error due to connection failure (expected in unit test environment)
     if result is string {
-        // If Temporal is running, the workflow ID should match our input id
+        // If server is running, the workflow ID should match our input id
         test:assertEquals(result, "test-workflow-002", "Workflow ID should match input id");
+    } else {
+        // In unit test environment without a running server, expect connection-related error
+        test:assertTrue(
+            result.message().includes("connection") || result.message().includes("unavailable") ||
+            result.message().includes("Failed"),
+            "Unexpected error for valid run input: " + result.message());
     }
-    // Either way, the test passes - we're validating the API works correctly
 }

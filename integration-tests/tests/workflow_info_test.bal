@@ -28,7 +28,7 @@ import ballerina/workflow;
 function testGetWorkflowInfo() returns error? {
     string testId = uniqueId("info-test");
     InfoTestInput input = {id: testId, name: "Charlie"};
-    string workflowId = check workflow:createInstance(infoTestWorkflow, input);
+    string workflowId = check workflow:run(infoTestWorkflow, input);
     
     // Give it a moment to start
     runtime:sleep(0.5);
@@ -36,8 +36,8 @@ function testGetWorkflowInfo() returns error? {
     // Get workflow info (may still be running or completed)
     workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowInfo(workflowId);
     
-    // Workflow ID is UUID v7 based now, verify it starts with process name
-    test:assertTrue(execInfo.workflowId.startsWith("infoTestWorkflow-"), "Workflow ID should be prefixed with process name");
+    // Workflow ID must be a valid UUID v7
+    test:assertTrue(isValidUuidV7(execInfo.workflowId), "Workflow ID should be a valid UUID v7");
     test:assertTrue(execInfo.status == "RUNNING" || execInfo.status == "COMPLETED", 
         "Status should be RUNNING or COMPLETED");
 }
@@ -48,12 +48,12 @@ function testGetWorkflowInfo() returns error? {
 function testGetWorkflowInfoAfterCompletion() returns error? {
     string testId = uniqueId("info-complete");
     InfoTestInput input = {id: testId, name: "Diana"};
-    string workflowId = check workflow:createInstance(infoTestWorkflow, input);
+    string workflowId = check workflow:run(infoTestWorkflow, input);
     
     // Wait for completion
     workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
     
     test:assertEquals(execInfo.status, "COMPLETED", "Workflow should be completed");
-    test:assertTrue(execInfo.workflowId.startsWith("infoTestWorkflow-"), "Workflow ID should be prefixed with process name");
+    test:assertTrue(isValidUuidV7(execInfo.workflowId), "Workflow ID should be a valid UUID v7");
     test:assertEquals(execInfo.result, "Processed: Diana", "Result should match");
 }

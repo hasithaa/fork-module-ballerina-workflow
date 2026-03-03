@@ -14,47 +14,98 @@
 // specific language governing permissions and limitations
 // under the License.
 
-# Supported workflow providers.
-public enum Provider {
-    TEMPORAL
-}
+# Configuration for connecting to a local development server.
+# Defaults are tuned for a locally running workflow server (e.g., `temporal server start-dev`).
+#
+# + mode - Deployment mode identifier (always "LOCAL")
+# + url - Server URL (default: "localhost:7233")
+# + namespace - Workflow namespace (default: "default")
+# + params - Worker configuration parameters
+public type LocalConfig record {|
+    "LOCAL" mode = "LOCAL";
+    string url = "localhost:7233";
+    string namespace = "default";
+    WorkerConfig params = {};
+|};
 
-# Temporal-specific configuration parameters.
+# Configuration for connecting to a managed cloud deployment.
+# All connection and authentication parameters are mandatory.
+#
+# + mode - Deployment mode identifier (always "CLOUD")
+# + url - Cloud server URL (e.g., "<namespace>.<account>.tmprl.cloud:7233")
+# + namespace - Cloud namespace (e.g., "<namespace>.<account>")
+# + auth - Authentication configuration (required for cloud)
+# + params - Worker configuration parameters
+public type CloudConfig record {|
+    "CLOUD" mode;
+    string url;
+    string namespace;
+    AuthConfig auth;
+    WorkerConfig params = {};
+|};
+
+# Configuration for connecting to a self-hosted server deployment.
+# Supports optional authentication for secured installations.
+#
+# + mode - Deployment mode identifier (always "SELF_HOSTED")
+# + url - Server URL (e.g., "temporal.mycompany.com:7233")
+# + namespace - Workflow namespace (default: "default")
+# + auth - Optional authentication configuration
+# + params - Worker configuration parameters
+public type SelfHostedConfig record {|
+    "SELF_HOSTED" mode;
+    string url;
+    string namespace = "default";
+    AuthConfig? auth = ();
+    WorkerConfig params = {};
+|};
+
+# Configuration for an in-memory workflow engine.
+# No external server is required. Workflows are not persisted and will be lost on restart.
+# Signal-based communication via `sendData` is supported when the workflow ID is known.
+#
+# + mode - Deployment mode identifier (always "IN_MEMORY")
+public type InMemoryConfig record {|
+    "IN_MEMORY" mode = "IN_MEMORY";
+|};
+
+# Workflow module configuration.
+# A union of deployment-specific configuration records, discriminated by the `mode` field.
+#
+# Supported modes:
+# - `LOCAL` - Local development server (default)
+# - `CLOUD` - Managed cloud deployment with mandatory authentication
+# - `SELF_HOSTED` - Self-hosted server with optional authentication
+# - `IN_MEMORY` - Lightweight in-memory engine (no persistence)
+public type WorkflowConfig LocalConfig|CloudConfig|SelfHostedConfig|InMemoryConfig;
+
+# Worker configuration parameters.
 #
 # + taskQueue - The task queue for workflow execution (default: "BALLERINA_WORKFLOW_TASK_QUEUE")
 # + maxConcurrentWorkflows - Maximum number of concurrent workflow executions (default: 100)
 # + maxConcurrentActivities - Maximum number of concurrent activity executions (default: 100)
-# + authentication - Optional authentication configuration
-public type TemporalParams record {|
+# + defaultActivityRetryPolicy - Default retry policy applied to all activity executions
+#                                unless overridden per-call via `ActivityOptions.retryPolicy`
+public type WorkerConfig record {|
     string taskQueue = "BALLERINA_WORKFLOW_TASK_QUEUE";
     int maxConcurrentWorkflows = 100;
     int maxConcurrentActivities = 100;
-    AuthConfig? authentication = ();
+    ActivityRetryPolicy defaultActivityRetryPolicy = {};
 |};
 
-# Authentication configuration for workflow provider.
+# Authentication configuration for workflow server connections.
 #
-# + apiKey - Optional API key for authentication
-# + mtlsCert - Optional mTLS certificate path
-# + mtlsKey - Optional mTLS private key path
+# Supports API key authentication and mutual TLS (mTLS).
+# For cloud deployments, provide either an API key or mTLS certificate/key pair.
+# For self-hosted deployments, configure based on your server's security setup.
+#
+# + apiKey - API key for bearer token authentication
+# + mtlsCert - Path to the mTLS client certificate file
+# + mtlsKey - Path to the mTLS client private key file
 public type AuthConfig record {|
     string? apiKey = ();
     string? mtlsCert = ();
     string? mtlsKey = ();
-|};
-
-# Workflow module configuration.
-# This is a generic configuration that can support multiple providers.
-#
-# + provider - The workflow provider to use (currently only TEMPORAL is supported)
-# + url - URL of the workflow server (default: "localhost:7233")
-# + namespace - Workflow namespace (default: "default")
-# + params - Provider-specific parameters
-public type WorkflowConfig record {|
-    Provider provider = TEMPORAL;
-    string url = "localhost:7233";
-    string namespace = "default";
-    TemporalParams params = {};
 |};
 
 # Information about a registered workflow process.
@@ -72,96 +123,32 @@ type ProcessRegistration record {
 # This is a map where keys are process names and values are their registration info.
 type WorkflowRegistry map<ProcessRegistration>;
 
-# Base input data type for workflow and signal data.
-# All workflow inputs and signal data must include a mandatory "id" field
-# which is used internally by the workflow engine for correlation.
-# This is a type alias for documentation purposes - use `map<anydata>` with "id" field.
+# Retry policy for activity execution.
+# Controls how the workflow engine retries failed activity executions.
 #
-# Expected structure:
-# ```
-# {
-#     id: "unique-identifier",
-#     ... // other fields
-# }
-# ```
-#
-# + id - Unique identifier for the workflow instance or signal (used for correlation)
-public type InputData record {|
-    string id;
-    anydata...;
+# + initialIntervalInSeconds - Initial delay before the first retry attempt (default: 1 second)
+# + backoffCoefficient - Multiplier applied to the interval after each retry (default: 2.0)
+# + maximumIntervalInSeconds - Maximum delay between retries (optional, no cap if not set)
+# + maximumAttempts - Maximum number of retry attempts (default: 1, meaning no retries)
+public type ActivityRetryPolicy record {|
+    int initialIntervalInSeconds = 1;
+    decimal backoffCoefficient = 2.0;
+    int maximumIntervalInSeconds?;
+    int maximumAttempts = 1;
 |};
 
-# Workflow input data type alias.
-# Used when starting a workflow. The "id" field becomes the workflow ID in Temporal.
-public type WorkflowData InputData;
-
-# Signal input data type alias.
-# Used when sending signals. The "id" field identifies the target workflow instance.
-public type SignalData InputData;
-
-# Data type with correlation keys for workflow-signal matching.
+# Options for activity execution via `callActivity`.
+# Allows configuring retry behavior and error handling semantics per activity call.
 #
-# When using correlation keys, define your input and signal types with `readonly` fields.
-# The readonly fields become correlation keys that the workflow engine uses to:
-# 1. Generate a composite workflow ID (e.g., "processName-customerId=C123-orderId=O456")
-# 2. Create Temporal Search Attributes for workflow discovery
-# 3. Validate signal data has matching correlation keys
-#
-# Example with readonly correlation keys:
-# ```ballerina
-# # Workflow input with correlation keys
-# type OrderInput record {|
-#     readonly string customerId;  // Correlation key
-#     readonly string orderId;     // Correlation key
-#     string product;              // Regular field
-#     int quantity;                // Regular field
-# |};
-#
-# # Signal data MUST have same readonly fields (name and type)
-# type PaymentSignal record {|
-#     readonly string customerId;  // Must match OrderInput.customerId
-#     readonly string orderId;     // Must match OrderInput.orderId
-#     decimal amount;              // Signal-specific data
-#     string paymentMethod;
-# |};
-#
-# @workflow:Process
-# function orderProcess(workflow:Context ctx, OrderInput input, 
-#                       record {| future<PaymentSignal> payment; |} events) 
-#                       returns OrderResult|error {
-#     PaymentSignal payment = check events.payment;  // Wait for payment signal
-#     // ...
-# }
-# ```
-#
-# The compiler plugin validates that:
-# - Signal types have the same readonly fields (name AND type) as the input type
-# - If no readonly fields exist, falls back to requiring an "id" field
-#
-# At runtime, sending a signal like:
-# ```ballerina
-# workflow:sendEvent("payment", {customerId: "C123", orderId: "O456", amount: 99.99});
-# ```
-# Will automatically find the workflow with matching correlation keys.
-public type CorrelatedData record {|
-    anydata...;
-|};
-
-# Type constraint for process input with correlation keys.
-# Use this as a type constraint when you want to enforce correlation key pattern.
-#
-# Example:
-# ```ballerina
-# type MyInput record {|
-#     *workflow:CorrelatedInput;  // Inherit readonly id
-#     string data;
-# |};
-# ```
-#
-# + id - The correlation identifier (readonly for type safety)
-public type CorrelatedInput record {|
-    readonly string id;
-    anydata...;
+# + retryPolicy - Retry policy for the activity (optional, uses the global default
+#                 from `WorkerConfig.defaultActivityRetryPolicy` if not set)
+# + failOnError - If `true` (default), an error returned by the activity function is treated
+#                 as a failure, triggering engine retries based on the retry policy.
+#                 If `false`, an error is treated as a normal completion value and no
+#                 retries are attempted.
+public type ActivityOptions record {|
+    ActivityRetryPolicy retryPolicy?;
+    boolean failOnError = true;
 |};
 
 # Information about an activity invocation (for testing/introspection).
@@ -194,7 +181,3 @@ public type WorkflowExecutionInfo record {
     ActivityInvocation[] activityInvocations;
 };
 
-# Error type alias for duplicate workflow errors.
-# When a workflow with the same correlation keys already exists, an error is thrown
-# with "DuplicateWorkflowError" in the message. Check error message for details.
-public type DuplicateWorkflowError error;

@@ -8,28 +8,29 @@ A Ballerina standard library module providing durable workflow orchestration via
 ### Module Structure
 - `ballerina/` - Core Ballerina module (types, annotations, context, public API)
 - `native/` - Java native implementation (Temporal SDK integration, worker management)
-- `native-test/` - Embedded Temporal test server for integration tests
-- `compiler-plugin/` - Validates `@Process`/`@Activity` annotations, transforms activity calls
+- `compiler-plugin/` - Validates `@Workflow`/`@Activity` annotations, transforms activity calls
 - `compiler-plugin-tests/` - Compiler plugin test suite
 
 ### Key Design Patterns
 
 **Dynamic Workflow/Activity Adapters**: All workflows route through `BallerinaWorkflowAdapter` (implements `DynamicWorkflow`), all activities through `BallerinaActivityAdapter` (implements `DynamicActivity`). See [WorkflowWorkerNative.java](native/src/main/java/io/ballerina/stdlib/workflow/worker/WorkflowWorkerNative.java).
 
-**Singleton Worker**: One Temporal SDK instance per JVM, initialized at module load via configurable variables. No Listener pattern - use `registerProcess()` + `startWorker()`.
+**Singleton Worker**: One workflow SDK instance per JVM, initialized at module load via configurable variables. No Listener pattern - use `registerProcess()` + `startWorker()`.
 
-**Context Client Class**: `workflow:Context` is a client class with `callActivity` as a remote method. Users **must** call activities via `ctx->callActivity(activityFunc, args...)`. Direct activity function calls are not allowed.
+**Annotations**: `@Workflow` and `@Activity`.
+
+**Context Client Class**: `workflow:Context` is a client class with `callActivity` as a remote method. Users **must** call activities via `ctx->callActivity(activityFunc, args...)`. Direct activity function calls are not allowed. Parameters use `map<anydata>` type.
 
 **Compiler Plugin Validation**: The plugin at [WorkflowCompilerPlugin.java](compiler-plugin/src/main/java/io/ballerina/stdlib/workflow/compiler/WorkflowCompilerPlugin.java) performs validation:
 1. Validates that `ctx->callActivity()` calls use functions with `@Activity` annotation (produces `WORKFLOW_107` error otherwise)
-2. Validates that `@Activity` functions are not called directly inside `@Process` functions (produces `WORKFLOW_108` error)
-3. Auto-generates `registerProcess()` call at module level for each `@Process` function
+2. Validates that `@Activity` functions are not called directly inside `@Workflow` functions (produces `WORKFLOW_108` error)
+3. Auto-generates `registerProcess()` call at module level for each `@Workflow` function
 
 ## Key Conventions
 
-### Process Function Signature
+### Workflow Function Signature
 ```ballerina
-@workflow:Process
+@workflow:Workflow
 function processName(
     workflow:Context ctx,           // Required for calling activities
     T input,                        // Input data (anydata subtype)
@@ -38,8 +39,8 @@ function processName(
 ```
 
 - **Context** (`workflow:Context`): Client class as first parameter. **Required** if calling activities. Provides `callActivity` remote method.
-- **Input**: Workflow input data. If process has events, must have `readonly` fields for correlation (e.g., `readonly string customerId`)
-- **Events**: Optional record with `future<T>` fields for receiving signals. Wait using `check events.event1`. **Requires readonly fields in input for correlation.**
+- **Input**: Workflow input data (`anydata` subtype).
+- **Events**: Optional record with `future<T>` fields for receiving signals. Wait using `check events.event1`.
 
 ### Activity Functions
 ```ballerina
@@ -50,16 +51,16 @@ function sendEmailActivity(string email) returns boolean|error {
 ```
 - Parameters and return types must be `anydata` subtypes
 - Activities are non-deterministic - executed once, results cached during replay
-- **Must** be called via `ctx->callActivity()` within `@Process` functions (direct calls produce `WORKFLOW_108` error)
+- **Must** be called via `ctx->callActivity()` within `@Workflow` functions (direct calls produce `WORKFLOW_108` error)
 
 ### Calling Activities
-Activities **must** be called using `ctx->callActivity()` within `@Process` functions:
+Activities **must** be called using `ctx->callActivity()` within `@Workflow` functions:
 
 ```ballerina
-@workflow:Process
+@workflow:Workflow
 function orderProcess(workflow:Context ctx, OrderInput input) returns OrderResult|error {
     // Call activity using Context client remote method
-    string result = check ctx->callActivity(sendEmailActivity, input.email);
+    string result = check ctx->callActivity(sendEmailActivity, {email: input.email});
     return {status: result};
 }
 ```
@@ -72,14 +73,14 @@ string result = check sendEmailActivity(input.email);  // ❌ Not allowed
 
 The compiler plugin validates:
 1. All `ctx->callActivity()` calls use functions with `@Activity` annotation
-2. No direct calls to `@Activity` functions inside `@Process` functions
+2. No direct calls to `@Activity` functions inside `@Workflow` functions
 
 ### Error Handling
 Temporal errors are valid Ballerina errors. Use standard error handling:
 ```ballerina
-@workflow:Process
+@workflow:Workflow
 function processWithErrorHandling(workflow:Context ctx, Input input) returns Output|error {
-    Output|error result = ctx->callActivity(riskyActivity, input.data);
+    Output|error result = ctx->callActivity(riskyActivity, {data: input.data});
     if result is error {
         // Handle activity failure - workflow can retry, compensate, or fail
         return error("Activity failed", result);
@@ -91,7 +92,6 @@ function processWithErrorHandling(workflow:Context ctx, Input input) returns Out
 ### Type Mappings (Ballerina ↔ Java ↔ Temporal)
 - `map<anydata>` → `BMap<BString, Object>` (use `PredefinedTypes.TYPE_ANYDATA`)
 - `function` → `BFunctionPointer` / `FPValue` (set `StrandMetadata` before calling)
-- Workflow inputs with events must have `readonly` fields for correlation
 
 ### Native Code Patterns
 When calling Ballerina methods from Java:
@@ -116,7 +116,7 @@ fpValue.metadata = new StrandMetadata(true, fpValue.metadata.properties());
 # Run unit tests only (no Temporal server needed)
 ./gradlew :workflow-ballerina:test
 
-# Run integration tests (starts embedded Temporal server on port 7233)
+# Run integration tests (starts Temporal CLI dev server on port 7233)
 ./gradlew :workflow-integration-tests:test
 
 # Run compiler plugin tests
@@ -133,28 +133,53 @@ fpValue.metadata = new StrandMetadata(true, fpValue.metadata.properties());
 ### Test Infrastructure
 
 **Module Structure:**
-- `ballerina/tests/` - Unit tests (registration, introspection, no Temporal server needed)
-- `integration-tests/tests/` - Integration tests with actual Temporal workflow execution
+- `ballerina/tests/` - Unit tests (registration, introspection, no workflow server needed)
+- `integration-tests/tests/` - Integration tests with actual workflow execution
 - `compiler-plugin-tests/` - Compiler plugin validation tests
 
-**Integration Tests** use an embedded Temporal server managed by Gradle:
-1. `startTestServer` task launches shadow JAR from `native-test/` on port **7233**
+**Integration Tests** use a Temporal CLI dev server managed by Gradle:
+1. `startSharedTestServer` checks for existing server on port **7233**, or starts `temporal server start-dev` with SQLite persistence
 2. Writes `tests/Config.toml` with server URL
 3. Ballerina tests connect via configurable
-4. `stopTestServer` runs on completion (even on failure via `buildFinished` listener)
+4. `stopSharedTestServer` runs on completion (even on failure via `buildFinished` listener)
+5. **Prerequisite**: `temporal` CLI must be in PATH
 
 ## Configuration
 
-Via `Config.toml` or programmatic defaults:
+Via `Config.toml` or programmatic defaults. The `WorkflowConfig` is a union type supporting four deployment modes:
+
+**Local (default):**
 ```toml
 [ballerina.workflow.workflowConfig]
-provider = "TEMPORAL"
+mode = "LOCAL"
 url = "localhost:7233"
 namespace = "default"
 
 [ballerina.workflow.workflowConfig.params]
 taskQueue = "BALLERINA_WORKFLOW_TASK_QUEUE"
 maxConcurrentWorkflows = 100
+```
+
+**Cloud with API key:**
+```toml
+[ballerina.workflow.workflowConfig]
+mode = "CLOUD"
+url = "my-ns.my-account.tmprl.cloud:7233"
+namespace = "my-ns.my-account"
+
+[ballerina.workflow.workflowConfig.auth]
+apiKey = "my-api-key"
+```
+
+**Self-hosted with mTLS:**
+```toml
+[ballerina.workflow.workflowConfig]
+mode = "SELF_HOSTED"
+url = "temporal.mycompany.com:7233"
+
+[ballerina.workflow.workflowConfig.auth]
+mtlsCert = "/path/to/client.pem"
+mtlsKey = "/path/to/client.key"
 ```
 
 ## Version Requirements
@@ -168,16 +193,14 @@ maxConcurrentWorkflows = 100
 |------|-------|-------|
 | WORKFLOW_107 | callActivity target not @Activity | Calling non-activity via ctx->callActivity() |
 | WORKFLOW_108 | Direct activity call | Direct call to @Activity function (must use ctx->callActivity()) |
-| WORKFLOW_112 | Ambiguous signal types | Multiple signals with same structure, need explicit signalName |
-| WORKFLOW_113 | Input not record type | Process input must be record type for correlation |
-| WORKFLOW_114 | Missing correlation key | Signal missing readonly field present in input |
-| WORKFLOW_115 | Correlation type mismatch | Readonly field type differs between input and signal |
-| WORKFLOW_116 | Events need correlation | Process with events lacks readonly fields in input |
+| WORKFLOW_112 | Ambiguous signal types (warning) | Multiple signals with same structure in workflow definition |
 
 ## Common Pitfalls
 - Register all test processes in `@test:BeforeSuite` - registry cannot be cleared with singleton pattern
 - Process functions must be deterministic - no I/O, use activities instead
-- Workflows with events (signals) must have `readonly` fields in input for correlation
 - Don't mix Listener pattern (deprecated) with singleton pattern
 - **Never use Java blocking calls** in workflow code (causes `PotentialDeadlockException`)
 - Signal waiting uses `TemporalFutureValue.getAndSetWaited()` to intercept Ballerina's `wait` and use `Workflow.await()` instead of blocking `CompletableFuture.get()`
+
+## Agent Workflow Rules
+- **Do NOT automatically commit and push** changes. Always leave committing and pushing to the user unless explicitly asked to do so.

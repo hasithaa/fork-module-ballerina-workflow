@@ -33,19 +33,19 @@ import ballerina/workflow;
 
 # Input for single signal inference workflow.
 #
-# + id - The workflow identifier (readonly for correlation)
+# + id - The workflow identifier
 # + data - The input data
 type SingleSignalInferInput record {|
-    readonly string id;
+    string id;
     string data;
 |};
 
 # Signal data for the single signal.
 #
-# + id - The workflow identifier (readonly for correlation)
+# + id - The workflow identifier
 # + response - The response data
 type SingleInferSignal record {|
-    readonly string id;
+    string id;
     string response;
 |};
 
@@ -64,7 +64,7 @@ type SingleSignalInferResult record {|
 # + input - The workflow input
 # + signals - Record containing the signal future
 # + return - The result combining input and signal data
-@workflow:Process
+@workflow:Workflow
 function singleSignalInferWorkflow(
     workflow:Context ctx,
     SingleSignalInferInput input,
@@ -85,42 +85,42 @@ function singleSignalInferWorkflow(
 
 # Input for distinct types workflow.
 #
-# + id - The workflow identifier (readonly for correlation)
+# + id - The workflow identifier
 # + requestId - The request identifier
 type DistinctTypesInput record {|
-    readonly string id;
+    string id;
     string requestId;
 |};
 
 # First signal with distinct structure (has 'approved' boolean).
 #
-# + id - The workflow identifier (readonly for correlation)
+# + id - The workflow identifier
 # + approved - Whether the approval was granted
 # + approverName - The name of the approver
 type ApprovalTypeSignal record {|
-    readonly string id;
+    string id;
     boolean approved;
     string approverName;
 |};
 
 # Second signal with distinct structure (has 'amount' decimal).
 #
-# + id - The workflow identifier (readonly for correlation)
+# + id - The workflow identifier
 # + amount - The payment amount
 # + transactionRef - The transaction reference
 type PaymentTypeSignal record {|
-    readonly string id;
+    string id;
     decimal amount;
     string transactionRef;
 |};
 
 # Third signal with distinct structure (has 'rating' int).
 #
-# + id - The workflow identifier (readonly for correlation)
+# + id - The workflow identifier
 # + rating - The feedback rating
 # + comment - The feedback comment
 type FeedbackTypeSignal record {|
-    readonly string id;
+    string id;
     int rating;
     string comment;
 |};
@@ -142,7 +142,7 @@ type DistinctTypesResult record {|
 # + input - The workflow input
 # + signals - Record containing the signal futures
 # + return - The result combining all signal data
-@workflow:Process
+@workflow:Workflow
 function distinctTypesWorkflow(
     workflow:Context ctx,
     DistinctTypesInput input,
@@ -170,28 +170,28 @@ function distinctTypesWorkflow(
 
 # Input for explicit signal name test.
 #
-# + id - The workflow identifier (readonly for correlation)
+# + id - The workflow identifier
 # + message - The input message
 type ExplicitSignalInput record {|
-    readonly string id;
+    string id;
     string message;
 |};
 
 # Ambiguous signal type 1 - same structure as type 2.
 #
-# + id - The workflow identifier (readonly for correlation)
+# + id - The workflow identifier
 # + value - The signal value
 type AmbiguousSignal1 record {|
-    readonly string id;
+    string id;
     string value;
 |};
 
 # Ambiguous signal type 2 - same structure as type 1.
 #
-# + id - The workflow identifier (readonly for correlation)
+# + id - The workflow identifier
 # + value - The signal value
 type AmbiguousSignal2 record {|
-    readonly string id;
+    string id;
     string value;
 |};
 
@@ -210,7 +210,7 @@ type ExplicitSignalResult record {|
 # + input - The workflow input
 # + signals - Record containing the signal futures
 # + return - The result with values from both signals
-@workflow:Process
+@workflow:Workflow
 function explicitSignalNameWorkflow(
     workflow:Context ctx,
     ExplicitSignalInput input,
@@ -233,20 +233,20 @@ function explicitSignalNameWorkflow(
 
 # Input for mixed signals workflow.
 #
-# + id - The workflow identifier (readonly for correlation)
+# + id - The workflow identifier
 # + orderId - The order identifier
 type MixedSignalsInput record {|
-    readonly string id;
+    string id;
     string orderId;
 |};
 
 # Distinct signal type with unique field (statusCode: int).
 #
-# + id - The workflow identifier (readonly for correlation)
+# + id - The workflow identifier
 # + statusCode - The status code
 # + description - The status description
 type StatusUpdateSignal record {|
-    readonly string id;
+    string id;
     int statusCode;
     string description;
 |};
@@ -264,7 +264,7 @@ type MixedSignalsResult record {|
 # + input - The workflow input
 # + signals - Record containing the signal future
 # + return - The result with the status code from the signal
-@workflow:Process
+@workflow:Workflow
 function mixedSignalsWorkflow(
     workflow:Context ctx,
     MixedSignalsInput input,

@@ -12,7 +12,7 @@ The workflow processes customer orders by:
 
 ## Features Demonstrated
 
-- **@Process annotation**: Defines the workflow entry point
+- **@Workflow annotation**: Defines the workflow entry point
 - **@Activity annotation**: Marks activity functions for external interactions
 - **Context usage**: Uses `workflow:Context` for calling activities
 - **Error handling**: Proper error propagation and handling
@@ -99,12 +99,12 @@ bal clean
 
 ## Key Concepts
 
-### Process Function
+### Workflow Function
 
-The `@Process` annotation marks the workflow entry point:
+The `@Workflow` annotation marks the workflow entry point:
 
 ```ballerina
-@workflow:Process
+@workflow:Workflow
 function processOrder(workflow:Context ctx, OrderRequest request) returns OrderResult|error {
     // Workflow logic with activity calls via ctx->callActivity()
 }

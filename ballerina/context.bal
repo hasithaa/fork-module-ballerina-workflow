@@ -17,12 +17,6 @@
 import ballerina/jballerina.java;
 import ballerina/time;
 
-# Record type for activity parameters.
-# Used to pass arguments to activity functions in a type-safe manner.
-public type Parameters record {|
-    anydata...;
-|};
-
 # Workflow execution context providing workflow APIs.
 # This is a client object that provides access to workflow operations.
 #
@@ -38,7 +32,7 @@ public client class Context {
 
     # Initialize the context with native workflow context handle.
     #
-    # + nativeContext - Native context handle from Temporal
+    # + nativeContext - Native context handle from the workflow engine
     public isolated function init(handle nativeContext) {
         self.nativeContext = nativeContext;
     }
@@ -53,18 +47,30 @@ public client class Context {
     # type checking when the expected return type is specified. The compiler plugin
     # validates that the activity function's return type is compatible with `T`.
     #
+    # By default, if the activity function returns an error, it is treated as a failure
+    # and the engine will retry the activity based on the retry policy. To treat errors
+    # as normal completion values, set `failOnError` to `false` in the options.
+    #
     # Example:
     # ```ballerina
-    # string result = check ctx->callActivity(sendEmailActivity, {"email": recipientEmail, "subject": subject});
-    # // For activities with no parameters, pass an empty record:
-    # string result = check ctx->callActivity(noArgActivity, {});
+    # // Basic activity call (errors cause failure + retry by default)
+    # string result = check ctx->callActivity(sendEmailActivity, {email: recipientEmail, subject: subject});
+    #
+    # // With custom retry policy
+    # string result = check ctx->callActivity(sendEmailActivity, {email: recipientEmail}, 
+    #     options = {retryPolicy: {maximumAttempts: 3, initialIntervalInSeconds: 2}});
+    #
+    # // Treat errors as normal completion (no retry on error)
+    # string|error result = ctx->callActivity(riskyActivity, {data: input}, options = {failOnError: false});
     # ```
     #
     # + activityFunction - The activity function to execute (must be annotated with @Activity)
-    # + args - Record containing the arguments to pass to the activity function
+    # + args - Map containing the arguments to pass to the activity function
+    # + options - Optional activity options for retry policy and error handling behavior
     # + T - The expected return type (inferred from context or explicitly specified)
     # + return - The result of the activity execution cast to type T, or an error if execution fails
-    remote isolated function callActivity(function activityFunction, Parameters args = {}, typedesc<anydata> T = <>) 
+    remote isolated function callActivity(function activityFunction, map<anydata> args = {},
+            ActivityOptions? options = (), typedesc<anydata> T = <>) 
             returns T|error = @java:Method {
         'class: "io.ballerina.stdlib.workflow.context.WorkflowContextNative",
         name: "callActivity"

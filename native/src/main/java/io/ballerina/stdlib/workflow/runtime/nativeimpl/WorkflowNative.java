@@ -30,9 +30,7 @@ import io.ballerina.runtime.api.values.BFunctionPointer;
 import io.ballerina.runtime.api.values.BMap;
 import io.ballerina.runtime.api.values.BString;
 import io.ballerina.stdlib.workflow.ModuleUtils;
-import io.ballerina.stdlib.workflow.runtime.DuplicateWorkflowException;
 import io.ballerina.stdlib.workflow.runtime.WorkflowRuntime;
-import io.ballerina.stdlib.workflow.utils.EventExtractor;
 import io.ballerina.stdlib.workflow.utils.TypesUtil;
 import io.ballerina.stdlib.workflow.worker.WorkflowWorkerNative;
 import io.temporal.api.enums.v1.WorkflowExecutionStatus;
@@ -41,12 +39,12 @@ import io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionRequest;
 import io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionResponse;
 import io.temporal.client.WorkflowClient;
 import io.temporal.client.WorkflowStub;
+import io.temporal.workflow.Workflow;
 
+import java.time.Duration;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -58,8 +56,8 @@ import java.util.concurrent.TimeUnit;
  * defined in the Ballerina workflow module:
  * <ul>
  *   <li>callActivity - Execute an activity within a workflow</li>
- *   <li>createInstance - Start a new workflow process</li>
- *   <li>sendEvent - Send an event to a running workflow</li>
+ *   <li>run - Start a new workflow</li>
+ *   <li>sendData - Send data to a running workflow</li>
  *   <li>registerProcess - Register a process function with the runtime</li>
  * </ul>
  *
@@ -67,162 +65,246 @@ import java.util.concurrent.TimeUnit;
  */
 public final class WorkflowNative {
 
+    // Default timeout for implicit activity execution (run, sendData)
+    private static final Duration DEFAULT_IMPLICIT_ACTIVITY_TIMEOUT = Duration.ofMinutes(5);
+
+    // Error message prefixes
+    private static final String ERR_START_PROCESS = "Failed to start process: ";
+    private static final String ERR_SEND_DATA = "Failed to send data: ";
+    private static final String ERR_GET_RESULT = "Failed to get workflow result: ";
+    private static final String ERR_GET_INFO = "Failed to get workflow info: ";
+    private static final String ERR_GET_REGISTERED = "Failed to get registered workflows: ";
+    private static final String ERR_CLIENT_NOT_INIT = "Workflow client not initialized";
+
     private WorkflowNative() {
         // Private constructor to prevent instantiation
     }
 
     /**
-     * Native implementation for createInstance function.
-     * <p>
-     * Starts a new workflow process with the given input.
-     * The input must contain an "id" field for workflow correlation.
-     * Returns the workflow ID that can be used to track and interact with the workflow.
-     * <p>
-     * Automatically starts the singleton worker if not already started.
+     * Builds {@link io.temporal.activity.ActivityOptions} for implicit (built-in) activities.
+     * Uses the global default activity retry policy from {@link WorkflowWorkerNative} when
+     * available, falling back to a single-attempt policy otherwise.
      *
-     * @param env the Ballerina runtime environment
-     * @param processFunction the process function to execute
-     * @param input the input data for the process (map with "id" field)
-     * @return the workflow ID as a string, or an error
+     * @param timeout the start-to-close timeout for the activity
+     * @return configured ActivityOptions
      */
-    public static Object createInstance(Environment env, BFunctionPointer processFunction,
-                                        BMap<BString, Object> input) {
-        return env.yieldAndRun(() -> {
-            CompletableFuture<Object> balFuture = new CompletableFuture<>();
-
-            WorkflowRuntime.getInstance().getExecutor().execute(() -> {
-                try {
-                    // Get the process name from the function pointer
-                    String processName = processFunction.getType().getName();
-
-                    // Convert input to Java type
-                    Object javaInput = TypesUtil.convertBallerinaToJavaType(input);
-
-                    // Start the process through the workflow runtime
-                    String workflowId = WorkflowRuntime.getInstance().createInstance(processName, javaInput);
-
-                    balFuture.complete(StringUtils.fromString(workflowId));
-
-                } catch (DuplicateWorkflowException e) {
-                    // Create a DuplicateWorkflowError with proper details
-                    balFuture.complete(createDuplicateWorkflowError(e));
-                } catch (Exception e) {
-                    balFuture.complete(ErrorCreator.createError(
-                            StringUtils.fromString("Failed to start process: " + e.getMessage())));
-                }
-            });
-
-            return getResult(balFuture);
-        });
+    private static io.temporal.activity.ActivityOptions buildImplicitActivityOptions(Duration timeout) {
+        io.temporal.common.RetryOptions retryOptions =
+                WorkflowWorkerNative.getDefaultActivityRetryOptions();
+        if (retryOptions == null) {
+            retryOptions = io.temporal.common.RetryOptions.newBuilder()
+                    .setMaximumAttempts(1)
+                    .build();
+        }
+        return io.temporal.activity.ActivityOptions.newBuilder()
+                .setStartToCloseTimeout(timeout)
+                .setRetryOptions(retryOptions)
+                .build();
     }
 
     /**
-     * Native implementation for sendEvent function.
-     * <p>
-     * Sends an event (signal) to a running workflow process.
-     * The event data must contain an "id" field to identify the target workflow.
-     * Events can be used to communicate with running workflows and trigger state changes.
+     * Handles errors from implicit activity execution, extracting the root cause
+     * message from Temporal's {@link io.temporal.failure.ActivityFailure} wrapper.
      *
-     * @param env the Ballerina runtime environment
-     * @param processFunction the process function to send the event to
-     * @param eventData the event data to send (map with "id" field)
-     * @param signalName optional signal name (if null, infers from event data structure)
-     * @return BBoolean true if the event was sent successfully, or an error
+     * @param e           the caught exception
+     * @param errorPrefix a human-readable prefix for the error message
+     * @return a Ballerina error with the appropriate message
      */
-    public static Object sendEvent(Environment env, BFunctionPointer processFunction, 
-            BMap<BString, Object> eventData, Object signalName) {
-        return env.yieldAndRun(() -> {
-            CompletableFuture<Object> balFuture = new CompletableFuture<>();
-
-            WorkflowRuntime.getInstance().getExecutor().execute(() -> {
-                try {
-                    // Get the process name from the function pointer
-                    String processName = processFunction.getType().getName();
-
-                    // Convert event data to Java type
-                    Object javaEventData = TypesUtil.convertBallerinaToJavaType(eventData);
-
-                    // Get signal name (can be null/nil)
-                    String signalNameStr = null;
-                    if (signalName != null && !(signalName instanceof io.ballerina.runtime.api.values.BValue 
-                            && signalName.toString().equals("()"))) {
-                        if (signalName instanceof BString) {
-                            signalNameStr = ((BString) signalName).getValue();
-                        } else if (signalName instanceof String) {
-                            signalNameStr = (String) signalName;
-                        }
-                    }
-
-                    // If signal name not provided, try to infer from event data structure
-                    if (signalNameStr == null || signalNameStr.isEmpty()) {
-                        signalNameStr = inferSignalName(processFunction, eventData);
-                    }
-
-                    // Send the event through the workflow runtime
-                    boolean result = WorkflowRuntime.getInstance().sendEvent(processName, javaEventData, signalNameStr);
-
-                    balFuture.complete(result);
-
-                } catch (Exception e) {
-                    balFuture.complete(ErrorCreator.createError(
-                            StringUtils.fromString("Failed to send event: " + e.getMessage())));
-                }
-            });
-
-            return getResult(balFuture);
-        });
-    }
-
-    /**
-     * Infers the signal name from event data structure by matching against the process function's
-     * events record type.
-     * <p>
-     * If the event data structure matches exactly one signal type, returns that signal name.
-     * If ambiguous (multiple matches) or no matches, throws a descriptive error.
-     *
-     * @param processFunction the process function with events definition
-     * @param eventData the event data being sent
-     * @return the inferred signal name
-     * @throws RuntimeException if signal name cannot be determined (ambiguous or no match)
-     */
-    private static String inferSignalName(BFunctionPointer processFunction, BMap<BString, Object> eventData) {
-        // Get the keys from event data
-        Set<String> eventDataKeys = new HashSet<>();
-        for (BString key : eventData.getKeys()) {
-            eventDataKeys.add(key.getValue());
-        }
-        
-        // Try to infer the signal name from the event data structure
-        String inferredSignal = EventExtractor.inferSignalName(processFunction, eventDataKeys);
-        
-        if (inferredSignal != null) {
-            return inferredSignal;
-        }
-        
-        // If inference failed, get the matching signals for error message
-        List<String> matchingSignals = EventExtractor.getMatchingSignals(processFunction, eventDataKeys);
-        
-        if (matchingSignals.isEmpty()) {
-            // Check if the process has any events at all
-            List<String> allEventNames = EventExtractor.extractEventNames(processFunction);
-            if (allEventNames.isEmpty()) {
-                throw new RuntimeException(
-                        "Process '" + processFunction.getType().getName() + 
-                        "' does not have any events defined. Cannot send signal without explicit signalName.");
+    private static Object handleImplicitActivityError(Exception e, String errorPrefix) {
+        String errorMsg;
+        if (e instanceof io.temporal.failure.ActivityFailure activityFailure) {
+            Throwable cause = activityFailure.getCause();
+            if (cause instanceof io.temporal.failure.ApplicationFailure appFailure) {
+                errorMsg = appFailure.getOriginalMessage();
             } else {
-                throw new RuntimeException(
-                        "Event data structure does not match any signal type in process '" + 
-                        processFunction.getType().getName() + "'. Expected signals: " + 
-                        String.join(", ", allEventNames) + 
-                        ". Provide an explicit signalName parameter.");
+                errorMsg = cause != null ? cause.getMessage() : e.getMessage();
             }
         } else {
-            // Multiple matches - ambiguous
-            throw new RuntimeException(
-                    "Ambiguous signal: Event data structure matches multiple signals [" +
-                    String.join(", ", matchingSignals) + "] in process '" + 
-                    processFunction.getType().getName() + 
-                    "'. Provide an explicit signalName parameter to disambiguate.");
+            errorMsg = e.getMessage();
+        }
+        return ErrorCreator.createError(StringUtils.fromString(errorPrefix + errorMsg));
+    }
+
+    /**
+     * Native implementation for run function.
+     * <p>
+     * Starts a new workflow with the given input.
+     * Returns the workflow ID that can be used to track and interact with the workflow.
+     * <p>
+     * When called from inside a workflow context, the call is automatically routed
+     * through an implicit activity so that the operation is deterministic and
+     * replay-safe. The function pointer is resolved to its string name for
+     * serialization since function pointers are not {@code anydata}.
+     * <p>
+     * When called from outside a workflow (e.g., HTTP handler, test), the workflow
+     * is started directly via the Temporal client.
+     *
+     * @param env the Ballerina runtime environment
+     * @param processFunction the process function to execute (must be annotated with @Workflow)
+     * @param input the optional input data for the process (nil or map)
+     * @return the workflow ID as a string, or an error
+     */
+    @SuppressWarnings("unchecked")
+    public static Object run(Environment env, BFunctionPointer processFunction,
+                                        Object input) {
+        // Extract the process name from the function pointer (works in both contexts)
+        String processName = processFunction.getType().getName();
+
+        // Convert input to Java type (handle nil case)
+        // In Ballerina Java interop, nil () is passed as null, so a simple null check suffices.
+        Object javaInput = null;
+        if (input != null) {
+            if (input instanceof BMap) {
+                @SuppressWarnings("unchecked")
+                BMap<BString, Object> bMapInput = (BMap<BString, Object>) input;
+                javaInput = TypesUtil.convertBallerinaToJavaType(bMapInput);
+            }
+            // Other anydata subtypes (int, string, boolean, etc.) are not currently
+            // supported as workflow input — only record (BMap) types are expected.
+        }
+
+        // Check if we're inside a workflow execution context
+        if (isInsideWorkflow()) {
+            // Route through an implicit activity so the call is deterministic.
+            // The function pointer is replaced with the string process name
+            // for Temporal serialization.
+            return runAsImplicitActivity(processName, javaInput);
+        }
+
+        // Outside workflow - use the normal async path
+        final Object finalInput = javaInput;
+        return env.yieldAndRun(() -> {
+            CompletableFuture<Object> balFuture = new CompletableFuture<>();
+
+            WorkflowRuntime.getInstance().getExecutor().execute(() -> {
+                try {
+                    String workflowId = WorkflowRuntime.getInstance()
+                            .createInstance(processName, finalInput);
+                    balFuture.complete(StringUtils.fromString(workflowId));
+                } catch (Exception e) {
+                    balFuture.complete(ErrorCreator.createError(
+                            StringUtils.fromString(ERR_START_PROCESS + e.getMessage())));
+                }
+            });
+
+            return getResult(balFuture);
+        });
+    }
+
+    /**
+     * Routes a {@code workflow:run} call through a built-in implicit activity
+     * so that it is deterministic inside a workflow execution.
+     *
+     * @param processName the workflow type name (extracted from the function pointer)
+     * @param javaInput   the input data converted to a Java type (may be null)
+     * @return a Ballerina string containing the new workflow ID, or a BError
+     */
+    private static Object runAsImplicitActivity(String processName, Object javaInput) {
+        try {
+            io.temporal.workflow.ActivityStub stub =
+                    Workflow.newUntypedActivityStub(
+                            buildImplicitActivityOptions(DEFAULT_IMPLICIT_ACTIVITY_TIMEOUT));
+            String workflowId = stub.execute(
+                    WorkflowWorkerNative.BallerinaActivityAdapter.BUILTIN_RUN,
+                    String.class,
+                    processName, javaInput);
+            return StringUtils.fromString(workflowId);
+        } catch (Exception e) {
+            return handleImplicitActivityError(e, ERR_START_PROCESS);
+        }
+    }
+
+    /**
+     * Native implementation for sendData function.
+     * <p>
+     * Sends data to a running workflow process by workflow ID and data name.
+     * All parameters are required.
+     * <p>
+     * When called from inside a workflow context, the call is automatically routed
+     * through an implicit activity for determinism.
+     * <p>
+     * Note: {@code workflowFunction} is not used at runtime; it exists in the signature
+     * so the compiler plugin can validate that the target function carries the
+     * {@code @Workflow} annotation and that the data type matches the workflow's events
+     * record. Removing it would be a breaking API change.
+     *
+     * @param env the Ballerina runtime environment
+     * @param workflowFunction the workflow function (unused at runtime; used by the compiler plugin for validation)
+     * @param workflowId the workflow ID to send the data to
+     * @param dataName the name identifying the data (must match an events record field)
+     * @param data the data to send
+     * @return null on success, or an error
+     */
+    public static Object sendData(Environment env, BFunctionPointer workflowFunction, 
+            BString workflowId, BString dataName, Object data) {
+        // Convert data to Java type
+        Object javaData;
+        if (data instanceof BMap) {
+            @SuppressWarnings("unchecked")
+            BMap<BString, Object> bMapData = (BMap<BString, Object>) data;
+            javaData = TypesUtil.convertBallerinaToJavaType(bMapData);
+        } else {
+            javaData = data;
+        }
+
+        String workflowIdStr = workflowId.getValue();
+        String dataNameStr = dataName.getValue();
+
+        // Check if we're inside a workflow execution context
+        if (isInsideWorkflow()) {
+            return sendDataAsImplicitActivity(workflowIdStr, dataNameStr, javaData);
+        }
+
+        // Outside workflow - use the normal async path
+        return env.yieldAndRun(() -> {
+            CompletableFuture<Object> balFuture = new CompletableFuture<>();
+
+            WorkflowRuntime.getInstance().getExecutor().execute(() -> {
+                try {
+                    WorkflowRuntime.getInstance().sendSignalToWorkflow(
+                            workflowIdStr, dataNameStr, javaData);
+                    balFuture.complete(null);
+                } catch (Exception e) {
+                    balFuture.complete(ErrorCreator.createError(
+                            StringUtils.fromString(ERR_SEND_DATA + e.getMessage())));
+                }
+            });
+
+            return getResult(balFuture);
+        });
+    }
+
+    /**
+     * Routes a {@code workflow:sendData} call through a built-in implicit activity.
+     */
+    private static Object sendDataAsImplicitActivity(String workflowId, String dataName,
+                                                     Object javaData) {
+        try {
+            io.temporal.workflow.ActivityStub stub =
+                    Workflow.newUntypedActivityStub(
+                            buildImplicitActivityOptions(DEFAULT_IMPLICIT_ACTIVITY_TIMEOUT));
+            stub.execute(
+                    WorkflowWorkerNative.BallerinaActivityAdapter.BUILTIN_SEND_DATA,
+                    Void.class,
+                    workflowId, dataName, javaData);
+            return null;
+        } catch (Exception e) {
+            return handleImplicitActivityError(e, ERR_SEND_DATA);
+        }
+    }
+
+    /**
+     * Checks whether the current thread is executing inside a Temporal workflow
+     * context. Uses Temporal's thread-local workflow info to detect this.
+     *
+     * @return {@code true} if inside a workflow execution, {@code false} otherwise
+     */
+    private static boolean isInsideWorkflow() {
+        try {
+            Workflow.getInfo();
+            return true;
+        } catch (Throwable e) {
+            return false;
         }
     }
 
@@ -288,7 +370,7 @@ public final class WorkflowNative {
 
         } catch (Exception e) {
             return ErrorCreator.createError(
-                    StringUtils.fromString("Failed to get registered workflows: " + e.getMessage()));
+                    StringUtils.fromString(ERR_GET_REGISTERED + e.getMessage()));
         }
     }
 
@@ -302,12 +384,18 @@ public final class WorkflowNative {
      * @param timeoutSeconds maximum time to wait for workflow completion
      * @return a WorkflowExecutionInfo record or an error
      */
+    @SuppressWarnings("unchecked")
     public static Object getWorkflowResult(BString workflowId, long timeoutSeconds) {
+        // Check if we're inside a workflow execution context
+        if (isInsideWorkflow()) {
+            return getWorkflowResultAsImplicitActivity(workflowId.getValue(), (int) timeoutSeconds);
+        }
+
         try {
             WorkflowClient client = WorkflowWorkerNative.getWorkflowClient();
             if (client == null) {
                 return ErrorCreator.createError(
-                        StringUtils.fromString("Workflow client not initialized"));
+                        StringUtils.fromString(ERR_CLIENT_NOT_INIT));
             }
 
             String wfId = workflowId.getValue();
@@ -339,7 +427,33 @@ public final class WorkflowNative {
 
         } catch (Exception e) {
             return ErrorCreator.createError(
-                    StringUtils.fromString("Failed to get workflow result: " + e.getMessage()));
+                    StringUtils.fromString(ERR_GET_RESULT + e.getMessage()));
+        }
+    }
+
+    /**
+     * Routes a {@code workflow:getWorkflowResult} call through a built-in implicit activity.
+     * The activity returns a serializable Map which is then converted to a WorkflowExecutionInfo record.
+     */
+    @SuppressWarnings("unchecked")
+    private static Object getWorkflowResultAsImplicitActivity(String workflowId, int timeoutSeconds) {
+        try {
+            // Use a timeout that accounts for the workflow's own timeout plus buffer
+            Duration activityTimeout = Duration.ofSeconds(timeoutSeconds + 30);
+            io.temporal.workflow.ActivityStub stub =
+                    Workflow.newUntypedActivityStub(buildImplicitActivityOptions(activityTimeout));
+            Map<String, Object> info = stub.execute(
+                    WorkflowWorkerNative.BallerinaActivityAdapter.BUILTIN_GET_RESULT,
+                    Map.class,
+                    workflowId, timeoutSeconds);
+
+            String status = (String) info.get("status");
+            Object result = info.get("result");
+            String errorMessage = (String) info.get("errorMessage");
+
+            return buildWorkflowExecutionInfo(workflowId, "", status, result, errorMessage);
+        } catch (Exception e) {
+            return handleImplicitActivityError(e, ERR_GET_RESULT);
         }
     }
 
@@ -357,7 +471,7 @@ public final class WorkflowNative {
             WorkflowClient client = WorkflowWorkerNative.getWorkflowClient();
             if (client == null) {
                 return ErrorCreator.createError(
-                        StringUtils.fromString("Workflow client not initialized"));
+                        StringUtils.fromString(ERR_CLIENT_NOT_INIT));
             }
 
             String wfId = workflowId.getValue();
@@ -382,7 +496,7 @@ public final class WorkflowNative {
 
         } catch (Exception e) {
             return ErrorCreator.createError(
-                    StringUtils.fromString("Failed to get workflow info: " + e.getMessage()));
+                    StringUtils.fromString(ERR_GET_INFO + e.getMessage()));
         }
     }
 
@@ -437,28 +551,6 @@ public final class WorkflowNative {
         record.put(StringUtils.fromString("activityInvocations"), emptyActivities);
 
         return record;
-    }
-
-    /**
-     * Creates a DuplicateWorkflowError for the Ballerina runtime.
-     * <p>
-     * This creates an error with details about the duplicate workflow.
-     *
-     * @param e the DuplicateWorkflowException from the runtime
-     * @return a Ballerina BError with duplicate workflow details
-     */
-    private static Object createDuplicateWorkflowError(DuplicateWorkflowException e) {
-        // Create a simple error with all details in the message
-        // This avoids type checking issues with distinct error types from Java
-        String message = String.format(
-            "DuplicateWorkflowError: %s [existingWorkflowId=%s, processName=%s, correlationKeys=%s]",
-            e.getMessage(),
-            e.getExistingWorkflowId(),
-            e.getProcessName(),
-            e.getCorrelationKeys()
-        );
-        
-        return ErrorCreator.createError(StringUtils.fromString(message));
     }
 
     /**

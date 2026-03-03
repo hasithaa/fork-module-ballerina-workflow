@@ -7,7 +7,7 @@ This directory contains vendor-neutral workflow samples demonstrating the Baller
 ### 1. Order Processing (`order-processing/`)
 
 Simple order processing workflow demonstrating:
-- Basic workflow structure with @Process and @Activity
+- Basic workflow structure with @Workflow and @Activity
 - Inventory checking and stock reservation
 - Error handling and validation
 - Mock inventory backend
@@ -31,8 +31,8 @@ Bidirectional contact synchronization between CRM systems:
 Order processing with payment signal workflow:
 - Inventory checking
 - Signal-based payment waiting
-- Future-based event handling
-- Correlation with order ID
+- Future-based data event handling
+- Workflow ID based routing
 
 **Port**: 9094  
 **Queue**: ORDER_PAYMENT_QUEUE
@@ -81,12 +81,12 @@ sample-name/
 
 ## Key Concepts
 
-### @Process Annotation
+### @Workflow Annotation
 
 Marks the workflow entry point:
 
 ```ballerina
-@workflow:Process
+@workflow:Workflow
 function processOrder(workflow:Context ctx, OrderRequest request) returns OrderResult|error {
     // Workflow orchestration logic
 }
@@ -117,7 +117,7 @@ Each sample uses following workflow executor initialization configuration in `Co
 ```toml
 # Config.toml
 [ballerina.workflow.workflowConfig]
-provider = "TEMPORAL"
+mode = "LOCAL"
 url = "localhost:7233"
 namespace = "default"
 
@@ -140,7 +140,7 @@ if result is error {
 
 ### Correlation
 
-Correlation keys use `readonly` fields to match workflows with signals/events:
+Correlation keys use `readonly` fields to match workflows with data events:
 
 ```ballerina
 // Define input type with readonly correlation keys
@@ -160,28 +160,28 @@ type PaymentEvent record {|
 ```
 
 
-### Event Handling
+### Data Event Handling
 
 ```ballerina
-// In workflow - use events record with future<T> fields
-@workflow:Process
+// In workflow - use data events record with future<T> fields
+@workflow:Workflow
 function orderProcess(
     workflow:Context ctx,
     OrderInput input,
-    record {| future<PaymentEvent> paymentReceived; |} events
+    record {| future<PaymentEvent> paymentReceived; |} dataEvents
 ) returns OrderResult|error {
     // Check inventory first
     var result = check ctx->callActivity(checkInventory, {item: input.item, quantity: input.quantity});
     
-    // Wait for payment event (correlated by orderId + customerId)
-    PaymentEvent payment = check wait events.paymentReceived;
+    // Wait for payment data event
+    PaymentEvent payment = check wait dataEvents.paymentReceived;
     
     return {status: "paid", amount: payment.amount};
 }
 
-// From client - send event (correlation keys in data are used for routing)
+// From client - send data event to a running workflow
 PaymentEvent paymentData = {orderId: "ORD-001", customerId: "C123", amount: 99.99};
-_ = check workflow:sendEvent(orderProcess, paymentData, "paymentReceived");
+_ = check workflow:sendData(orderProcess, paymentData, "paymentReceived");
 ```
 
 ## Troubleshooting

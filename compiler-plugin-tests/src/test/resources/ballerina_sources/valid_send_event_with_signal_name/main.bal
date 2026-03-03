@@ -16,19 +16,19 @@
 
 import ballerina/workflow;
 
-// Types with same structure (ambiguous)
+// Types with same structure
 type SignalType1 record {|
-    readonly string id;
+    string id;
     string value;
 |};
 
 type SignalType2 record {|
-    readonly string id;
+    string id;
     string value;
 |};
 
 type TestInput record {|
-    readonly string id;
+    string id;
     string name;
 |};
 
@@ -36,9 +36,9 @@ type TestResult record {|
     string status;
 |};
 
-// Valid: Process with ambiguous signal types BUT sendEvent provides explicit signalName
-@workflow:Process
-function ambiguousSignalProcess(
+// Valid: Workflow with signal types
+@workflow:Workflow
+function ambiguousSignalWorkflow(
     workflow:Context ctx,
     TestInput input,
     record {|
@@ -50,8 +50,8 @@ function ambiguousSignalProcess(
     return {status: "OK"};
 }
 
-// This is VALID because we provide explicit signalName parameter
+// Valid: sendData with all required params
 function validSendWithExplicitSignalName() returns error? {
     SignalType1 data = {id: "test-1", value: "test"};
-    _ = check workflow:sendEvent(ambiguousSignalProcess, data, "signal1");
+    check workflow:sendData(ambiguousSignalWorkflow, "wf-12345", "signal1", data);
 }

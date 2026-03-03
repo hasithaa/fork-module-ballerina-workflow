@@ -326,7 +326,7 @@ public final class EventExtractor {
     }
 
     /**
-     * Gets the input parameter record type from a process function.
+     * Gets the input parameter type from a process function.
      * <p>
      * This is used to extract correlation keys (readonly fields) from the input type.
      *

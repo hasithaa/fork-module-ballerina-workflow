@@ -32,12 +32,10 @@ import ballerina/workflow;
 function testSingleNoArgActivityExecution() returns error? {
     string testId = uniqueId("no-arg-single");
     NoArgWorkflowInput input = {id: testId};
-    string workflowId = check workflow:createInstance(singleNoArgActivityWorkflow, input);
+    string workflowId = check workflow:run(singleNoArgActivityWorkflow, input);
     
-    // Verify workflow ID is generated
-    test:assertTrue(workflowId.length() > 0, "Workflow ID should be generated");
-    test:assertTrue(workflowId.startsWith("singleNoArgActivityWorkflow-"), 
-        "Workflow ID should be prefixed with process name");
+    // Verify workflow ID is a valid UUID v7
+    test:assertTrue(isValidUuidV7(workflowId), "Workflow ID should be a valid UUID v7");
     
     workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
     
@@ -52,12 +50,10 @@ function testSingleNoArgActivityExecution() returns error? {
 function testMultipleNoArgActivitiesExecution() returns error? {
     string testId = uniqueId("no-arg-multi");
     NoArgWorkflowInput input = {id: testId};
-    string workflowId = check workflow:createInstance(multipleNoArgActivitiesWorkflow, input);
+    string workflowId = check workflow:run(multipleNoArgActivitiesWorkflow, input);
     
-    // Verify workflow ID is generated
-    test:assertTrue(workflowId.length() > 0, "Workflow ID should be generated");
-    test:assertTrue(workflowId.startsWith("multipleNoArgActivitiesWorkflow-"), 
-        "Workflow ID should be prefixed with process name");
+    // Verify workflow ID is a valid UUID v7
+    test:assertTrue(isValidUuidV7(workflowId), "Workflow ID should be a valid UUID v7");
     
     workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
     

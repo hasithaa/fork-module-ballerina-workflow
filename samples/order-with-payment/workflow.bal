@@ -27,14 +27,14 @@ import ballerina/io;
 # 3. Completes order after payment received
 #
 # + ctx - Workflow context for calling activities
-# + request - Order request with orderId (readonly for correlation) and item
-# + events - Record containing futures for expected signals
+# + request - Order request with orderId and item
+# + dataEvents - Record containing futures for expected data events
 # + return - Order result or error
-@workflow:Process
+@workflow:Workflow
 function processOrderWithPayment(
     workflow:Context ctx, 
     OrderRequest request,
-    record {| future<PaymentConfirmation> paymentReceived; |} events
+    record {| future<PaymentConfirmation> paymentReceived; |} dataEvents
 ) returns OrderResult|error {
     io:println(string `[Workflow] Processing order: ${request.orderId}`);
 
@@ -50,10 +50,10 @@ function processOrderWithPayment(
         };
     }
 
-    // Step 2: Wait for payment signal using Ballerina's native wait
-    // The field name 'paymentReceived' maps to the Temporal signal name
+    // Step 2: Wait for payment data event using Ballerina's native wait
+    // The field name 'paymentReceived' maps to the data event name
     io:println(string `[Workflow] Waiting for payment for order: ${request.orderId}`);
-    PaymentConfirmation payment = check wait events.paymentReceived;
+    PaymentConfirmation payment = check wait dataEvents.paymentReceived;
     
     io:println(string `[Workflow] Payment received for order: ${request.orderId}, amount: ${payment.amount}`);
 

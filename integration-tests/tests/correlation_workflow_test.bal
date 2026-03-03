@@ -18,12 +18,12 @@
 // CORRELATION WORKFLOW - TESTS
 // ================================================================================
 //
-// Tests for readonly field based correlation in workflows.
+// Tests for multi-signal workflows with multiple signal types.
 // These tests verify that:
-// 1. Workflows can use readonly fields as correlation keys
-// 2. Signals with matching correlation keys are routed correctly
-// 3. Composite workflow IDs are generated from correlation keys
-// 4. Multiple signals can be sent using correlation keys
+// 1. Workflows can receive multiple signal types
+// 2. Signals are routed correctly using workflowId
+// 3. Workflow IDs are generated as UUID v7
+// 4. Multiple signals can be sent to the same workflow
 //
 // ================================================================================
 
@@ -32,7 +32,7 @@ import ballerina/test;
 import ballerina/workflow;
 
 // ================================================================================
-// SIMPLE CORRELATION WORKFLOW TESTS
+// SIMPLE CORRELATED WORKFLOW TESTS
 // ================================================================================
 
 @test:Config {
@@ -46,24 +46,21 @@ function testSimpleCorrelatedWorkflow() returns error? {
         message: "Hello with correlation"
     };
     
-    // Start the workflow - workflow ID is timestamp-based, correlation keys are search attributes
-    string workflowId = check workflow:createInstance(simpleCorrelatedWorkflow, input);
+    // Start the workflow - workflow ID is timestamp-based, fields are search attributes
+    string workflowId = check workflow:run(simpleCorrelatedWorkflow, input);
     
-    // Verify the workflow ID starts with the process name
-    // Format: simpleCorrelatedWorkflow-<timestamp>
-    test:assertTrue(workflowId.startsWith("simpleCorrelatedWorkflow-"), 
-        "Workflow ID should start with process name");
+    // Verify the workflow ID is a valid UUID v7
+    test:assertTrue(isValidUuidV7(workflowId), "Workflow ID should be a valid UUID v7");
     
     // Give the workflow time to start and wait for signal
     runtime:sleep(1);
     
-    // Send the response signal using correlation key
+    // Send the response signal using workflowId directly
     SimpleCorrelatedResponse signalData = {
         requestId: requestId,
         response: "Correlated response!"
     };
-    boolean sent = check workflow:sendEvent(simpleCorrelatedWorkflow, signalData, "response");
-    test:assertTrue(sent, "Signal should be sent successfully");
+    check workflow:sendData(simpleCorrelatedWorkflow, workflowId, "response", signalData);
     
     // Wait for workflow to complete
     workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
@@ -83,7 +80,7 @@ function testSimpleCorrelatedWorkflow() returns error? {
 }
 
 // ================================================================================
-// MULTI-KEY CORRELATION WORKFLOW TESTS
+// MULTI-SIGNAL WORKFLOW TESTS
 // ================================================================================
 
 @test:Config {
@@ -101,17 +98,16 @@ function testCorrelatedOrderWorkflow() returns error? {
         price: 999.99
     };
     
-    // Start the workflow - workflow ID is timestamp-based, correlation keys are search attributes
-    string workflowId = check workflow:createInstance(correlatedOrderWorkflow, input);
+    // Start the workflow - workflow ID is timestamp-based, fields are search attributes
+    string workflowId = check workflow:run(correlatedOrderWorkflow, input);
     
-    // Verify the workflow ID starts with the process name (correlation keys are in search attributes)
-    test:assertTrue(workflowId.startsWith("correlatedOrderWorkflow-"), 
-        "Workflow ID should start with process name");
+    // Verify the workflow ID is a valid UUID v7
+    test:assertTrue(isValidUuidV7(workflowId), "Workflow ID should be a valid UUID v7");
     
     // Give the workflow time to start
     runtime:sleep(1);
     
-    // Send payment signal with matching correlation keys
+    // Send payment signal with workflowId
     CorrelatedPaymentSignal payment = {
         customerId: customerId,
         orderId: orderId,
@@ -119,21 +115,19 @@ function testCorrelatedOrderWorkflow() returns error? {
         amount: 999.99,
         paymentMethod: "CREDIT_CARD"
     };
-    boolean paymentSent = check workflow:sendEvent(correlatedOrderWorkflow, payment, "payment");
-    test:assertTrue(paymentSent, "Payment signal should be sent successfully");
+    check workflow:sendData(correlatedOrderWorkflow, workflowId, "payment", payment);
     
     // Give workflow time to process payment
     runtime:sleep(1);
     
-    // Send shipment signal with matching correlation keys
+    // Send shipment signal with workflowId
     CorrelatedShipmentSignal shipment = {
         customerId: customerId,
         orderId: orderId,
         trackingNumber: "TRACK-456",
         carrier: "FedEx"
     };
-    boolean shipmentSent = check workflow:sendEvent(correlatedOrderWorkflow, shipment, "shipment");
-    test:assertTrue(shipmentSent, "Shipment signal should be sent successfully");
+    check workflow:sendData(correlatedOrderWorkflow, workflowId, "shipment", shipment);
     
     // Wait for workflow to complete
     workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
@@ -153,7 +147,7 @@ function testCorrelatedOrderWorkflow() returns error? {
 }
 
 // ================================================================================
-// CORRELATION WITH INVALID PAYMENT
+// INVALID PAYMENT TEST
 // ================================================================================
 
 @test:Config {
@@ -172,7 +166,7 @@ function testCorrelatedOrderWorkflowInvalidPayment() returns error? {
     };
     
     // Start the workflow
-    string workflowId = check workflow:createInstance(correlatedOrderWorkflow, input);
+    string workflowId = check workflow:run(correlatedOrderWorkflow, input);
     
     runtime:sleep(1);
     
@@ -184,8 +178,7 @@ function testCorrelatedOrderWorkflowInvalidPayment() returns error? {
         amount: 0.0,  // Invalid amount
         paymentMethod: "CASH"
     };
-    boolean paymentSent = check workflow:sendEvent(correlatedOrderWorkflow, payment, "payment");
-    test:assertTrue(paymentSent, "Payment signal should be sent");
+    check workflow:sendData(correlatedOrderWorkflow, workflowId, "payment", payment);
     
     // Wait for workflow to complete (with payment invalid status)
     workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
@@ -203,34 +196,32 @@ function testCorrelatedOrderWorkflowInvalidPayment() returns error? {
 }
 
 // ================================================================================
-// MULTIPLE CONCURRENT WORKFLOWS WITH DIFFERENT CORRELATION KEYS
+// MULTIPLE CONCURRENT WORKFLOWS
 // ================================================================================
 
 @test:Config {
     groups: ["integration", "correlation"]
 }
 function testMultipleConcurrentCorrelatedWorkflows() returns error? {
-    // Start two workflows with different correlation keys
+    // Start two workflows
     string requestId1 = uniqueId("req1");
     string requestId2 = uniqueId("req2");
     
     SimpleCorrelatedInput input1 = {requestId: requestId1, message: "First workflow"};
     SimpleCorrelatedInput input2 = {requestId: requestId2, message: "Second workflow"};
     
-    string workflowId1 = check workflow:createInstance(simpleCorrelatedWorkflow, input1);
-    string workflowId2 = check workflow:createInstance(simpleCorrelatedWorkflow, input2);
+    string workflowId1 = check workflow:run(simpleCorrelatedWorkflow, input1);
+    string workflowId2 = check workflow:run(simpleCorrelatedWorkflow, input2);
     
     runtime:sleep(1);
     
-    // Send signals - each should go to the correct workflow based on correlation
+    // Send signals using workflowId directly
     SimpleCorrelatedResponse signal1 = {requestId: requestId1, response: "Response 1"};
     SimpleCorrelatedResponse signal2 = {requestId: requestId2, response: "Response 2"};
     
-    // Send in reverse order to verify correct correlation routing
-    boolean sent2 = check workflow:sendEvent(simpleCorrelatedWorkflow, signal2, "response");
-    boolean sent1 = check workflow:sendEvent(simpleCorrelatedWorkflow, signal1, "response");
-    
-    test:assertTrue(sent1 && sent2, "Both signals should be sent");
+    // Send signal to second workflow first, then first (out of order)
+    check workflow:sendData(simpleCorrelatedWorkflow, workflowId2, "response", signal2);
+    check workflow:sendData(simpleCorrelatedWorkflow, workflowId1, "response", signal1);
     
     // Verify each workflow got the correct signal
     workflow:WorkflowExecutionInfo execInfo1 = check workflow:getWorkflowResult(workflowId1, 30);

@@ -20,12 +20,12 @@ The Workflow library facilitates building stateful, durable workflows that can s
 
 ### Key Features
 
-#### @Process Annotation
+#### @Workflow Annotation
 
 Marks a function as a workflow process. Process functions define the workflow orchestration logic:
 
 ```ballerina
-@workflow:Process
+@workflow:Workflow
 function processOrder(workflow:Context ctx, OrderRequest request) returns OrderResult|error {
     // Deterministic workflow orchestration logic
     InventoryStatus inventory = check ctx->callActivity(checkInventory, {item: request.item, quantity: request.quantity});
@@ -77,7 +77,7 @@ public type PaymentEvent record {|
     decimal amount;
 |};
 
-@workflow:Process
+@workflow:Workflow
 function processOrderWithPayment(
     workflow:Context ctx, 
     OrderInput input,
@@ -102,7 +102,7 @@ The Workflow library requires a running Temporal server. You can configure the c
 
 ```toml
 [ballerina.workflow.workflowConfig]
-provider = "TEMPORAL"
+mode = "LOCAL"
 url = "localhost:7233"
 namespace = "default"
 
@@ -112,9 +112,9 @@ maxConcurrentWorkflows = 100
 ```
 
 **Configuration Parameters:**
-- `provider` - Workflow provider (currently only "TEMPORAL" is supported)
-- `url` - Temporal server address (default: `localhost:7233`)
-- `namespace` - Temporal namespace (default: `default`)
+- `mode` - Deployment mode: `LOCAL`, `CLOUD`, `SELF_HOSTED`, or `IN_MEMORY`
+- `url` - Workflow server address (default: `localhost:7233`)
+- `namespace` - Workflow namespace (default: `default`)
 - `taskQueue` - Task queue name for workflow and activity execution
 - `maxConcurrentWorkflows` - Maximum number of concurrent workflow executions
 

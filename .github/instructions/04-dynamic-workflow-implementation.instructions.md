@@ -298,15 +298,15 @@ public static Object callActivity(BObject contextObj, BFunctionPointer activityF
 ### 3. Compiler Plugin Layer
 
 The compiler plugin has **limited involvement** in dynamic workflow implementation:
-- Validates `@Process` and `@Activity` function signatures
+- Validates `@Workflow` and `@Activity` function signatures
 - Auto-generates `registerProcess()` calls
 - Validates `ctx->callActivity()` calls use `@Activity` functions (WORKFLOW_107)
 - Prevents direct activity calls (WORKFLOW_108)
 
 ## Execution Flow
 
-```
-1. Workflow Start (via createInstance)
+```text
+1. Workflow Start (via run)
    └─> WorkflowClient.start(workflowType, input)
        └─> Temporal schedules workflow task on task queue
 
@@ -345,7 +345,7 @@ The compiler plugin has **limited involvement** in dynamic workflow implementati
    └─> Ballerina: wait events.approval
        ├─> TemporalFutureValue.getAndSetWaited()
        │   └─> Workflow.await(() -> completableFuture.isDone())
-       └─> External: sendEvent(processFunc, data, "approval")
+       └─> External: sendData(processFunc, workflowId, "approval", data)
            └─> Temporal delivers event
                └─> DynamicSignalHandler.signal()
                    └─> signalWrapper.recordSignal()

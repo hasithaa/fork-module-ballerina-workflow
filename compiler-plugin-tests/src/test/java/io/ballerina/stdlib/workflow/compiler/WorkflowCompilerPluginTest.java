@@ -32,8 +32,8 @@ import java.nio.file.Paths;
 
 /**
  * Tests for workflow compiler plugin.
- * Tests the code modifier that detects @Process functions and transforms @Activity calls.
- * Also tests the validator that checks @Process and @Activity function signatures.
+ * Tests the code modifier that detects @Workflow functions and transforms @Activity calls.
+ * Also tests the validator that checks @Workflow and @Activity function signatures.
  *
  * @since 0.1.0
  */
@@ -53,38 +53,38 @@ public class WorkflowCompilerPluginTest {
     // ===== Valid test cases =====
 
     @Test(groups = "valid")
-    public void testValidProcessWithActivities() {
+    public void testValidWorkflowWithActivities() {
         String packagePath = "valid_process_with_activities";
         DiagnosticResult diagnosticResult = getDiagnosticResult(packagePath);
         Assert.assertEquals(diagnosticResult.errorCount(), 0,
-                "Expected no errors for valid process with activities. Errors: "
+                "Expected no errors for valid workflow with activities. Errors: "
                         + getDiagnosticMessages(diagnosticResult));
     }
 
     @Test(groups = "valid")
-    public void testProcessWithNoActivities() {
+    public void testWorkflowWithNoActivities() {
         String packagePath = "process_no_activities";
         DiagnosticResult diagnosticResult = getDiagnosticResult(packagePath);
         Assert.assertEquals(diagnosticResult.errorCount(), 0,
-                "Expected no errors for process with no activities. Errors: "
+                "Expected no errors for workflow with no activities. Errors: "
                         + getDiagnosticMessages(diagnosticResult));
     }
 
     @Test(groups = "valid")
-    public void testMultipleProcessFunctions() {
+    public void testMultipleWorkflowFunctions() {
         String packagePath = "multiple_processes";
         DiagnosticResult diagnosticResult = getDiagnosticResult(packagePath);
         Assert.assertEquals(diagnosticResult.errorCount(), 0,
-                "Expected no errors for multiple process functions. Errors: "
+                "Expected no errors for multiple workflow functions. Errors: "
                         + getDiagnosticMessages(diagnosticResult));
     }
 
     @Test(groups = "valid")
-    public void testValidProcessWithContext() {
+    public void testValidWorkflowWithContext() {
         String packagePath = "valid_process_with_context";
         DiagnosticResult diagnosticResult = getDiagnosticResult(packagePath);
         Assert.assertEquals(diagnosticResult.errorCount(), 0,
-                "Expected no errors for process with workflow:Context. Errors: "
+                "Expected no errors for workflow with workflow:Context. Errors: "
                         + getDiagnosticMessages(diagnosticResult));
     }
 
@@ -118,29 +118,29 @@ public class WorkflowCompilerPluginTest {
     }
 
     @Test(groups = "invalid")
-    public void testInvalidProcessParam() {
+    public void testInvalidWorkflowParam() {
         String packagePath = "invalid_process_param";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertTrue(diagnosticResult.errorCount() > 0,
-                "Expected validation error for process with non-anydata input parameter");
+                "Expected validation error for workflow with non-anydata input parameter");
         assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_101);
     }
 
     @Test(groups = "invalid")
-    public void testInvalidProcessReturn() {
+    public void testInvalidWorkflowReturn() {
         String packagePath = "invalid_process_return";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertTrue(diagnosticResult.errorCount() > 0,
-                "Expected validation error for process with non-anydata return type");
+                "Expected validation error for workflow with non-anydata return type");
         assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_105);
     }
 
     @Test(groups = "invalid")
-    public void testInvalidProcessEvents() {
+    public void testInvalidWorkflowEvents() {
         String packagePath = "invalid_process_events";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertTrue(diagnosticResult.errorCount() > 0,
-                "Expected validation error for process with invalid events parameter type");
+                "Expected validation error for workflow with invalid events parameter type");
         assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_102);
     }
 
@@ -158,7 +158,7 @@ public class WorkflowCompilerPluginTest {
         String packagePath = "invalid_direct_activity_call";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertTrue(diagnosticResult.errorCount() > 0,
-                "Expected validation error for direct @Activity function call in @Process function");
+                "Expected validation error for direct @Activity function call in @Workflow function");
         assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_108);
     }
 
@@ -280,14 +280,14 @@ public class WorkflowCompilerPluginTest {
                 + getDiagnosticMessages(diagnosticResult));
     }
 
-    // ===== sendEvent validation test cases - Ambiguous signal types =====
+    // ===== sendData validation test cases =====
 
     @Test(groups = "valid")
     public void testValidSendEventWithExplicitSignalName() {
         String packagePath = "valid_send_event_with_signal_name";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertEquals(diagnosticResult.errorCount(), 0,
-                "Expected no errors when sendEvent provides explicit signalName with ambiguous signals. Errors: "
+                "Expected no errors when sendData provides all required params. Errors: "
                         + getDiagnosticMessages(diagnosticResult));
     }
 
@@ -296,7 +296,7 @@ public class WorkflowCompilerPluginTest {
         String packagePath = "valid_send_event_distinct_types";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertEquals(diagnosticResult.errorCount(), 0,
-                "Expected no errors when signal types are structurally different. Errors: "
+                "Expected no errors when sendData is called with all required params. Errors: "
                         + getDiagnosticMessages(diagnosticResult));
     }
 
@@ -305,25 +305,45 @@ public class WorkflowCompilerPluginTest {
         String packagePath = "valid_send_event_single_signal";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertEquals(diagnosticResult.errorCount(), 0,
-                "Expected no errors when process has only one signal. Errors: "
+                "Expected no errors when sendData is called with all required params. Errors: "
                         + getDiagnosticMessages(diagnosticResult));
     }
 
-    @Test(groups = "invalid")
-    public void testInvalidSendEventAmbiguousNoSignalName() {
-        String packagePath = "invalid_send_event_ambiguous_no_signal_name";
+    @Test(groups = "valid")
+    public void testValidSendEventAmbiguousWithDataName() {
+        String packagePath = "valid_send_event_with_data_name";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
-        Assert.assertTrue(diagnosticResult.errorCount() > 0,
-                "Expected validation error for sendEvent without signalName when signals are ambiguous");
-        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_112);
+        Assert.assertEquals(diagnosticResult.errorCount(), 0,
+                "Expected no errors when sendData provides dataName for ambiguous signals. Errors: "
+                        + getDiagnosticMessages(diagnosticResult));
     }
 
-    @Test(groups = "invalid")
-    public void testInvalidSendEventAmbiguousThreeSignals() {
+    @Test(groups = "valid")
+    public void testValidSendEventThreeSignalsWithDataName() {
         String packagePath = "invalid_send_event_ambiguous_three_signals";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
-        Assert.assertTrue(diagnosticResult.errorCount() > 0,
-                "Expected validation error for sendEvent without signalName when three signals are ambiguous");
-        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_112);
+        Assert.assertEquals(diagnosticResult.errorCount(), 0,
+                "Expected no errors when sendData provides dataName for three signals. Errors: "
+                        + getDiagnosticMessages(diagnosticResult));
+    }
+
+    // ===== sendData with workflowId =====
+
+    @Test(groups = "valid")
+    public void testValidSendDataWithWorkflowId() {
+        String packagePath = "valid_send_signal_with_workflow_id";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertEquals(diagnosticResult.errorCount(), 0,
+                "Expected no errors when sendData uses workflowId. Errors: "
+                        + getDiagnosticMessages(diagnosticResult));
+    }
+
+    @Test(groups = "valid")
+    public void testValidSendDataNoCorrelation() {
+        String packagePath = "invalid_send_signal_no_correlation";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertEquals(diagnosticResult.errorCount(), 0,
+                "Expected no errors when sendData is called with all required params. Errors: "
+                        + getDiagnosticMessages(diagnosticResult));
     }
 }

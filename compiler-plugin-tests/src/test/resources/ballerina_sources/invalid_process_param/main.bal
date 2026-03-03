@@ -33,10 +33,10 @@ type OrderResult record {|
     string status;
 |};
 
-// Invalid: Process function with non-anydata input parameter
+// Invalid: Workflow function with non-anydata input parameter
 // Should trigger WORKFLOW_101 error
-@workflow:Process
-function processWithInvalidInput(InvalidInput input) returns OrderResult|error {
+@workflow:Workflow
+function workflowWithInvalidInput(InvalidInput input) returns OrderResult|error {
     return {
         status: "COMPLETED"
     };

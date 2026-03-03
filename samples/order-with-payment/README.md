@@ -4,8 +4,8 @@ Demonstrates order workflow waiting for payment confirmation via signals.
 
 ## Features
 
-- Future-based payment waiting using events record with `future<PaymentEvent>`
-- Correlation with order ID via readonly fields
+- Future-based payment waiting using data events record with `future<PaymentEvent>`
+- Workflow ID based routing for payment signals
 - Timeout handling (24 hour wait)
 - Inventory checking before payment
 
@@ -33,4 +33,4 @@ Order Request → Check Inventory → Wait for Payment Signal → Complete Order
                                   Payment Event
 ```
 
-Key: Uses future-based events with `record {| future<T>...; |}` parameter.
+Key: Uses future-based data events with `record {| future<T>...; |}` parameter.

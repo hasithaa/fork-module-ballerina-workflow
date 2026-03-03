@@ -29,8 +29,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- **[Breaking]** Renamed `@workflow:Process` annotation to `@workflow:Workflow`
+- **[Breaking]** Renamed `workflow:createInstance()` function to `workflow:run()`
+- **[Breaking]** Changed `workflow:sendData()` to require all parameters explicitly:
+  `sendData(function workflow, string workflowId, string dataName, anydata data) returns error?`
+  (previously used optional named parameters with `boolean|error` return)
+- **[Breaking]** Removed automatic correlation-based signal routing from `sendData()`
+- **[Breaking]** Workflow instance IDs are now plain UUID v7 strings (previously prefixed with process name)
+- Removed compiler plugin error codes WORKFLOW_118, WORKFLOW_119, WORKFLOW_120 (no longer applicable with required sendData params)
+- Changed WORKFLOW_112 (ambiguous signal types) from error to warning
+
 ### Added
 
-### Changed
+- New `workflow:searchWorkflow()` function to find workflows by correlation keys:
+  `searchWorkflow(function workflow, map<anydata> correlationKeys) returns string|error`
+- **[Breaking]** Redesigned `WorkflowConfig` as a union type supporting four deployment modes:
+  - `LocalConfig` - Local development server (default, replaces previous flat config)
+  - `CloudConfig` - Managed cloud deployment with mandatory authentication
+  - `SelfHostedConfig` - Self-hosted server with optional authentication
+  - `InMemoryConfig` - Lightweight in-memory engine (not yet implemented)
+- Added `WorkerConfig` record type (replaces `TemporalParams`) with `taskQueue`, `maxConcurrentWorkflows`, `maxConcurrentActivities`
+- Added mTLS and API key authentication support for cloud and self-hosted deployments
+- Config.toml now uses `mode` field instead of `provider`, and `worker` section instead of `params`
+
+### Removed
+
+- Removed `Provider` enum and `TemporalParams` record type (replaced by union-based `WorkflowConfig`)
+- Removed provider-specific terminology from public API documentation
 
 ### Fixed

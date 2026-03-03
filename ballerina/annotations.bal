@@ -14,21 +14,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-# Marks a function as a workflow process.
+# Marks a function as a workflow.
 #
-# A process function defines the main workflow logic that orchestrates activities
-# and handles workflow state. Process functions must be deterministic - they should
+# A workflow function defines the main workflow logic that orchestrates activities
+# and handles workflow state. Workflow functions must be deterministic - they should
 # produce the same results given the same inputs and should not perform I/O directly.
 # Use activities for non-deterministic operations.
 #
 # # Example
 # ```ballerina
-# @workflow:Process
+# @workflow:Workflow
 # function orderProcess(Order input) returns OrderResult|error {
 #     // Workflow logic here
 # }
 # ```
-public annotation Process on function;
+public annotation Workflow on function;
 
 # Marks a function as a workflow activity.
 #

@@ -24,7 +24,7 @@ import java.util.Map;
 /**
  * Context class that holds information about workflow modifications for a document.
  * <p>
- * Stores information about {@code @Process} annotated functions and their associated
+ * Stores information about {@code @Workflow} annotated functions and their associated
  * {@code @Activity} function calls that need to be transformed.
  *
  * @since 0.1.0

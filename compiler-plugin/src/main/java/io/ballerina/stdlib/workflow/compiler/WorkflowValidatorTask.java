@@ -23,7 +23,6 @@ import io.ballerina.compiler.api.symbols.FunctionSymbol;
 import io.ballerina.compiler.api.symbols.FunctionTypeSymbol;
 import io.ballerina.compiler.api.symbols.ParameterKind;
 import io.ballerina.compiler.api.symbols.ParameterSymbol;
-import io.ballerina.compiler.api.symbols.RecordFieldSymbol;
 import io.ballerina.compiler.api.symbols.RecordTypeSymbol;
 import io.ballerina.compiler.api.symbols.Symbol;
 import io.ballerina.compiler.api.symbols.SymbolKind;
@@ -46,20 +45,17 @@ import io.ballerina.projects.plugins.SyntaxNodeAnalysisContext;
 import io.ballerina.tools.diagnostics.DiagnosticFactory;
 import io.ballerina.tools.diagnostics.DiagnosticInfo;
 
-import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
 /**
- * Validation task for workflow @Process and @Activity function signatures.
+ * Validation task for workflow @Workflow and @Activity function signatures.
  * <p>
  * Validates:
  * <ul>
- *   <li>@Process functions have valid signature: (Context?, anydata input, record{future<anydata>...} events?)</li>
+ *   <li>@Workflow functions have valid signature: (Context?, anydata input, record{future<anydata>...} events?)</li>
  *   <li>@Activity functions have anydata parameters and anydata|error return type</li>
  * </ul>
  *
@@ -75,7 +71,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
 
         SemanticModel semanticModel = context.semanticModel();
 
-        // Check if function has @Process annotation
+        // Check if function has @Workflow annotation
         if (hasAnnotation(functionNode, semanticModel, WorkflowConstants.PROCESS_ANNOTATION)) {
             validateProcessFunction(functionNode, context);
             // Validate callActivity calls within the process function
@@ -96,7 +92,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
     }
 
     /**
-     * Validates @Process function signature.
+     * Validates @Workflow function signature.
      * <ul>
      *   <li>Optional first parameter: workflow:Context</li>
      *   <li>Optional input parameter: subtype of anydata</li>
@@ -146,8 +142,6 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         int paramIndex = 0;
         boolean hasInput = false;
         boolean hasEvents = false;
-        TypeSymbol inputType = null;
-        TypeSymbol eventsType = null;
 
         // Check first parameter - could be Context, input, or events
         ParameterSymbol firstParam = params.get(paramIndex);
@@ -179,14 +173,12 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                     return;
                 }
                 hasEvents = true;
-                eventsType = paramType;
                 paramIndex++;
             } else {
                 // No input yet - this could be input or events
                 if (isValidEventsType(paramType)) {
                     // This is an events parameter (can come without input)
                     hasEvents = true;
-                    eventsType = paramType;
                     paramIndex++;
                 } else if (WorkflowPluginUtils.isSubtypeOfAnydata(paramType, semanticModel)) {
                     // This is an input parameter
@@ -196,7 +188,6 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                         return;
                     }
                     hasInput = true;
-                    inputType = paramType;
                     paramIndex++;
                 } else {
                     // Parameter is neither anydata nor events record - error
@@ -208,11 +199,6 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
 
         // Validate return type
         validateReturnType(functionNode, context, typeSymbol);
-        
-        // Validate correlation keys if both input and events are present
-        if (hasInput && hasEvents) {
-            validateCorrelationKeys(functionNode, context, inputType, eventsType);
-        }
     }
 
     /**
@@ -227,137 +213,6 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                 reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_105);
             }
         }
-    }
-
-    /**
-     * Validates correlation key consistency between process input and signal types.
-     * <p>
-     * Rules:
-     * <ul>
-     *   <li>If process has events, input MUST have readonly fields for correlation</li>
-     *   <li>All signal types must have the SAME readonly fields as the input</li>
-     * </ul>
-     * <p>
-     * Note: The 'id' field fallback is no longer supported. Correlation is done
-     * exclusively via readonly fields which become Temporal Search Attributes.
-     */
-    private void validateCorrelationKeys(FunctionDefinitionNode functionNode, SyntaxNodeAnalysisContext context,
-                                          TypeSymbol inputType, TypeSymbol eventsType) {
-        // Resolve the input type to get the record type symbol
-        TypeSymbol resolvedInputType = WorkflowPluginUtils.resolveTypeReference(inputType);
-        if (!(resolvedInputType instanceof RecordTypeSymbol inputRecordType)) {
-            // Input is not a record type - this is valid for simple anydata types
-            // In this case, we can't validate correlation keys
-            return;
-        }
-
-        // Extract readonly fields from input type
-        Map<String, TypeSymbol> inputReadonlyFields = extractReadonlyFields(inputRecordType);
-
-        // Get signal types from events record
-        List<RecordTypeSymbol> signalTypes = extractSignalTypes(eventsType);
-
-        // If process has events but no readonly fields, report error
-        if (inputReadonlyFields.isEmpty() && !signalTypes.isEmpty()) {
-            reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_116);
-            return;
-        }
-
-        // Validate each signal type has matching readonly fields
-        for (RecordTypeSymbol signalType : signalTypes) {
-            Map<String, TypeSymbol> signalReadonlyFields = extractReadonlyFields(signalType);
-            String signalTypeName = signalType.getName().orElse("anonymous");
-
-            // Check all input readonly fields exist in signal type
-            for (Map.Entry<String, TypeSymbol> entry : inputReadonlyFields.entrySet()) {
-                String fieldName = entry.getKey();
-                TypeSymbol inputFieldType = entry.getValue();
-
-                if (!signalReadonlyFields.containsKey(fieldName)) {
-                    reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_114,
-                            signalTypeName, fieldName);
-                    continue;
-                }
-
-                TypeSymbol signalFieldType = signalReadonlyFields.get(fieldName);
-                if (!typesAreEqual(inputFieldType, signalFieldType)) {
-                    reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_115,
-                            fieldName,
-                            inputFieldType.signature(),
-                            signalTypeName,
-                            signalFieldType.signature());
-                }
-            }
-        }
-    }
-
-    /**
-     * Extracts readonly fields from a record type.
-     *
-     * @param recordType the record type symbol
-     * @return map of readonly field names to their type symbols
-     */
-    private Map<String, TypeSymbol> extractReadonlyFields(RecordTypeSymbol recordType) {
-        Map<String, TypeSymbol> readonlyFields = new LinkedHashMap<>();
-
-        for (Map.Entry<String, RecordFieldSymbol> entry : recordType.fieldDescriptors().entrySet()) {
-            RecordFieldSymbol field = entry.getValue();
-            // Check if field has READONLY qualifier
-            if (field.qualifiers().contains(io.ballerina.compiler.api.symbols.Qualifier.READONLY)) {
-                readonlyFields.put(entry.getKey(), field.typeDescriptor());
-            }
-        }
-
-        return readonlyFields;
-    }
-
-    /**
-     * Extracts signal types from the events record type.
-     * <p>
-     * The events record contains future<T> fields where T is the signal type.
-     *
-     * @param eventsType the events record type symbol
-     * @return list of signal record type symbols
-     */
-    private List<RecordTypeSymbol> extractSignalTypes(TypeSymbol eventsType) {
-        List<RecordTypeSymbol> signalTypes = new ArrayList<>();
-
-        TypeSymbol resolvedEventsType = WorkflowPluginUtils.resolveTypeReference(eventsType);
-        if (!(resolvedEventsType instanceof RecordTypeSymbol eventsRecordType)) {
-            return signalTypes;
-        }
-
-        for (RecordFieldSymbol field : eventsRecordType.fieldDescriptors().values()) {
-            TypeSymbol fieldType = WorkflowPluginUtils.resolveTypeReference(field.typeDescriptor());
-
-            // Field should be future<T>
-            if (fieldType.typeKind() == TypeDescKind.FUTURE) {
-                // Get the type parameter of the future
-                if (fieldType instanceof io.ballerina.compiler.api.symbols.FutureTypeSymbol futureType) {
-                    Optional<TypeSymbol> typeParam = futureType.typeParameter();
-                    if (typeParam.isPresent()) {
-                        TypeSymbol signalType = WorkflowPluginUtils.resolveTypeReference(typeParam.get());
-                        if (signalType instanceof RecordTypeSymbol) {
-                            signalTypes.add((RecordTypeSymbol) signalType);
-                        }
-                    }
-                }
-            }
-        }
-
-        return signalTypes;
-    }
-
-    /**
-     * Compares two type symbols for equality.
-     *
-     * @param type1 the first type
-     * @param type2 the second type
-     * @return true if the types are equal
-     */
-    private boolean typesAreEqual(TypeSymbol type1, TypeSymbol type2) {
-        // Compare by signature for simplicity
-        return type1.signature().equals(type2.signature());
     }
 
     /**
@@ -412,7 +267,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
     /**
      * Node visitor that validates ctx->callActivity() calls.
      * Ensures the first argument is a function with @Activity annotation.
-     * Validates that the Parameters record keys match the activity function parameters.
+     * Validates that the args map keys match the activity function parameters.
      */
     private static class CallActivityValidator extends NodeVisitor {
         private final SyntaxNodeAnalysisContext context;
@@ -499,7 +354,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         }
 
         /**
-         * Validates that the Parameters record keys match the activity function's parameter names.
+         * Validates that the args map keys match the activity function's parameter names.
          */
         private void validateParametersMatch(RemoteMethodCallActionNode callNode,
                                              ExpressionNode activityFuncExpr,
@@ -540,7 +395,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                 }
             }
 
-            // Extract parameter names from the Parameters record argument
+            // Extract parameter names from the args map argument
             Set<String> providedParamNames = extractProvidedParamNames(paramsArg);
 
             // Check for missing required parameters
@@ -559,7 +414,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         }
 
         /**
-         * Extracts parameter names from the Parameters record (second argument).
+         * Extracts parameter names from the args map (second argument).
          */
         private Set<String> extractProvidedParamNames(FunctionArgumentNode paramsArg) {
             Set<String> paramNames = new HashSet<>();
@@ -655,7 +510,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
     }
 
     /**
-     * Validates that no direct @Activity function calls are made within @Process functions.
+     * Validates that no direct @Activity function calls are made within @Workflow functions.
      * Users must use ctx->callActivity(activityFunc, args...) pattern.
      */
     private void validateNoDirectActivityCalls(FunctionDefinitionNode functionNode, SyntaxNodeAnalysisContext context) {
@@ -752,14 +607,6 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                                    WorkflowDiagnostic diagnostic) {
         DiagnosticInfo diagnosticInfo = new DiagnosticInfo(
                 diagnostic.getCode(), diagnostic.getMessage(), diagnostic.getSeverity());
-        context.reportDiagnostic(DiagnosticFactory.createDiagnostic(diagnosticInfo,
-                functionNode.functionName().location()));
-    }
-
-    private void reportDiagnostic(SyntaxNodeAnalysisContext context, FunctionDefinitionNode functionNode,
-                                   WorkflowDiagnostic diagnostic, Object... args) {
-        DiagnosticInfo diagnosticInfo = new DiagnosticInfo(
-                diagnostic.getCode(), diagnostic.getMessage(args), diagnostic.getSeverity());
         context.reportDiagnostic(DiagnosticFactory.createDiagnostic(diagnosticInfo,
                 functionNode.functionName().location()));
     }

@@ -18,12 +18,12 @@ import ballerina/workflow;
 
 // Single signal type
 type ResponseSignal record {|
-    readonly string id;
+    string id;
     string message;
 |};
 
 type TestInput record {|
-    readonly string id;
+    string id;
     string name;
 |};
 
@@ -31,9 +31,9 @@ type TestResult record {|
     string status;
 |};
 
-// Valid: Process with single signal - no ambiguity possible
-@workflow:Process
-function singleSignalProcess(
+// Valid: Workflow with single signal
+@workflow:Workflow
+function singleSignalWorkflow(
     workflow:Context ctx,
     TestInput input,
     record {|
@@ -44,8 +44,8 @@ function singleSignalProcess(
     return {status: "OK"};
 }
 
-// This is VALID - single signal can always be inferred
-function validSendToSingleSignalProcess() returns error? {
+// Valid: sendData with all required params
+function validSendToSingleSignalWorkflow() returns error? {
     ResponseSignal data = {id: "test-1", message: "hello"};
-    _ = check workflow:sendEvent(singleSignalProcess, data);
+    check workflow:sendData(singleSignalWorkflow, "wf-12345", "response", data);
 }

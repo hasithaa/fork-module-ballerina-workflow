@@ -16,5 +16,5 @@
 
 # The workflow module configuration.
 # This is read from Config.toml or set programmatically.
-# Defaults to connecting to a local Temporal server.
-configurable WorkflowConfig workflowConfig = {};
+# Defaults to connecting to a local development server.
+configurable WorkflowConfig workflowConfig = {mode: "LOCAL"};

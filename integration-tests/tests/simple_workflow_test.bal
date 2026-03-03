@@ -27,11 +27,10 @@ import ballerina/workflow;
 function testSimpleWorkflowExecution() returns error? {
     string testId = uniqueId("simple-workflow");
     SimpleInput input = {id: testId, name: "TestUser"};
-    string workflowId = check workflow:createInstance(simpleWorkflow, input);
+    string workflowId = check workflow:run(simpleWorkflow, input);
     
-    // Workflow ID is now UUID v7 based, verify it starts with process name
-    test:assertTrue(workflowId.length() > 0, "Workflow ID should be generated");
-    test:assertTrue(workflowId.startsWith("simpleWorkflow-"), "Workflow ID should be prefixed with process name");
+    // Workflow ID must be a valid UUID v7
+    test:assertTrue(isValidUuidV7(workflowId), "Workflow ID should be a valid UUID v7");
     
     workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
     

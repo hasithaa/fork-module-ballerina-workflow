@@ -18,7 +18,7 @@ import ballerina/workflow;
 import ballerina/io;
 
 // Order Processing Workflow
-// Demonstrates the new workflow syntax with @Process annotation
+// Demonstrates the new workflow syntax with @Workflow annotation
 
 # Process Order Workflow
 # This workflow orchestrates the order processing flow:
@@ -29,7 +29,7 @@ import ballerina/io;
 # + ctx - Workflow context for calling activities
 # + request - Order request with orderId, item, quantity
 # + return - Order result or error
-@workflow:Process
+@workflow:Workflow
 function processOrder(workflow:Context ctx, OrderRequest request) returns OrderResult|error {
     io:println(string `[Workflow] Starting order processing for Order ID: ${request.orderId}`);
 

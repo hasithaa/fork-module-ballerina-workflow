@@ -40,15 +40,14 @@ function testSimpleSignalWorkflow() returns error? {
     SimpleSignalInput input = {id: testId, message: "Hello from workflow"};
     
     // Start the workflow
-    string workflowId = check workflow:createInstance(simpleSignalWorkflow, input);
+    string workflowId = check workflow:run(simpleSignalWorkflow, input);
     
     // Give the workflow time to start and begin waiting for signal
     runtime:sleep(1);
     
     // Send the response signal
     SimpleSignalData signalData = {id: testId, response: "Response received!"};
-    boolean sent = check workflow:sendEvent(simpleSignalWorkflow, signalData, "response");
-    test:assertTrue(sent, "Signal should be sent successfully");
+    check workflow:sendData(simpleSignalWorkflow, workflowId, "response", signalData);
     
     // Wait for workflow to complete
     workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
@@ -78,7 +77,7 @@ function testApprovalWorkflowApprovedPath() returns error? {
     ApprovalInput input = {id: testId, orderId: "ORD-001", amount: 100.0};
     
     // Start the workflow
-    string workflowId = check workflow:createInstance(approvalWorkflow, input);
+    string workflowId = check workflow:run(approvalWorkflow, input);
     
     // Give the workflow time to start
     runtime:sleep(1);
@@ -90,8 +89,7 @@ function testApprovalWorkflowApprovedPath() returns error? {
         approved: true, 
         reason: ()
     };
-    boolean approvalSent = check workflow:sendEvent(approvalWorkflow, approval, "approval");
-    test:assertTrue(approvalSent, "Approval signal should be sent successfully");
+    check workflow:sendData(approvalWorkflow, workflowId, "approval", approval);
     
     // Give workflow time to process approval and start waiting for payment
     runtime:sleep(1);
@@ -102,8 +100,7 @@ function testApprovalWorkflowApprovedPath() returns error? {
         txnId: "TXN-456",
         amount: 100.0
     };
-    boolean paymentSent = check workflow:sendEvent(approvalWorkflow, payment, "payment");
-    test:assertTrue(paymentSent, "Payment signal should be sent successfully");
+    check workflow:sendData(approvalWorkflow, workflowId, "payment", payment);
     
     // Wait for workflow to complete
     workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
@@ -133,7 +130,7 @@ function testApprovalWorkflowRejectedPath() returns error? {
     ApprovalInput input = {id: testId, orderId: "ORD-002", amount: 5000.0};
     
     // Start the workflow
-    string workflowId = check workflow:createInstance(approvalWorkflow, input);
+    string workflowId = check workflow:run(approvalWorkflow, input);
     
     // Give the workflow time to start
     runtime:sleep(1);
@@ -145,8 +142,7 @@ function testApprovalWorkflowRejectedPath() returns error? {
         approved: false, 
         reason: "Amount too high"
     };
-    boolean sent = check workflow:sendEvent(approvalWorkflow, rejection, "approval");
-    test:assertTrue(sent, "Rejection signal should be sent successfully");
+    check workflow:sendData(approvalWorkflow, workflowId, "approval", rejection);
     
     // Wait for workflow to complete
     workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
@@ -176,7 +172,7 @@ function testApprovalWorkflowInsufficientPayment() returns error? {
     ApprovalInput input = {id: testId, orderId: "ORD-003", amount: 200.0};
     
     // Start the workflow
-    string workflowId = check workflow:createInstance(approvalWorkflow, input);
+    string workflowId = check workflow:run(approvalWorkflow, input);
     
     // Give the workflow time to start
     runtime:sleep(1);
@@ -188,7 +184,7 @@ function testApprovalWorkflowInsufficientPayment() returns error? {
         approved: true, 
         reason: ()
     };
-    _ = check workflow:sendEvent(approvalWorkflow, approval, "approval");
+    check workflow:sendData(approvalWorkflow, workflowId, "approval", approval);
     
     // Give workflow time to process approval
     runtime:sleep(1);
@@ -199,7 +195,7 @@ function testApprovalWorkflowInsufficientPayment() returns error? {
         txnId: "TXN-789",
         amount: 150.0  // Less than the required 200.0
     };
-    _ = check workflow:sendEvent(approvalWorkflow, payment, "payment");
+    check workflow:sendData(approvalWorkflow, workflowId, "payment", payment);
     
     // Wait for workflow to complete
     workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);

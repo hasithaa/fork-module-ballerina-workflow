@@ -15,7 +15,6 @@
 // under the License.
 
 import ballerina/uuid;
-import ballerina/regex;
 
 // Mock CRM Systems
 // Simulates source and target CRM APIs
@@ -114,8 +113,8 @@ public function validateContactData(SourceContact contact) returns ValidationErr
 # + email - Email address to validate
 # + return - True if email is valid, false otherwise
 isolated function isValidEmail(string email) returns boolean {
-    string emailPattern = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$";
-    return regex:matches(email, emailPattern);
+    string:RegExp emailPattern = re `^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`;
+    return emailPattern.isFullMatch(email);
 }
 
 # Reset CRM data (for testing)

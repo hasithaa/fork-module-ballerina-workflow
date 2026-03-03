@@ -1,7 +1,7 @@
 # Auto-generated test configuration
 
 [ballerina.workflow.workflowConfig]
-provider = "TEMPORAL"
+mode = "LOCAL"
 url = "localhost:7233"
 namespace = "default"
 

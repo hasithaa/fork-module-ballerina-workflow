@@ -74,7 +74,7 @@ function getDefaultConfigActivity() returns record {|string version; boolean ena
 # + ctx - The workflow context for calling activities
 # + input - The workflow input
 # + return - The greeting result or error
-@workflow:Process
+@workflow:Workflow
 function singleNoArgActivityWorkflow(workflow:Context ctx, NoArgWorkflowInput input) returns string|error {
     // Call activity with empty args using {}
     string greeting = check ctx->callActivity(getStaticGreetingActivity, {});
@@ -86,7 +86,7 @@ function singleNoArgActivityWorkflow(workflow:Context ctx, NoArgWorkflowInput in
 # + ctx - The workflow context for calling activities
 # + input - The workflow input
 # + return - A combined result or error
-@workflow:Process
+@workflow:Workflow
 function multipleNoArgActivitiesWorkflow(workflow:Context ctx, NoArgWorkflowInput input) returns string|error {
     // Call multiple no-arg activities
     string greeting = check ctx->callActivity(getStaticGreetingActivity, {});

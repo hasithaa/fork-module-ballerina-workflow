@@ -78,7 +78,7 @@ function processOrderActivity(string orderId, int quantity) returns OrderResult|
 # + ctx - The workflow context for calling activities
 # + input - The order input data
 # + return - The order processing result or error
-@workflow:Process
+@workflow:Workflow
 function orderWorkflow(workflow:Context ctx, OrderInput input) returns OrderResult|error {
     map<anydata> resultMap = check ctx->callActivity(processOrderActivity, 
             {"orderId": input.orderId, "quantity": input.quantity});

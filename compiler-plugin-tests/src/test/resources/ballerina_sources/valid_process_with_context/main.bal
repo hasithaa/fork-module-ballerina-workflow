@@ -40,9 +40,9 @@ function getTrackingNumberActivity(string orderId) returns string|error {
     return "TRACK-" + orderId;
 }
 
-// Valid: Process function with Context as first parameter, using ctx->callActivity()
-@workflow:Process
-function orderProcessWithContext(workflow:Context ctx, OrderInput input) returns OrderResult|error {
+// Valid: Workflow function with Context as first parameter, using ctx->callActivity()
+@workflow:Workflow
+function orderWorkflowWithContext(workflow:Context ctx, OrderInput input) returns OrderResult|error {
     // Call activity through context using ctx->callActivity() pattern
     boolean isValid = check ctx->callActivity(validateOrderActivity, {"input": input});
     if !isValid {
@@ -57,9 +57,9 @@ function orderProcessWithContext(workflow:Context ctx, OrderInput input) returns
     };
 }
 
-// Valid: Process function with only input parameter (Context is optional)
-@workflow:Process
-function orderProcessWithoutContext(OrderInput input) returns OrderResult|error {
+// Valid: Workflow function with only input parameter (Context is optional)
+@workflow:Workflow
+function orderWorkflowWithoutContext(OrderInput input) returns OrderResult|error {
     return {
         status: "COMPLETED",
         workflowId: "unknown"
