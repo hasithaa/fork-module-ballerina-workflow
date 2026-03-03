@@ -34,7 +34,7 @@ Stops the dev server using the saved PID file. Also registered via `gradle.build
 ### 2. Integration Tests Module (integration-tests)
 
 #### Structure
-```
+```text
 integration-tests/
 ├── Ballerina.toml           # Test package configuration
 ├── Dependencies.toml        # Dependencies (workflow module)
@@ -69,7 +69,7 @@ Key aspects:
 
 ### 3. Test Lifecycle Sequence
 
-```
+```text
 1. Gradle Test Invocation
    └─> ./gradlew :workflow-integration-tests:test
 

@@ -99,7 +99,7 @@ bal clean
 
 ## Key Concepts
 
-### Process Function
+### Workflow Function
 
 The `@Workflow` annotation marks the workflow entry point:
 

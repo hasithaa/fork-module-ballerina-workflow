@@ -60,7 +60,7 @@ Activities **must** be called using `ctx->callActivity()` within `@Workflow` fun
 @workflow:Workflow
 function orderProcess(workflow:Context ctx, OrderInput input) returns OrderResult|error {
     // Call activity using Context client remote method
-    string result = check ctx->callActivity(sendEmailActivity, input.email);
+    string result = check ctx->callActivity(sendEmailActivity, {email: input.email});
     return {status: result};
 }
 ```
@@ -80,7 +80,7 @@ Temporal errors are valid Ballerina errors. Use standard error handling:
 ```ballerina
 @workflow:Workflow
 function processWithErrorHandling(workflow:Context ctx, Input input) returns Output|error {
-    Output|error result = ctx->callActivity(riskyActivity, input.data);
+    Output|error result = ctx->callActivity(riskyActivity, {data: input.data});
     if result is error {
         // Handle activity failure - workflow can retry, compensate, or fail
         return error("Activity failed", result);

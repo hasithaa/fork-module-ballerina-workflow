@@ -15,7 +15,7 @@ The Ballerina Workflow module provides durable workflow orchestration via Tempor
 #### Annotations ([annotations.bal](ballerina/annotations.bal))
 ```ballerina
 # Marks a function as a workflow process
-public annotation Process on function;
+public annotation Workflow on function;
 
 # Marks a function as a workflow activity
 public annotation Activity on function;

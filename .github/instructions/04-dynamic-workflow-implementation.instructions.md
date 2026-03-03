@@ -305,7 +305,7 @@ The compiler plugin has **limited involvement** in dynamic workflow implementati
 
 ## Execution Flow
 
-```
+```text
 1. Workflow Start (via run)
    └─> WorkflowClient.start(workflowType, input)
        └─> Temporal schedules workflow task on task queue

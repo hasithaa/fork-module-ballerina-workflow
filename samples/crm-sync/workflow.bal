@@ -15,7 +15,6 @@
 // under the License.
 
 import ballerina/workflow;
-import ballerina/io;
 
 // CRM Contact Sync Workflow
 // Syncs contacts from source CRM to target CRM
@@ -31,7 +30,6 @@ import ballerina/io;
 # + return - Sync result or error
 @workflow:Workflow
 function syncContact(workflow:Context ctx, SourceContact contact) returns SyncResult|error {
-    io:println(string `[Workflow] Starting contact sync for: ${contact.email}`);
 
     // Step 1: Validate contact data
     error? validationResult = ctx->callActivity(validateContact, {"contact": contact});
@@ -53,8 +51,6 @@ function syncContact(workflow:Context ctx, SourceContact contact) returns SyncRe
         error? updateResult = ctx->callActivity(updateContact, {"contactId": existingContact.Id ?: "", "contact": contact});
         check updateResult;
         
-        io:println(string `[Workflow] Contact updated: ${contact.id}`);
-        
         return {
             sourceContactId: contact.id,
             targetContactId: existingContact.Id,
@@ -65,8 +61,6 @@ function syncContact(workflow:Context ctx, SourceContact contact) returns SyncRe
     } else {
         // Step 3b: Create new contact
         string newContactId = check ctx->callActivity(createContact, {"contact": contact});
-        
-        io:println(string `[Workflow] New contact created: ${newContactId}`);
         
         return {
             sourceContactId: contact.id,

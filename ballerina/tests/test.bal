@@ -479,6 +479,11 @@ function testRunWithValidInput() returns error? {
     if result is string {
         // If server is running, the workflow ID should match our input id
         test:assertEquals(result, "test-workflow-002", "Workflow ID should match input id");
+    } else {
+        // In unit test environment without a running server, expect connection-related error
+        test:assertTrue(
+            result.message().includes("connection") || result.message().includes("unavailable") ||
+            result.message().includes("Failed"),
+            "Unexpected error for valid run input: " + result.message());
     }
-    // Either way, the test passes - we're validating the API works correctly
 }
