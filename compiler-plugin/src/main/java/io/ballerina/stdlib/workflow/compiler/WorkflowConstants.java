@@ -48,10 +48,6 @@ public final class WorkflowConstants {
     public static final String IS_ANALYSIS_COMPLETED = "workflow.analysis.completed";
 
     // Function names for validation
-    public static final String SEND_SIGNAL_FUNCTION = "sendData";
-
-    // Deprecated function names (for backward compatibility detection)
-    public static final String SEND_EVENT_FUNCTION = "sendEvent";
-    public static final String CREATE_INSTANCE_FUNCTION = "run";
-    public static final String CREATE_FUNCTION = "create";
+    public static final String SEND_DATA_FUNCTION = "sendData";
+    public static final String RUN_FUNCTION = "run";
 }

@@ -36,9 +36,9 @@ type TestResult record {|
     string status;
 |};
 
-// Valid: Process with signal types
+// Valid: Workflow with signal types
 @workflow:Workflow
-function ambiguousSignalProcess(
+function ambiguousSignalWorkflow(
     workflow:Context ctx,
     TestInput input,
     record {|
@@ -53,5 +53,5 @@ function ambiguousSignalProcess(
 // Valid: sendData with all required params
 function validSendWithExplicitSignalName() returns error? {
     SignalType1 data = {id: "test-1", value: "test"};
-    check workflow:sendData(ambiguousSignalProcess, "wf-12345", "signal1", data);
+    check workflow:sendData(ambiguousSignalWorkflow, "wf-12345", "signal1", data);
 }

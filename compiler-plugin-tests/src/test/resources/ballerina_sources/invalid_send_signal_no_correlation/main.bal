@@ -34,7 +34,7 @@ type OrderResult record {|
 
 // Process with events but NO annotation fields
 @workflow:Workflow
-function orderProcessNoCorrelation(
+function orderWorkflowNoCorrelation(
     workflow:Context ctx,
     OrderInput input,
     record {|
@@ -48,5 +48,5 @@ function orderProcessNoCorrelation(
 // Valid: sendData with all required params (no fields needed)
 function validSendSignalNoCorrelation() returns error? {
     ApprovalSignal data = {approved: true, approver: "admin"};
-    check workflow:sendData(orderProcessNoCorrelation, "wf-12345", "approval", data);
+    check workflow:sendData(orderWorkflowNoCorrelation, "wf-12345", "approval", data);
 }

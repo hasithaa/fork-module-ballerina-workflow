@@ -54,9 +54,9 @@ function sendNotification(EmailRequest request) returns boolean|error {
     return true;
 }
 
-// Process function that calls activity functions using ctx->callActivity() pattern
+// Workflow function that calls activity functions using ctx->callActivity() pattern
 @workflow:Workflow
-function orderProcess(workflow:Context ctx, OrderInput input) returns OrderResult|error {
+function orderWorkflow(workflow:Context ctx, OrderInput input) returns OrderResult|error {
     // Call activity to validate order
     boolean isValid = check ctx->callActivity(validateOrder, {"input": input});
     if !isValid {

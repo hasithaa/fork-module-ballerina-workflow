@@ -196,6 +196,10 @@ public final class WorkflowRuntime {
             throw new RuntimeException("Workflow client not initialized. Ensure worker is initialized.");
         }
 
+        if (workflowId == null || workflowId.isEmpty()) {
+            throw new RuntimeException("Workflow ID is required when sending signal by workflowId");
+        }
+
         if (signalName == null || signalName.isEmpty()) {
             throw new RuntimeException("Signal name is required when sending signal by workflowId");
         }

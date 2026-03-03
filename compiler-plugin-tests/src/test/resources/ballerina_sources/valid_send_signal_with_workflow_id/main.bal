@@ -33,10 +33,10 @@ type OrderResult record {|
     string status;
 |};
 
-// Valid: Process with events but NO annotation fields.
+// Valid: Workflow with events but NO annotation fields.
 // This is valid because signals are routed via workflowId + dataName.
 @workflow:Workflow
-function orderProcessNoCorrelation(
+function orderWorkflowNoCorrelation(
     workflow:Context ctx,
     OrderInput input,
     record {|
@@ -50,5 +50,5 @@ function orderProcessNoCorrelation(
 // Valid: sendData with all required params (no fields needed)
 function validSendSignalWithWorkflowId() returns error? {
     ApprovalSignal data = {approved: true, approver: "admin"};
-    check workflow:sendData(orderProcessNoCorrelation, "wf-12345", "approval", data);
+    check workflow:sendData(orderWorkflowNoCorrelation, "wf-12345", "approval", data);
 }

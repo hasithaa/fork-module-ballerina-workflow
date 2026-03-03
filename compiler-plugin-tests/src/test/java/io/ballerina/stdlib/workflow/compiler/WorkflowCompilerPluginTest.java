@@ -53,38 +53,38 @@ public class WorkflowCompilerPluginTest {
     // ===== Valid test cases =====
 
     @Test(groups = "valid")
-    public void testValidProcessWithActivities() {
+    public void testValidWorkflowWithActivities() {
         String packagePath = "valid_process_with_activities";
         DiagnosticResult diagnosticResult = getDiagnosticResult(packagePath);
         Assert.assertEquals(diagnosticResult.errorCount(), 0,
-                "Expected no errors for valid process with activities. Errors: "
+                "Expected no errors for valid workflow with activities. Errors: "
                         + getDiagnosticMessages(diagnosticResult));
     }
 
     @Test(groups = "valid")
-    public void testProcessWithNoActivities() {
+    public void testWorkflowWithNoActivities() {
         String packagePath = "process_no_activities";
         DiagnosticResult diagnosticResult = getDiagnosticResult(packagePath);
         Assert.assertEquals(diagnosticResult.errorCount(), 0,
-                "Expected no errors for process with no activities. Errors: "
+                "Expected no errors for workflow with no activities. Errors: "
                         + getDiagnosticMessages(diagnosticResult));
     }
 
     @Test(groups = "valid")
-    public void testMultipleProcessFunctions() {
+    public void testMultipleWorkflowFunctions() {
         String packagePath = "multiple_processes";
         DiagnosticResult diagnosticResult = getDiagnosticResult(packagePath);
         Assert.assertEquals(diagnosticResult.errorCount(), 0,
-                "Expected no errors for multiple process functions. Errors: "
+                "Expected no errors for multiple workflow functions. Errors: "
                         + getDiagnosticMessages(diagnosticResult));
     }
 
     @Test(groups = "valid")
-    public void testValidProcessWithContext() {
+    public void testValidWorkflowWithContext() {
         String packagePath = "valid_process_with_context";
         DiagnosticResult diagnosticResult = getDiagnosticResult(packagePath);
         Assert.assertEquals(diagnosticResult.errorCount(), 0,
-                "Expected no errors for process with workflow:Context. Errors: "
+                "Expected no errors for workflow with workflow:Context. Errors: "
                         + getDiagnosticMessages(diagnosticResult));
     }
 
@@ -118,29 +118,29 @@ public class WorkflowCompilerPluginTest {
     }
 
     @Test(groups = "invalid")
-    public void testInvalidProcessParam() {
+    public void testInvalidWorkflowParam() {
         String packagePath = "invalid_process_param";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertTrue(diagnosticResult.errorCount() > 0,
-                "Expected validation error for process with non-anydata input parameter");
+                "Expected validation error for workflow with non-anydata input parameter");
         assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_101);
     }
 
     @Test(groups = "invalid")
-    public void testInvalidProcessReturn() {
+    public void testInvalidWorkflowReturn() {
         String packagePath = "invalid_process_return";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertTrue(diagnosticResult.errorCount() > 0,
-                "Expected validation error for process with non-anydata return type");
+                "Expected validation error for workflow with non-anydata return type");
         assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_105);
     }
 
     @Test(groups = "invalid")
-    public void testInvalidProcessEvents() {
+    public void testInvalidWorkflowEvents() {
         String packagePath = "invalid_process_events";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertTrue(diagnosticResult.errorCount() > 0,
-                "Expected validation error for process with invalid events parameter type");
+                "Expected validation error for workflow with invalid events parameter type");
         assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_102);
     }
 

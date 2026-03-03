@@ -41,8 +41,7 @@ jobs:
           packageUser: ${{ github.actor }}
           packagePAT: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ./gradlew build -x test
-          ./gradlew test
+          ./gradlew build
 
       - name: Generate CodeCov Report
         uses: codecov/codecov-action@v5

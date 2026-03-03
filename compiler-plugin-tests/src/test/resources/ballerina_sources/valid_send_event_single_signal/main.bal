@@ -31,9 +31,9 @@ type TestResult record {|
     string status;
 |};
 
-// Valid: Process with single signal
+// Valid: Workflow with single signal
 @workflow:Workflow
-function singleSignalProcess(
+function singleSignalWorkflow(
     workflow:Context ctx,
     TestInput input,
     record {|
@@ -45,7 +45,7 @@ function singleSignalProcess(
 }
 
 // Valid: sendData with all required params
-function validSendToSingleSignalProcess() returns error? {
+function validSendToSingleSignalWorkflow() returns error? {
     ResponseSignal data = {id: "test-1", message: "hello"};
-    check workflow:sendData(singleSignalProcess, "wf-12345", "response", data);
+    check workflow:sendData(singleSignalWorkflow, "wf-12345", "response", data);
 }

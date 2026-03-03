@@ -27,10 +27,10 @@ type CalculationResult record {|
     string message;
 |};
 
-// Process function that performs deterministic calculations only
+// Workflow function that performs deterministic calculations only
 // No activity calls - pure computation
 @workflow:Workflow
-function calculatorProcess(CalculationInput input) returns CalculationResult|error {
+function calculatorWorkflow(CalculationInput input) returns CalculationResult|error {
     int result;
     match input.operation {
         "add" => {

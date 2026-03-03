@@ -38,9 +38,9 @@ type TestResult record {|
     string status;
 |};
 
-// Valid: Process with distinct signal types
+// Valid: Workflow with distinct signal types
 @workflow:Workflow
-function distinctSignalProcess(
+function distinctSignalWorkflow(
     workflow:Context ctx,
     TestInput input,
     record {|
@@ -55,5 +55,5 @@ function distinctSignalProcess(
 // Valid: sendData with all required params including explicit data name
 function validSendWithDataName() returns error? {
     ApprovalSignal data = {id: "test-1", approved: true, approver: "admin"};
-    check workflow:sendData(distinctSignalProcess, "wf-12345", "approval", data);
+    check workflow:sendData(distinctSignalWorkflow, "wf-12345", "approval", data);
 }

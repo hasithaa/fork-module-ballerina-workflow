@@ -28,7 +28,7 @@ type OrderResult record {|
 // The third parameter (events) must be a record type containing future<anydata> fields
 // Should trigger WORKFLOW_102 error
 @workflow:Workflow
-function processWithInvalidEvents(workflow:Context ctx, OrderInput input, string events) returns OrderResult|error {
+function workflowWithInvalidEvents(workflow:Context ctx, OrderInput input, string events) returns OrderResult|error {
     return {
         status: "COMPLETED"
     };

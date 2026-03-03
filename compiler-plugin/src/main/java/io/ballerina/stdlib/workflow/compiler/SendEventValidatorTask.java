@@ -72,14 +72,14 @@ public class SendEventValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCo
             String functionName = qualifiedName.identifier().text();
             
             if (WorkflowConstants.PACKAGE_NAME.equals(moduleName) && 
-                    WorkflowConstants.SEND_SIGNAL_FUNCTION.equals(functionName)) {
+                    WorkflowConstants.SEND_DATA_FUNCTION.equals(functionName)) {
                 return true;
             }
         }
         
         // Check for simple name (sendData) - need to verify it's from workflow module
         if (funcName instanceof SimpleNameReferenceNode simpleName) {
-            if (!WorkflowConstants.SEND_SIGNAL_FUNCTION.equals(simpleName.name().text())) {
+            if (!WorkflowConstants.SEND_DATA_FUNCTION.equals(simpleName.name().text())) {
                 return false;
             }
             

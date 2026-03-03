@@ -33,7 +33,7 @@ type TestResult record {|
 
 // Process with three signals of same type
 @workflow:Workflow
-function threeAmbiguousSignalProcess(
+function threeAmbiguousSignalWorkflow(
     workflow:Context ctx,
     TestInput input,
     record {|
@@ -49,5 +49,5 @@ function threeAmbiguousSignalProcess(
 // Valid: sendData with all required params - dataName selects specific signal
 function validSendToSpecificSignal() returns error? {
     StringSignal data = {id: "test-1", data: "test"};
-    check workflow:sendData(threeAmbiguousSignalProcess, "wf-12345", "signalA", data);
+    check workflow:sendData(threeAmbiguousSignalWorkflow, "wf-12345", "signalA", data);
 }
