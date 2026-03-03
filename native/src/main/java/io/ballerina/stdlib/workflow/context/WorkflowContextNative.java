@@ -79,7 +79,7 @@ public final class WorkflowContextNative {
      *
      * @param self the Context BObject (self reference from Ballerina)
      * @param activityFunction the activity function to execute
-     * @param args the Parameters record containing arguments to pass to the activity
+     * @param args the map<anydata> args containing arguments to pass to the activity
      * @param options optional ActivityOptions record with retry policy and failOnError config
      * @param typedesc the expected return type descriptor for dependent typing
      * @return the result of the activity execution converted to the expected type, or an error
@@ -96,7 +96,7 @@ public final class WorkflowContextNative {
             String workflowType = Workflow.getInfo().getWorkflowType();
             String fullActivityName = workflowType + "." + simpleActivityName;
 
-            // Convert Parameters record (BMap) to Java array for Temporal
+            // Convert args map (BMap) to Java array for Temporal
             // Extract values from the record in order
             List<Object> argsList = new ArrayList<>();
             for (BString key : args.getKeys()) {

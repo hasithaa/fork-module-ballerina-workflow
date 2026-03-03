@@ -131,7 +131,7 @@ function orderProcess(
     |} events
 ) returns OrderResult|error {
     ApprovalSignal decision = check wait events.approval;
-    if decision.status {
+    if decision.approved {
         PaymentSignal pay = check wait events.payment;
         return processPayment(pay);
     }

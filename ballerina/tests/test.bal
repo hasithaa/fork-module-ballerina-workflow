@@ -59,7 +59,7 @@ function testActivityFunction2(int value) returns int|error {
 // Test process that calls activities using Context client.
 @Workflow
 function processWithActivities(Context ctx, string input) returns string|error {
-    // Use Context client's callActivity remote method with Parameters record
+    // Use Context client's callActivity remote method with map<anydata> args
     string result1 = check ctx->callActivity(testActivityFunction, {"input": input});
     int result2 = check ctx->callActivity(testActivityFunction2, {"value": 10});
     return result1 + " - " + result2.toString();

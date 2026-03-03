@@ -267,7 +267,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
     /**
      * Node visitor that validates ctx->callActivity() calls.
      * Ensures the first argument is a function with @Activity annotation.
-     * Validates that the Parameters record keys match the activity function parameters.
+     * Validates that the args map keys match the activity function parameters.
      */
     private static class CallActivityValidator extends NodeVisitor {
         private final SyntaxNodeAnalysisContext context;
@@ -354,7 +354,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         }
 
         /**
-         * Validates that the Parameters record keys match the activity function's parameter names.
+         * Validates that the args map keys match the activity function's parameter names.
          */
         private void validateParametersMatch(RemoteMethodCallActionNode callNode,
                                              ExpressionNode activityFuncExpr,
@@ -395,7 +395,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                 }
             }
 
-            // Extract parameter names from the Parameters record argument
+            // Extract parameter names from the args map argument
             Set<String> providedParamNames = extractProvidedParamNames(paramsArg);
 
             // Check for missing required parameters
@@ -414,7 +414,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         }
 
         /**
-         * Extracts parameter names from the Parameters record (second argument).
+         * Extracts parameter names from the args map (second argument).
          */
         private Set<String> extractProvidedParamNames(FunctionArgumentNode paramsArg) {
             Set<String> paramNames = new HashSet<>();

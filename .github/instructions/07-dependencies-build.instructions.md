@@ -135,7 +135,7 @@ Uses distribution-based testing:
 ```
 
 ### 5. Dependency Tree
-```
+```text
 workflow-ballerina
 ├── workflow-native.jar
 │   ├── ballerina-runtime (2201.13.0)

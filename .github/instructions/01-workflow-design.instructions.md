@@ -151,7 +151,7 @@ function activityName(T param1, U param2) returns R|error {
 ```ballerina
 @workflow:Workflow
 function myProcess(workflow:Context ctx, Input input) returns Result|error {
-    // ✅ Correct: Use ctx->callActivity() with a Parameters record
+    // ✅ Correct: Use ctx->callActivity() with a map<anydata> args
     boolean result = check ctx->callActivity(sendEmail, {"email": input.email, "subject": "Subject"});
     
     // ❌ Error WORKFLOW_108: Direct calls not allowed
