@@ -34,7 +34,7 @@ import ballerina/workflow;
 # Input for retry activity workflow.
 #
 # + id - The workflow identifier
-# + mode - Test mode: "default_fail", "fail_on_error_false", "retry_then_succeed", "custom_retry"
+# + mode - Test mode: "default_fail", "fail_on_error_false", "custom_retry"
 type RetryActivityInput record {|
     string id;
     string mode;

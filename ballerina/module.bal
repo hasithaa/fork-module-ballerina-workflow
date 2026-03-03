@@ -143,7 +143,8 @@ isolated function initWorkerNative(
 
 # Initializes an in-memory workflow worker using an embedded test server.
 # No external server connection is required. Workflows are not persisted
-# and signal-based communication is not supported.
+# and are lost on restart. Signal-based communication is supported when
+# the workflow ID is known.
 #
 # + return - An error if initialization fails, otherwise nil
 isolated function initInMemoryWorkerNative() returns error? = @java:Method {

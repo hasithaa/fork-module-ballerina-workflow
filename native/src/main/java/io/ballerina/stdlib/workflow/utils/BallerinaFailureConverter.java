@@ -51,8 +51,8 @@ public final class BallerinaFailureConverter implements FailureConverter {
     }
 
     /**
-     * Recursively sanitises a {@link Failure} proto tree: replaces the
-     * {@code source} with "BallerinaSDK" and clears the {@code stackTrace}
+     * Recursively sanitises a {@link Failure} proto tree: clears the
+     * {@code source} and clears the {@code stackTrace}
      * field on every node so that Java internals are never exposed.
      */
     private Failure sanitizeFailure(Failure failure) {

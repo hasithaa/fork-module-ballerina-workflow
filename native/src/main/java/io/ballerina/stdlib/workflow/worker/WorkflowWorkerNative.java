@@ -430,20 +430,9 @@ public final class WorkflowWorkerNative {
                 testEnvironment.start();
                 LOGGER.debug("In-memory worker started successfully");
             } else {
-                // Normal mode: Start the worker factory in a background thread
-                Thread workerThread = new Thread(() -> {
-                    try {
-                        workerFactory.start();
-                    } catch (Exception e) {
-                        LOGGER.error("Worker factory failed: {}", e.getMessage(), e);
-                    }
-                }, "temporal-worker-" + taskQueue);
-
-                workerThread.setDaemon(false);
-                workerThread.start();
-
-                // Give it a moment to initialize
-                Thread.sleep(100);
+                // Normal mode: start synchronously so initialization failures
+                // are propagated to the caller.
+                workerFactory.start();
             }
 
             LOGGER.debug("Singleton worker started successfully");
@@ -478,7 +467,7 @@ public final class WorkflowWorkerNative {
             } else {
                 if (workerFactory != null) {
                     workerFactory.shutdown();
-                    workerFactory.awaitTermination(10, TimeUnit.SECONDS);
+                    workerFactory.awaitTermination(30, TimeUnit.SECONDS);
                 }
 
                 if (serviceStubs != null) {
@@ -606,8 +595,8 @@ public final class WorkflowWorkerNative {
         }
 
         Object maxAttempts = retryMap.get(StringUtils.fromString("maximumAttempts"));
-        if (maxAttempts instanceof Long) {
-            retryBuilder.setMaximumAttempts((int) (long) (Long) maxAttempts);
+        if (maxAttempts instanceof Long maxAttemptsLong) {
+            retryBuilder.setMaximumAttempts(Math.toIntExact(maxAttemptsLong));
         }
 
         return retryBuilder.build();
