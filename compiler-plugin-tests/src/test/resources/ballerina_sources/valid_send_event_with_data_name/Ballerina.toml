@@ -1,6 +1,6 @@
 [package]
 org = "test"
-name = "invalid_send_event_ambiguous_no_signal_name"
+name = "valid_send_event_with_data_name"
 version = "0.1.0"
 distribution = "2201.13.0"
 

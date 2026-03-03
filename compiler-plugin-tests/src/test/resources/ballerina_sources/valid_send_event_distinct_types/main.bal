@@ -52,8 +52,8 @@ function distinctSignalProcess(
     return {status: "OK"};
 }
 
-// Valid: sendData with all required params
-function validSendWithoutSignalName() returns error? {
+// Valid: sendData with all required params including explicit data name
+function validSendWithDataName() returns error? {
     ApprovalSignal data = {id: "test-1", approved: true, approver: "admin"};
     check workflow:sendData(distinctSignalProcess, "wf-12345", "approval", data);
 }

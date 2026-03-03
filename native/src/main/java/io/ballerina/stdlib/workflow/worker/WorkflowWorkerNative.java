@@ -1098,10 +1098,13 @@ public final class WorkflowWorkerNative {
      *   <li>{@code message} – the BError message</li>
      *   <li>{@code type} – the supplied {@code typeName}</li>
      *   <li>{@code details} – the BError detail record (omitted when empty)</li>
-     *   <li>{@code cause} – recursively converted from
+     *   <li>{@code cause} – iteratively converted from
      *       {@link BError#getCause()}</li>
      * </ul>
      * Stack traces are suppressed so the Temporal UI stays Ballerina-centric.
+     * <p>
+     * Uses an iterative approach to avoid stack overflow on deeply nested
+     * BError cause chains.
      *
      * @param err      the Ballerina error to convert
      * @param typeName the {@code type} string for the ApplicationFailure
@@ -1109,32 +1112,48 @@ public final class WorkflowWorkerNative {
     @SuppressWarnings("unchecked")
     static io.temporal.failure.ApplicationFailure berrorToApplicationFailure(BError err,
                                                                             String typeName) {
-        // Convert detail record – only include when non-empty so the Temporal
-        // UI does not show a hollow {"payloads":[{}]} entry.
-        BMap<?, ?> detailMap = (BMap<?, ?>) err.getDetails();
-        boolean hasDetails = detailMap != null && !detailMap.isEmpty();
-        Object details = hasDetails ? TypesUtil.convertBallerinaToJavaType(detailMap) : null;
+        // Hard limit to prevent unbounded traversal of cause chains.
+        final int MAX_DEPTH = 64;
 
-        // Recursively convert the cause chain
-        BError balCause = (BError) err.getCause();
-        io.temporal.failure.ApplicationFailure failure;
-        if (balCause != null) {
-            io.temporal.failure.ApplicationFailure causeFailure =
-                    berrorToApplicationFailure(balCause, typeName);
-            failure = hasDetails
-                    ? io.temporal.failure.ApplicationFailure.newFailureWithCause(
-                            err.getMessage(), typeName, causeFailure, details)
-                    : io.temporal.failure.ApplicationFailure.newFailureWithCause(
-                            err.getMessage(), typeName, causeFailure);
-        } else {
-            failure = hasDetails
-                    ? io.temporal.failure.ApplicationFailure.newFailure(
-                            err.getMessage(), typeName, details)
-                    : io.temporal.failure.ApplicationFailure.newFailure(
-                            err.getMessage(), typeName);
+        // 1. Walk the BError cause chain and collect each node's data.
+        List<BError> chain = new ArrayList<>();
+        BError current = err;
+        while (current != null && chain.size() < MAX_DEPTH) {
+            chain.add(current);
+            Throwable cause = current.getCause();
+            current = (cause instanceof BError) ? (BError) cause : null;
         }
-        failure.setStackTrace(new StackTraceElement[0]);
-        return failure;
+
+        // 2. Build ApplicationFailure instances bottom-up (innermost cause first).
+        io.temporal.failure.ApplicationFailure inner = null;
+        for (int i = chain.size() - 1; i >= 0; i--) {
+            BError node = chain.get(i);
+
+            // Convert detail record – only include when non-empty so the Temporal
+            // UI does not show a hollow {"payloads":[{}]} entry.
+            BMap<?, ?> detailMap = (BMap<?, ?>) node.getDetails();
+            boolean hasDetails = detailMap != null && !detailMap.isEmpty();
+            Object details = hasDetails ? TypesUtil.convertBallerinaToJavaType(detailMap) : null;
+
+            io.temporal.failure.ApplicationFailure failure;
+            if (inner != null) {
+                failure = hasDetails
+                        ? io.temporal.failure.ApplicationFailure.newFailureWithCause(
+                                node.getMessage(), typeName, inner, details)
+                        : io.temporal.failure.ApplicationFailure.newFailureWithCause(
+                                node.getMessage(), typeName, inner);
+            } else {
+                failure = hasDetails
+                        ? io.temporal.failure.ApplicationFailure.newFailure(
+                                node.getMessage(), typeName, details)
+                        : io.temporal.failure.ApplicationFailure.newFailure(
+                                node.getMessage(), typeName);
+            }
+            failure.setStackTrace(new StackTraceElement[0]);
+            inner = failure;
+        }
+
+        return inner;
     }
 
     /**

@@ -11,7 +11,7 @@ applyTo: "**/build.gradle,**/gradle.properties,**/Ballerina.toml"
 | Ballerina | 2201.13.0 | Swan Lake Update 13 |
 | Java | 21 | Required for Temporal SDK 1.32.0 |
 | Temporal SDK | 1.32.0 | io.temporal:temporal-sdk |
-| gRPC | 1.68.2 | Must match Temporal SDK version |
+| gRPC | 1.58.1 | Must match Temporal SDK version |
 | Gradle | 8.x | Wrapper included (gradlew) |
 
 ## Current Implementation
@@ -43,7 +43,7 @@ ballerinaLangVersion=2201.13.0
 
 # Temporal
 temporalSdkVersion=1.32.0
-grpcVersion=1.68.2
+grpcVersion=1.58.1
 
 # Module metadata
 org.gradle.parallel=true
@@ -140,7 +140,7 @@ workflow-ballerina
 ├── workflow-native.jar
 │   ├── ballerina-runtime (2201.13.0)
 │   ├── temporal-sdk (1.32.0)
-│   │   └── grpc-netty-shaded (1.68.2)
+│   │   └── grpc-netty-shaded (1.58.1)
 │   └── logback (1.2.11)
 └── io-ballerina (via Dependencies.toml)
 

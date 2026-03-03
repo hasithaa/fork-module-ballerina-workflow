@@ -311,7 +311,7 @@ public class WorkflowCompilerPluginTest {
 
     @Test(groups = "valid")
     public void testValidSendEventAmbiguousWithDataName() {
-        String packagePath = "invalid_send_event_ambiguous_no_signal_name";
+        String packagePath = "valid_send_event_with_data_name";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertEquals(diagnosticResult.errorCount(), 0,
                 "Expected no errors when sendData provides dataName for ambiguous signals. Errors: "

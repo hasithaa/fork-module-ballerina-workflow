@@ -151,12 +151,16 @@ public final class WorkflowNative {
         String processName = processFunction.getType().getName();
 
         // Convert input to Java type (handle nil case)
+        // In Ballerina Java interop, nil () is passed as null, so a simple null check suffices.
         Object javaInput = null;
-        if (input != null && !(input instanceof io.ballerina.runtime.api.values.BValue
-                && input.toString().equals("()"))) {
+        if (input != null) {
             if (input instanceof BMap) {
-                javaInput = TypesUtil.convertBallerinaToJavaType((BMap<BString, Object>) input);
+                @SuppressWarnings("unchecked")
+                BMap<BString, Object> bMapInput = (BMap<BString, Object>) input;
+                javaInput = TypesUtil.convertBallerinaToJavaType(bMapInput);
             }
+            // Other anydata subtypes (int, string, boolean, etc.) are not currently
+            // supported as workflow input — only record (BMap) types are expected.
         }
 
         // Check if we're inside a workflow execution context
@@ -217,11 +221,15 @@ public final class WorkflowNative {
      * All parameters are required.
      * <p>
      * When called from inside a workflow context, the call is automatically routed
-     * through an implicit activity for determinism. The function pointer is only
-     * used outside workflows to identify the workflow type.
+     * through an implicit activity for determinism.
+     * <p>
+     * Note: {@code workflowFunction} is not used at runtime; it exists in the signature
+     * so the compiler plugin can validate that the target function carries the
+     * {@code @Workflow} annotation and that the data type matches the workflow's events
+     * record. Removing it would be a breaking API change.
      *
      * @param env the Ballerina runtime environment
-     * @param workflowFunction the workflow function to identify the workflow type
+     * @param workflowFunction the workflow function (unused at runtime; used by the compiler plugin for validation)
      * @param workflowId the workflow ID to send the data to
      * @param dataName the name identifying the data (must match an events record field)
      * @param data the data to send

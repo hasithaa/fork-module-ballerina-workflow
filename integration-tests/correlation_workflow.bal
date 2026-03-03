@@ -35,7 +35,6 @@ import ballerina/workflow;
 // ================================================================================
 
 # Order workflow input.
-# + customerId - The customer identifier
 #
 # + customerId - The customer identifier
 # + orderId - The order identifier
@@ -43,11 +42,11 @@ import ballerina/workflow;
 # + quantity - The quantity ordered
 # + price - The unit price
 type CorrelatedOrderInput record {|
-    string customerId;  // 
-    string orderId;     // 
-    string product;              // 
-    int quantity;                // 
-    decimal price;               // 
+    string customerId;
+    string orderId;
+    string product;
+    int quantity;
+    decimal price;
 |};
 
 # Payment signal .
@@ -124,13 +123,13 @@ function validatePaymentActivity(string orderId, decimal amount) returns boolean
 // CORRELATED WORKFLOW DEFINITION
 // ================================================================================
 
-# A workflow that uses fields as fields.
+# A workflow that uses fields for correlation.
 # 
 # This demonstrates:
-# 1. Readonly fields (customerId, orderId) are extracted as fields
+# 1. Readonly fields (customerId, orderId) are used as identifiers for workflow correlation
 # 2. Workflow ID is generated as: correlatedOrderWorkflow-customerId=C123-orderId=O456
 # 3. Signals are sent using workflowId
-# 4. No explicit "id" field needed when using fields
+# 4. No explicit "id" field needed when using correlation fields
 #
 # + ctx - The workflow context for calling activities
 # + input - The workflow input with fields
