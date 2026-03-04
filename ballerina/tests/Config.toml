@@ -1,11 +1,4 @@
-# Auto-generated test configuration (LOCAL mode - Temporal server)
+# Unit test configuration - uses IN_MEMORY mode (no external server needed)
 
 [ballerina.workflow.workflowConfig]
-mode = "LOCAL"
-url = "localhost:7233"
-namespace = "default"
-
-[ballerina.workflow.workflowConfig.params]
-taskQueue = "BALLERINA_WORKFLOW_TASK_QUEUE"
-maxConcurrentWorkflows = 100
-maxConcurrentActivities = 100
+mode = "IN_MEMORY"

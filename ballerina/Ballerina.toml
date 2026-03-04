@@ -35,6 +35,12 @@ groupId = "io.temporal"
 artifactId = "temporal-testing"
 version = "1.32.0"
 
+# Temporal Test Server (transitive dep of temporal-testing, provides TestServer)
+[[platform.java21.dependency]]
+groupId = "io.temporal"
+artifactId = "temporal-test-server"
+version = "1.32.0"
+
 # Nexus RPC (required by Temporal SDK)
 [[platform.java21.dependency]]
 groupId = "io.nexusrpc"

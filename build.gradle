@@ -298,47 +298,29 @@ gradle.buildFinished { result ->
     }
 }
 
-// Start shared test server - used by both module and integration tests
+// Start shared test server - used by integration tests
 task startSharedTestServer {
 
     doLast {
-        // First, check if an external Temporal server is running (for debugging)
+        // Check if a Temporal server is already running (e.g., started manually for debugging)
         if (isServerRunning("localhost", testServerPort)) {
-            def externalTarget = "localhost:${testServerPort}"
             logger.lifecycle("=" * 60)
-            logger.lifecycle("External Temporal server detected at ${externalTarget}")
-            logger.lifecycle("Using external server (skipping dev server)")
+            logger.lifecycle("Temporal server already running at localhost:${testServerPort}")
             logger.lifecycle("=" * 60)
 
             usingExternalServer = true
             testServerStarted = true
-
-            // Write Config.toml files for both test suites
-            writeTestConfig("${project(':workflow-ballerina').projectDir}/tests/Config.toml", externalTarget, true)
-            writeTestConfig("${project(':workflow-integration-tests').projectDir}/tests/Config.toml", externalTarget, true)
-
-            logger.lifecycle("Test Config.toml files updated with external server URL: ${externalTarget}")
             return
         }
 
-        // No external server found - start Temporal dev server via CLI
+        // Start Temporal dev server via CLI
         def temporalBinary = findTemporalCli()
         if (temporalBinary == null) {
-            // Temporal CLI not found - fall back to IN_MEMORY mode
-            logger.lifecycle("=" * 60)
-            logger.lifecycle("Temporal CLI not found in PATH")
-            logger.lifecycle("Falling back to IN_MEMORY mode (no external server)")
-            logger.lifecycle("Install Temporal CLI for LOCAL mode testing:")
-            logger.lifecycle("  macOS:   brew install temporal")
-            logger.lifecycle("  Linux:   curl -sSf https://temporal.download/cli | sh")
-            logger.lifecycle("=" * 60)
-
-            // Write IN_MEMORY Config.toml for both test suites
-            writeInMemoryTestConfig("${project(':workflow-ballerina').projectDir}/tests/Config.toml")
-            writeInMemoryTestConfig("${project(':workflow-integration-tests').projectDir}/tests/Config.toml")
-
-            testServerStarted = true  // Mark as "started" to prevent re-entry
-            return
+            throw new GradleException(
+                "Temporal CLI not found in PATH. Please install it:\n" +
+                "  macOS:   brew install temporal\n" +
+                "  Linux:   curl -sSf https://temporal.download/cli | sh\n" +
+                "  Windows: Download from https://github.com/temporalio/cli/releases")
         }
 
         logger.lifecycle("Starting Temporal dev server on port ${testServerPort}...")
@@ -385,12 +367,6 @@ task startSharedTestServer {
         if (isServerRunning("localhost", testServerPort)) {
             testServerStarted = true
             logger.lifecycle("Temporal dev server started at: ${target}")
-
-            // Write Config.toml files for both test suites
-            writeTestConfig("${project(':workflow-ballerina').projectDir}/tests/Config.toml", target, false)
-            writeTestConfig("${project(':workflow-integration-tests').projectDir}/tests/Config.toml", target, false)
-
-            logger.lifecycle("Test Config.toml files updated with server URL: ${target}")
         } else {
             // Check if process is still running
             if (testServerProcess != null && !testServerProcess.isAlive()) {
@@ -404,35 +380,6 @@ task startSharedTestServer {
             throw new GradleException("Temporal dev server failed to start within ${maxWait} seconds")
         }
     }
-}
-
-// Helper method to write test Config.toml with LOCAL mode (for real Temporal server)
-def writeTestConfig(String path, String serverUrl, boolean isExternal) {
-    def configFile = new File(path)
-    configFile.parentFile.mkdirs()
-    configFile.text = """# Auto-generated test configuration (LOCAL mode - Temporal server)
-
-[ballerina.workflow.workflowConfig]
-mode = "LOCAL"
-url = "${serverUrl}"
-namespace = "default"
-
-[ballerina.workflow.workflowConfig.params]
-taskQueue = "BALLERINA_WORKFLOW_TASK_QUEUE"
-maxConcurrentWorkflows = 100
-maxConcurrentActivities = 100
-"""
-}
-
-// Helper method to write test Config.toml with IN_MEMORY mode (no external server)
-def writeInMemoryTestConfig(String path) {
-    def configFile = new File(path)
-    configFile.parentFile.mkdirs()
-    configFile.text = """# Auto-generated test configuration (IN_MEMORY mode - no external server needed)
-
-[ballerina.workflow.workflowConfig]
-mode = "IN_MEMORY"
-"""
 }
 
 // Stop shared test server
