@@ -95,9 +95,6 @@ test.dependsOn ":${packageName}-compiler-plugin:build"
 publishToMavenLocal.dependsOn build
 publish.dependsOn build
 
-// Use the shared test server from root project
-test.dependsOn ":startSharedTestServer"
-
 def stripBallerinaExtensionVersion(String extVersion) {
     if (extVersion.matches(project.ext.timestampedVersionRegex)) {
         def splitVersion = extVersion.split('-')

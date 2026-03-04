@@ -19,3 +19,5 @@ jobs:
     secrets: inherit
     with:
       environment: ${{ github.event.inputs.environment }}
+      additional-build-flags: "-x :workflow-integration-tests:test"
+      additional-publish-flags: "-x :workflow-integration-tests:test"
