@@ -16,6 +16,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   reads the OS clock and must not be used inside `@workflow:Workflow` functions.
 - Added `WORKFLOW_113` compiler diagnostic (warning) for usage of `time:utcNow()` inside
   `@workflow:Workflow` functions — suggests using `ctx.currentTime()` instead.
+- Added support for dependently-typed `@Activity` functions — an activity may declare a
+  `typedesc<anydata>` parameter with an inferred default (`<>`) to enable type-safe result
+  conversion. The constraint type must be `anydata`. The typedesc parameter is excluded from
+  workflow history serialization and reconstructed at runtime by the activity adapter from
+  the type information supplied by `callActivity`.
+- Added `WORKFLOW_114` compiler diagnostic (error) for `@Activity` functions with unsupported
+  typedesc patterns — only the inferred-default form `typedesc<anydata> t = <>` is allowed.
+  Explicit defaults (e.g., `= string`) and required typedesc parameters (no default) both
+  produce this error.
 
 ### Changed
 

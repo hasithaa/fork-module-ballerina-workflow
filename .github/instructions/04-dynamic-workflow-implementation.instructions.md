@@ -43,8 +43,9 @@ Location: [WorkflowWorkerNative.java](native/src/main/java/io/ballerina/stdlib/w
 **`BallerinaActivityAdapter`** (inner class, implements `DynamicActivity`):
 - `execute(EncodedValues args)` receives `[namedArgsMap, callConfigMap]` from Temporal
 - Reconstructs positional args from the named map using `FunctionType.getParameters()` order
+- **Skips typedesc parameters** (`TypeTags.TYPEDESC_TAG`) when reconstructing positional args — typedesc is not serialized in workflow history; it is obtained from the `BTypedesc` passed to `callActivity` and appended as the last positional argument after all data args
 - Sets `StrandMetadata` on the `FPValue` before calling
-- Converts result back to Java type for Temporal persistence
+- Converts result back to Java type for Temporal persistence; when the activity is dependently typed, `TypesUtil.cloneWithType()` converts the result to the target type
 
 #### WorkflowContextNative.java
 Location: [WorkflowContextNative.java](native/src/main/java/io/ballerina/stdlib/workflow/context/WorkflowContextNative.java)
@@ -103,8 +104,10 @@ The compiler plugin has **limited involvement** in dynamic workflow implementati
            ├─> Lookup activityFunction in ACTIVITY_REGISTRY
            ├─> Decode [namedArgsMap, callConfigMap] from Temporal
            ├─> Reconstruct positional args using FunctionType.getParameters()
+           │   └─> Skip typedesc params (TypeTags.TYPEDESC_TAG) — not in named args map
            ├─> activityFunction.call(ballerinaRuntime, orderedArgs)
            └─> Convert result to Java type (or throw on error if failOnError)
+               └─> cloneWithType(result, typedesc) when activity is dependently typed
 
 5. Event Handling
    └─> Ballerina: wait events.approval
@@ -128,6 +131,7 @@ The compiler plugin has **limited involvement** in dynamic workflow implementati
 6. **Events Injection**: Events record with `TemporalFutureValue` objects automatically created if signature has it
 7. **Error Handling**: Ballerina errors converted to Temporal `ApplicationFailure` (non-retryable). `failOnError` flag controls whether activity errors are retried or returned as values.
 8. **Named Args Map Pattern**: Activity arguments are passed through Temporal as a named `Map<String, Object>` rather than a positional array. The adapter reconstructs positional args using `FunctionType.getParameters()` and `Parameter.name`. This avoids misalignment when optional parameters are omitted from the args map.
+9. **Typedesc Parameter Exclusion**: `typedesc<anydata>` parameters (used for dependent typing) are not included in the named args map and are never serialized into Temporal's workflow history. The adapter identifies them by `TypeTags.TYPEDESC_TAG`, skips them during named-map reconstruction, then injects the `BTypedesc` received from `callActivity` as the final positional argument.
 9. **Call Config Map**: Each activity call includes a separate call config map (`[namedArgs, callConfig]`) carrying the `failOnError` flag and a marker to distinguish it from user data.
 
 ## Success Criteria

@@ -53,6 +53,12 @@ function sendEmailActivity(string email) returns boolean|error {
 - Parameters and return types must be `anydata` subtypes
 - Activities are non-deterministic - executed once, results cached during replay
 - **Must** be called via `ctx->callActivity()` within `@Workflow` functions (direct calls produce `WORKFLOW_108` error)
+- **Dependently-typed activities** are supported: a `typedesc<anydata>` parameter with inferred default `<>` lets the caller specify the return type. The constraint must be `anydata` and the function must be `external`:
+  ```ballerina
+  @workflow:Activity
+  function fetchData(string url, typedesc<anydata> targetType = <>) returns targetType|error = external;
+  ```
+  Only the inferred-default form is allowed — explicit defaults (e.g., `= string`) and required typedesc params produce `WORKFLOW_114`.
 
 ### Calling Activities
 Activities **must** be called using `ctx->callActivity()` within `@Workflow` functions:
@@ -196,6 +202,7 @@ mtlsKey = "/path/to/client.key"
 | WORKFLOW_108 | Direct activity call | Direct call to @Activity function (must use ctx->callActivity()) |
 | WORKFLOW_112 | Ambiguous signal types (warning) | Multiple signals with same structure in workflow definition |
 | WORKFLOW_113 | Non-deterministic time call | Using `time:utcNow()` inside `@Workflow` function (use `ctx.currentTime()` instead) |
+| WORKFLOW_114 | Unsupported typedesc parameter | `@Activity` has a typedesc param that is not the inferred-default form `typedesc<anydata> t = <>` |
 
 ## Common Pitfalls
 - Register all test processes in `@test:BeforeSuite` - registry cannot be cleared after initialization

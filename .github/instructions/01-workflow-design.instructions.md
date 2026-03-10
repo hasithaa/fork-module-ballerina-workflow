@@ -43,8 +43,10 @@ The Ballerina Workflow module provides durable workflow orchestration via Tempor
 #### WorkflowValidatorTask ([WorkflowValidatorTask.java](compiler-plugin/src/main/java/io/ballerina/stdlib/workflow/compiler/WorkflowValidatorTask.java))
 - **WORKFLOW_107**: Validates `ctx->callActivity()` calls use `@Activity` functions
 - **WORKFLOW_108**: Prevents direct calls to `@Activity` functions inside `@Workflow`
+- **WORKFLOW_114**: Validates that `typedesc` parameters in `@Activity` functions use the inferred-default form `typedesc<anydata> t = <>` — explicit defaults and required typedesc params are rejected
 - Validates process function signature: `(Context?, anydata, record{future<T>...}?)`
 - Validates activity function parameters and return types are `anydata` subtypes
+- Skips typedesc parameters when validating `callActivity` argument counts (typedesc is not passed via the args map)
 
 #### WorkflowSourceModifier ([WorkflowSourceModifier.java](compiler-plugin/src/main/java/io/ballerina/stdlib/workflow/compiler/WorkflowSourceModifier.java))
 - Auto-generates `wfInternal:registerWorkflow()` calls for each `@Workflow` function at module level
@@ -79,6 +81,19 @@ Location: [WorkflowNative.java](native/src/main/java/io/ballerina/stdlib/workflo
 ### Activity Function Signature
 `@Activity` functions accept `anydata` parameters and return `anydata|error`. See examples in [integration-tests/](integration-tests/).
 
+**Dependently-typed activities** are also supported. A `typedesc<anydata>` parameter with the inferred default `<>` enables the caller to specify the expected return type:
+
+```ballerina
+@workflow:Activity
+function fetchData(string url, typedesc<anydata> targetType = <>) returns targetType|error = external;
+```
+
+- The constraint type must be `anydata` (i.e., `typedesc<anydata>`, not `typedesc<string>` etc.)
+- The function must be `external` (Ballerina requires this for inferred typedesc defaults)
+- The typedesc parameter is excluded from workflow history serialization by the compiler plugin
+- At runtime, `BallerinaActivityAdapter` filters out the typedesc param when reconstructing positional args from the named args map, then injects the `BTypedesc` from `callActivity` as the last argument
+- Only the inferred-default form is allowed — explicit defaults and required typedesc params produce `WORKFLOW_114`
+
 ### Calling Activities (Required Pattern)
 Activities **must** be called via `ctx->callActivity(activityFunc, args)` — direct calls produce `WORKFLOW_108` error.
 
@@ -91,8 +106,8 @@ Events are received via `check wait events.fieldName` using the Ballerina `wait`
 |-----------|-------------|
 | Process input | Subtype of `anydata`, must have `@workflow:CorrelationKey` fields for correlation if using signals |
 | Process return | Subtype of `anydata` or `error` |
-| Activity params | Subtype of `anydata` |
-| Activity return | Subtype of `anydata` or `error` |
+| Activity params | Subtype of `anydata`; or `typedesc<anydata>` with inferred default `<>` (dependent typing) |
+| Activity return | Subtype of `anydata` or `error`; or `targetType|error` when dependently typed |
 | Signal futures | `future<T>` where `T` is subtype of `anydata` |
 | Event data | Subtype of `anydata` |
 
@@ -107,3 +122,4 @@ Events are received via `check wait events.fieldName` using the Ballerina `wait`
 - `sendData()` successfully sends data to running workflows
 - `ctx->callActivity()` executes activities and returns results
 - Compiler plugin auto-generates `wfInternal:registerWorkflow()` calls for each `@Workflow` function
+- Typedesc parameters in `@Activity` functions produce `WORKFLOW_114` unless they use the inferred-default form `typedesc<anydata> t = <>`
