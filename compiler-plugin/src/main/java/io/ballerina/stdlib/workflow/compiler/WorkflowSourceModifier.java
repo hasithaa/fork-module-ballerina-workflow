@@ -171,8 +171,17 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
         if (moduleNames.size() < 2) {
             return false;
         }
-        return WorkflowConstants.PACKAGE_NAME.equals(moduleNames.get(0).text())
-                && WorkflowConstants.INTERNAL_MODULE_NAME.equals(moduleNames.get(1).text());
+        if (!WorkflowConstants.PACKAGE_NAME.equals(moduleNames.get(0).text())
+                || !WorkflowConstants.INTERNAL_MODULE_NAME.equals(moduleNames.get(1).text())) {
+            return false;
+        }
+        // Also verify that the import uses the expected alias so that the hardcoded alias
+        // in createRegisterWorkflowCall() resolves correctly. If the user has imported the
+        // module with a different alias, we treat it as missing and insert our own import.
+        if (importNode.prefix().isEmpty()) {
+            return false;
+        }
+        return WorkflowConstants.INTERNAL_MODULE_ALIAS.equals(importNode.prefix().get().prefix().text());
     }
 
     private ImportDeclarationNode createWorkflowInternalImportNode() {

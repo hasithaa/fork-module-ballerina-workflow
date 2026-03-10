@@ -124,7 +124,7 @@ The `startSharedTestServer` task checks port 7233 first. If a server is already 
 - Supports `ListWorkflowExecutions` for correlation-based signal routing
 - Includes HTTP activity tests (GET, POST, PUT, PATCH, DELETE, auth, XML responses)
 - Includes builtin activity tests (sleep, currentTime, isReplaying, getWorkflowId, getWorkflowType)
-- See [integration-tests/tests/](integration-tests/tests/) for test examples using `workflow:run()`, `workflow:sendData()`, and `workflow:getWorkflowResult()`
+- See [integration-tests/tests/](../../integration-tests/tests/) for test examples using `workflow:run()`, `workflow:sendData()`, and `workflow:getWorkflowResult()`
 
 ### Compiler Plugin Tests (compiler-plugin-tests/)
 - Tests compile-time validations

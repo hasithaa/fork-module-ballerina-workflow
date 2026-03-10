@@ -12,7 +12,7 @@ The workflow module implements a **Future-based approach** where signal listener
 
 ### 1. Ballerina Layer
 
-Workflows receive signals via a record parameter with `future<T>` fields. Field names directly map to Temporal signal names. See examples in [integration-tests/](integration-tests/) (e.g., workflow files using events records).
+Workflows receive signals via a record parameter with `future<T>` fields. Field names directly map to Temporal signal names. See examples in [integration-tests/](../../integration-tests/) (e.g., workflow files using events records).
 
 ### 2. Native Layer
 
@@ -47,7 +47,7 @@ In [WorkflowWorkerNative.java](native/src/main/java/io/ballerina/stdlib/workflow
 
 ### 3. Compiler Plugin Layer
 
-The compiler plugin (in [WorkflowValidatorTask.java](compiler-plugin/src/main/java/io/ballerina/stdlib/workflow/compiler/WorkflowValidatorTask.java)) validates the events parameter signature — the third parameter must be a record type where all fields are `future<anydata>` subtypes.
+The compiler plugin (in [WorkflowValidatorTask.java](../../compiler-plugin/src/main/java/io/ballerina/stdlib/workflow/compiler/WorkflowValidatorTask.java)) validates the events parameter signature — the third parameter must be a record type where all fields are `future<anydata>` subtypes.
 
 ## Execution Flow
 

@@ -1185,9 +1185,10 @@ public final class WorkflowWorkerNative {
         private static final String FAIL_ON_ERROR_KEY = "failOnError";
 
         // Built-in implicit activity names
-        public static final String BUILTIN_RUN = "__workflow_run";
-        public static final String BUILTIN_SEND_DATA = "__workflow_sendData";
-        public static final String BUILTIN_GET_RESULT = "__workflow_getResult";
+        public static final String BUILTIN_RUN = "workflow:run";
+        public static final String BUILTIN_SEND_DATA = "workflow:sendData";
+        public static final String BUILTIN_GET_RESULT = "workflow:getResult";
+        public static final String BUILTIN_GET_INFO = "workflow:getInfo";
 
         @Override
         @SuppressWarnings("unchecked")
@@ -1206,6 +1207,9 @@ public final class WorkflowWorkerNative {
             }
             if (BUILTIN_GET_RESULT.equals(activityName)) {
                 return executeBuiltInGetResult(args);
+            }
+            if (BUILTIN_GET_INFO.equals(activityName)) {
+                return executeBuiltInGetInfo(args);
             }
 
             // Look up the registered Ballerina function for this activity
@@ -1271,7 +1275,16 @@ public final class WorkflowWorkerNative {
                 if (namedArgs.containsKey(paramName)) {
                     orderedArgs.add(convertJavaToBallerinaType(namedArgs.get(paramName)));
                 } else {
-                    orderedArgs.add(null); // intermediate absent param → null
+                    // Intermediate parameter missing from the named args map.
+                    // Only optional/defaultable parameters may be absent; required parameters
+                    // must always be supplied by the caller.
+                    Parameter param = dataParams.get(i);
+                    if (!param.isDefault) {
+                        throw new RuntimeException(
+                                "Required activity parameter '" + paramName
+                                        + "' is missing from the activity arguments map");
+                    }
+                    orderedArgs.add(null); // optional/defaultable param absent → Ballerina default
                 }
             }
 
@@ -1362,6 +1375,47 @@ public final class WorkflowWorkerNative {
             info.put("status", status);
             info.put("result", result);
             info.put("errorMessage", errorMessage);
+            return info;
+        }
+
+        private Object executeBuiltInGetInfo(EncodedValues args) {
+            String workflowId = args.get(0, String.class);
+
+            io.temporal.client.WorkflowClient client = WorkflowWorkerNative.getWorkflowClient();
+            if (client == null) {
+                throw new RuntimeException("Workflow client not initialized");
+            }
+
+            io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionRequest request =
+                    io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionRequest.newBuilder()
+                            .setNamespace(client.getOptions().getNamespace())
+                            .setExecution(io.temporal.api.common.v1.WorkflowExecution.newBuilder()
+                                    .setWorkflowId(workflowId)
+                                    .build())
+                            .build();
+
+            io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionResponse response =
+                    client.getWorkflowServiceStubs().blockingStub().describeWorkflowExecution(request);
+
+            io.temporal.api.workflow.v1.WorkflowExecutionInfo execInfo =
+                    response.getWorkflowExecutionInfo();
+            String workflowType = execInfo.getType().getName();
+            io.temporal.api.enums.v1.WorkflowExecutionStatus status = execInfo.getStatus();
+            String statusStr = switch (status) {
+                case WORKFLOW_EXECUTION_STATUS_RUNNING -> "RUNNING";
+                case WORKFLOW_EXECUTION_STATUS_COMPLETED -> "COMPLETED";
+                case WORKFLOW_EXECUTION_STATUS_FAILED -> "FAILED";
+                case WORKFLOW_EXECUTION_STATUS_CANCELED -> "CANCELED";
+                case WORKFLOW_EXECUTION_STATUS_TERMINATED -> "TERMINATED";
+                case WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW -> "CONTINUED_AS_NEW";
+                case WORKFLOW_EXECUTION_STATUS_TIMED_OUT -> "TIMED_OUT";
+                default -> "UNKNOWN";
+            };
+
+            java.util.Map<String, Object> info = new java.util.HashMap<>();
+            info.put("workflowId", workflowId);
+            info.put("workflowType", workflowType);
+            info.put("status", statusStr);
             return info;
         }
     }

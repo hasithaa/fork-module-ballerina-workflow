@@ -98,7 +98,7 @@ The compiler plugin has **no direct involvement** in the scheduler lifecycle. It
 
 ## Lifecycle Sequence
 
-```
+```text
 1. Module Load
    └─> init() called
        ├─> initModule() — capture module reference

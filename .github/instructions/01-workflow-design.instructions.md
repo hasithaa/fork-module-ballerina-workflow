@@ -13,7 +13,7 @@ The Ballerina Workflow module provides durable workflow orchestration via Tempor
 ### 1. Ballerina Layer ([ballerina/](ballerina/))
 
 #### Annotations ([annotations.bal](ballerina/annotations.bal))
-- `@Workflow` — marks a function as a workflow process
+- `@Workflow` — marks a function as a workflow function
 - `@Activity` — marks a function as a workflow activity
 
 #### Public API Functions ([functions.bal](ballerina/functions.bal))
@@ -44,35 +44,35 @@ The Ballerina Workflow module provides durable workflow orchestration via Tempor
 - **WORKFLOW_107**: Validates `ctx->callActivity()` calls use `@Activity` functions
 - **WORKFLOW_108**: Prevents direct calls to `@Activity` functions inside `@Workflow`
 - **WORKFLOW_114**: Validates that `typedesc` parameters in `@Activity` functions use the inferred-default form `typedesc<anydata> t = <>` — explicit defaults and required typedesc params are rejected
-- Validates process function signature: `(Context?, anydata, record{future<T>...}?)`
+- Validates workflow function signature: `(Context?, anydata, record{future<T>...}?)`
 - Validates activity function parameters and return types are `anydata` subtypes
 - Skips typedesc parameters when validating `callActivity` argument counts (typedesc is not passed via the args map)
 
 #### WorkflowSourceModifier ([WorkflowSourceModifier.java](compiler-plugin/src/main/java/io/ballerina/stdlib/workflow/compiler/WorkflowSourceModifier.java))
 - Auto-generates `wfInternal:registerWorkflow()` calls for each `@Workflow` function at module level
 - Generates `import ballerina/workflow.internal as wfInternal;` import
-- Extracts activity functions used in each process
+- Extracts activity functions used in each workflow
 
 ### 3. Native Layer ([native/](native/))
 
 #### WorkflowWorkerNative.java
 Location: [WorkflowWorkerNative.java](native/src/main/java/io/ballerina/stdlib/workflow/worker/WorkflowWorkerNative.java)
 
-**Key registries** — `PROCESS_REGISTRY` (workflow type → `BFunctionPointer`), `ACTIVITY_REGISTRY` (activity name → `BFunctionPointer`), `EVENT_REGISTRY` (process name → event names list)
+**Key registries** — `PROCESS_REGISTRY` (workflow type → `BFunctionPointer`), `ACTIVITY_REGISTRY` (activity name → `BFunctionPointer`), `EVENT_REGISTRY` (workflow name → event names list)
 
 **Scheduler management** — `initSingletonWorker()`, `registerWorkflow()`, `startSingletonWorker()`, `stopSingletonWorker()` (see [02-temporal-scheduler.instructions.md](.github/instructions/02-temporal-scheduler.instructions.md))
 
 **Dynamic adapters:**
-- `BallerinaWorkflowAdapter` (implements `DynamicWorkflow`) — routes all workflow types through a single adapter, injects `Context`, creates event futures, calls registered process functions
+- `BallerinaWorkflowAdapter` (implements `DynamicWorkflow`) — routes all workflow types through a single adapter, injects `Context`, creates event futures, calls registered workflow functions
 - `BallerinaActivityAdapter` (implements `DynamicActivity`) — reconstructs positional args from named map using `FunctionType.getParameters()`, calls registered activity functions
 
 #### WorkflowNative.java
 Location: [WorkflowNative.java](native/src/main/java/io/ballerina/stdlib/workflow/runtime/nativeimpl/WorkflowNative.java)
-- Implements `run()`, `sendData()`, `searchWorkflow()` by interacting with Temporal's `WorkflowClient`
+- Implements `run()`, `sendData()` by interacting with Temporal's `WorkflowClient`
 
 ## Usage Patterns
 
-### Process Function Signature
+### Workflow Function Signature
 `@Workflow` functions follow this parameter order (see examples in [integration-tests/](integration-tests/)):
 1. `workflow:Context ctx` — optional, must be first if calling activities
 2. `T input` — input data (`anydata` subtype)

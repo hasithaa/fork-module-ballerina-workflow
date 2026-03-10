@@ -633,7 +633,7 @@ public final class EventExtractor {
             // and all required fields are present in event data
             for (String key : eventDataKeys) {
                 if (!allFieldNames.contains(key) && !"id".equals(key)) {
-                    // Event has a key not in the record
+                    // Event has a key not in the record ("id" is exempt as a correlation marker)
                     return false;
                 }
             }

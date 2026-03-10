@@ -132,7 +132,7 @@ The compiler plugin has **limited involvement** in dynamic workflow implementati
 7. **Error Handling**: Ballerina errors converted to Temporal `ApplicationFailure` (non-retryable). `failOnError` flag controls whether activity errors are retried or returned as values.
 8. **Named Args Map Pattern**: Activity arguments are passed through Temporal as a named `Map<String, Object>` rather than a positional array. The adapter reconstructs positional args using `FunctionType.getParameters()` and `Parameter.name`. This avoids misalignment when optional parameters are omitted from the args map.
 9. **Typedesc Parameter Exclusion**: `typedesc<anydata>` parameters (used for dependent typing) are not included in the named args map and are never serialized into Temporal's workflow history. The adapter identifies them by `TypeTags.TYPEDESC_TAG`, skips them during named-map reconstruction, then injects the `BTypedesc` received from `callActivity` as the final positional argument.
-9. **Call Config Map**: Each activity call includes a separate call config map (`[namedArgs, callConfig]`) carrying the `failOnError` flag and a marker to distinguish it from user data.
+10. **Call Config Map**: Each activity call includes a separate call config map (`[namedArgs, callConfig]`) carrying the `failOnError` flag and a marker to distinguish it from user data.
 
 ## Success Criteria
 

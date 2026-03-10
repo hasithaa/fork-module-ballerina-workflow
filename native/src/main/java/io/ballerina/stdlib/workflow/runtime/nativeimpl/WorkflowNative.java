@@ -463,11 +463,21 @@ public final class WorkflowNative {
      * <p>
      * Gets information about a workflow execution without waiting for completion.
      * Returns the current state including workflow type and status.
+     * <p>
+     * When called from inside a workflow context, the blocking gRPC call is routed
+     * through an implicit activity to preserve determinism and avoid a
+     * PotentialDeadlockException.
      *
      * @param workflowId the ID of the workflow to get info for
      * @return a WorkflowExecutionInfo record or an error
      */
+    @SuppressWarnings("unchecked")
     public static Object getWorkflowInfo(BString workflowId) {
+        // Check if we're inside a workflow execution context
+        if (isInsideWorkflow()) {
+            return getWorkflowInfoAsImplicitActivity(workflowId.getValue());
+        }
+
         try {
             WorkflowClient client = WorkflowWorkerNative.getWorkflowClient();
             if (client == null) {
@@ -498,6 +508,30 @@ public final class WorkflowNative {
         } catch (Exception e) {
             return ErrorCreator.createError(
                     StringUtils.fromString(ERR_GET_INFO + e.getMessage()));
+        }
+    }
+
+    /**
+     * Routes a {@code workflow:getWorkflowInfo} call through a built-in implicit activity
+     * when invoked from inside a workflow, ensuring the blocking describeWorkflowExecution
+     * RPC is performed off the workflow thread and the result is deterministic on replay.
+     */
+    @SuppressWarnings("unchecked")
+    private static Object getWorkflowInfoAsImplicitActivity(String workflowId) {
+        try {
+            io.temporal.workflow.ActivityStub stub =
+                    Workflow.newUntypedActivityStub(buildImplicitActivityOptions(DEFAULT_IMPLICIT_ACTIVITY_TIMEOUT));
+            Map<String, Object> info = stub.execute(
+                    WorkflowWorkerNative.BallerinaActivityAdapter.BUILTIN_GET_INFO,
+                    Map.class,
+                    workflowId);
+
+            String workflowType = (String) info.getOrDefault("workflowType", "");
+            String status = (String) info.getOrDefault("status", "UNKNOWN");
+
+            return buildWorkflowExecutionInfo(workflowId, workflowType, status, null, null);
+        } catch (Exception e) {
+            return handleImplicitActivityError(e, ERR_GET_INFO);
         }
     }
 

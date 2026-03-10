@@ -16,8 +16,12 @@
 
 import ballerina/workflow;
 
-// Activity with a typedesc parameter that has a default value.
-// The typedesc param should be allowed and excluded from args validation.
+// Activity with a typedesc parameter that has an explicit (non-inferred) default value.
+// This is an INVALID activity signature: typedesc<anydata> targetType = string is disallowed.
+// The compiler plugin (WORKFLOW_114) must reject any @Activity whose typedesc param
+// uses an explicit default rather than the inferred-default form `typedesc<anydata> t = <>`.
+// Note: only the ctx->callActivity() path bypasses WORKFLOW_109 argument-count checks;
+// the invalid signature itself must still be caught by the new WORKFLOW_114 validation.
 @workflow:Activity
 function convertData(string data, typedesc<anydata> targetType = string) returns anydata|error {
     return data;

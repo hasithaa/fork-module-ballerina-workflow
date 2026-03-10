@@ -112,8 +112,8 @@ public class WorkflowCompilerPluginTest {
     public void testInvalidActivityTypedescDefault() {
         String packagePath = "invalid_activity_typedesc_default";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
-        Assert.assertTrue(diagnosticResult.errorCount() > 0,
-                "Expected validation error for activity with explicitly defaultable typedesc param");
+        Assert.assertEquals(diagnosticResult.errorCount(), 1,
+                "Expected exactly 1 validation error for activity with explicitly defaultable typedesc param");
         assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_114);
     }
 
@@ -121,8 +121,8 @@ public class WorkflowCompilerPluginTest {
     public void testInvalidActivityTypedescRequired() {
         String packagePath = "invalid_activity_typedesc_required";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
-        Assert.assertTrue(diagnosticResult.errorCount() > 0,
-                "Expected validation error for activity with required typedesc param");
+        Assert.assertEquals(diagnosticResult.errorCount(), 1,
+                "Expected exactly 1 validation error for activity with required typedesc param");
         assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_114);
     }
 

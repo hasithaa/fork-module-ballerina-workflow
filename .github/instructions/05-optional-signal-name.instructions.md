@@ -1,4 +1,4 @@
-# Explicit sendData and searchWorkflow API
+# Explicit sendData
 
 applyTo: "**/SendEventValidatorTask.java,**/WorkflowNative.java"
 
@@ -8,7 +8,7 @@ applyTo: "**/SendEventValidatorTask.java,**/WorkflowNative.java"
 
 The `sendData()` function requires all parameters explicitly: the workflow function, the target workflow ID, the data name (matching an event field name), and the data payload. There is no signal name inference or automatic correlation-based routing.
 
-For finding workflows by correlation keys, a separate `searchWorkflow()` function is provided. This clean separation gives users full control over workflow identification and data delivery.
+For finding workflows by correlation keys, a separate `searchWorkflow()` function will be provided in future. This clean separation gives users full control over workflow identification and data delivery.
 
 ## Current Implementation
 
@@ -39,16 +39,11 @@ Location: [WorkflowNative.java](native/src/main/java/io/ballerina/stdlib/workflo
 ### Direct Workflow ID (Most Common)
 Start a workflow with `workflow:run()`, get the ID, then send data using the ID. See examples in [integration-tests/](integration-tests/).
 
-### With Correlation-Based Lookup
-When you don't have the workflow ID, use `workflow:searchWorkflow()` with correlation key values, then send data using the found ID. See examples in [integration-tests/](integration-tests/).
-
 ## Success Criteria
 
 - All `sendData()` parameters are required — enforced by type system
-- `searchWorkflow()` parameters are required — enforced by type system
 - WORKFLOW_112 warning for ambiguous signal types (same structure) in workflow definition
 - `sendData()` delivers data to the correct workflow by ID
-- `searchWorkflow()` finds workflows by correlation key values
 - Clear error when workflow ID is invalid or not found
 - Clear error when no workflow matches correlation keys
 

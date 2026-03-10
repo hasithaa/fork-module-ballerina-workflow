@@ -11,7 +11,7 @@ applyTo: "**/build.gradle,**/gradle.properties,**/Ballerina.toml"
 | Ballerina | 2201.13.0 | Swan Lake Update 13 |
 | Java | 21 | Required for Temporal SDK 1.32.0 |
 | Temporal SDK | 1.32.0 | io.temporal:temporal-sdk |
-| gRPC | 1.68.2 | Must match Temporal SDK version |
+| gRPC | 1.68.2 | Must be compatible with Temporal SDK version (1.58.1+) |
 | Gradle | 8.x | Wrapper included (gradlew) |
 
 ## Current Implementation

@@ -17,9 +17,11 @@
 import ballerina/workflow;
 
 // Activity with a required typedesc parameter (no default value).
-// typedesc is a readonly type descriptor and should be allowed as an
-// activity parameter. The compiler plugin and runtime adapter filter
-// it out from args validation and positional arg reconstruction.
+// This is an INVALID activity signature and must be rejected by the compiler plugin (WORKFLOW_114).
+// Only the inferred-default form `typedesc<anydata> t = <>` is permitted for @Activity functions.
+// The runtime call-site check (callActivity()) ignores the missing typedesc argument for
+// invocation purposes, but that runtime exclusion does NOT make the signature itself valid;
+// the signature validation and WORKFLOW_114 must still flag this function at compile time.
 @workflow:Activity
 function transformData(string data, typedesc<anydata> targetType) returns anydata|error {
     return data;

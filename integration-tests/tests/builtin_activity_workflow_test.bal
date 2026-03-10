@@ -20,6 +20,7 @@
 // Tests for built-in context methods: ctx.currentTime() and ctx.sleep().
 
 import ballerina/test;
+import ballerina/time;
 import ballerina/workflow;
 
 // --- currentTime tests ---
@@ -30,16 +31,19 @@ import ballerina/workflow;
 function testCurrentTime() returns error? {
     string testId = uniqueId("current-time");
     BuiltinActivityInput input = {id: testId};
+    time:Utc beforeTime = time:utcNow();
     string workflowId = check workflow:run(currentTimeWorkflow, input);
 
     workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
+    time:Utc afterTime = time:utcNow();
     test:assertEquals(execInfo.status, "COMPLETED", "currentTime workflow should complete. Error: " + (execInfo.errorMessage ?: "none"));
 
     if execInfo.result is map<anydata> {
         map<anydata> result = <map<anydata>>execInfo.result;
         int seconds = <int>(check result["seconds"]);
-        // Workflow time should be a reasonable epoch value (after year 2020)
-        test:assertTrue(seconds > 1577836800, "Workflow time should be after 2020-01-01");
+        // Workflow time should fall within the wall-clock window of the test (±5 s tolerance)
+        test:assertTrue(seconds >= beforeTime[0] - 5, "Workflow time should be at or after test start");
+        test:assertTrue(seconds <= afterTime[0] + 5, "Workflow time should be at or before test end");
     } else {
         test:assertFail("Expected map<anydata> result");
     }

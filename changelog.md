@@ -35,8 +35,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - **[Breaking]** Removed `workflow:registerProcess()` from the public API — this function was an
   internal API used by the compiler plugin code generation. It has been moved to the
-  `ballerina/workflow.internal` submodule as `registerWorkflow()`. User code
-  and compiler plugin-generated code should not call this function directly.
+  `ballerina/workflow.internal` submodule as `registerWorkflow()`. Application code
+  should not call this function directly; compiler-plugin-generated code may call
+  `workflow.internal:registerWorkflow()` as needed.
 
 
 ## [0.2.0] - 2026-03-04
@@ -55,8 +56,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
-- New `workflow:searchWorkflow()` function to find workflows by correlation keys:
-  `searchWorkflow(function workflow, map<anydata> correlationKeys) returns string|error`
 - **[Breaking]** Redesigned `WorkflowConfig` as a union type supporting four deployment modes:
   - `LocalConfig` - Local development server (default, replaces previous flat config)
   - `CloudConfig` - Managed cloud deployment with mandatory authentication
