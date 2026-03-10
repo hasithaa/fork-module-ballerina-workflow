@@ -49,7 +49,7 @@ import java.util.Map;
  * <p>
  * This modifier performs AST transformations:
  * 1. Replaces activity function calls with callActivity(funcPtr, args...)
- * 2. Adds registerProcess call at module level for each @Workflow function
+ * 2. Adds registerWorkflow call at module level for each @Workflow function
  *
  * @since 0.1.0
  */
@@ -97,7 +97,7 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
         WorkflowTreeModifier treeModifier = new WorkflowTreeModifier(workflowContext);
         ModulePartNode modifiedRoot = (ModulePartNode) rootNode.apply(treeModifier);
 
-        // Then, add registerProcess calls at module level
+        // Then, add registerWorkflow calls at module level
         NodeList<ModuleMemberDeclarationNode> members = modifiedRoot.members();
         List<ModuleMemberDeclarationNode> newMembers = new ArrayList<>();
 
@@ -105,9 +105,9 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
             newMembers.add(member);
         }
 
-        // Add registerProcess calls for each process function
+        // Add registerWorkflow calls for each process function
         for (ProcessFunctionInfo processInfo : workflowContext.getProcessInfoMap().values()) {
-            ModuleVariableDeclarationNode registerCall = createRegisterProcessCall(processInfo);
+            ModuleVariableDeclarationNode registerCall = createRegisterWorkflowCall(processInfo);
             newMembers.add(registerCall);
         }
 
@@ -115,7 +115,7 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
         return modifiedRoot.modify(modifiedRoot.imports(), updatedMembers, modifiedRoot.eofToken());
     }
 
-    private ModuleVariableDeclarationNode createRegisterProcessCall(ProcessFunctionInfo processInfo) {
+    private ModuleVariableDeclarationNode createRegisterWorkflowCall(ProcessFunctionInfo processInfo) {
         StringBuilder mapLiteral = new StringBuilder("{");
         boolean first = true;
         for (Map.Entry<String, String> activity : processInfo.activityMap().entrySet()) {

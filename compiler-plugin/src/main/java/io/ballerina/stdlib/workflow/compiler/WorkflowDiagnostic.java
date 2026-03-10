@@ -74,7 +74,7 @@ public enum WorkflowDiagnostic {
             DiagnosticSeverity.WARNING),
     WORKFLOW_113("WORKFLOW_113",
             "Using 'time:utcNow()' inside a @Workflow function is non-deterministic. "
-                    + "Use 'activity:currentTime()' instead",
+                    + "Use 'ctx.currentTime()' instead",
             DiagnosticSeverity.WARNING);
 
     private final String code;

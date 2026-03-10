@@ -1,4 +1,4 @@
-# Singleton Worker Pattern (v2)
+# Singleton Program Pattern (v2)
 
 applyTo: "**/*.bal,**/WorkflowWorkerNative.java"
 
@@ -6,9 +6,9 @@ applyTo: "**/*.bal,**/WorkflowWorkerNative.java"
 
 ## Overview
 
-The workflow module uses a singleton worker pattern ensuring:
+The workflow module uses a singleton program pattern ensuring:
 - Only one workflow SDK instance per JVM
-- Worker created at module initialization time
+- Program created at module initialization time
 - Configuration via Ballerina configurable variables
 - Union-type configuration supporting multiple deployment modes
 
@@ -198,7 +198,7 @@ private static Module workflowModule;
 private static Runtime ballerinaRuntime;
 ```
 
-**Worker Initialization:**
+**Program Initialization:**
 ```java
 public static Object initSingletonWorker(
         BString url,
@@ -261,21 +261,21 @@ public static Object initSingletonWorker(
 }
 ```
 
-**Process Registration:**
+**Workflow Registration:**
 ```java
-public static Object registerProcessWithWorker(
-        BFunctionPointer processFunc,
-        BString processName,
+public static Object registerWorkflow(
+        BFunctionPointer workflowFunc,
+        BString workflowName,
         BMap<BString, Object> activities) {
     
     if (!initialized.get()) {
-        return createError("Cannot register process - worker not initialized");
+        return createError("Cannot register workflow - program not initialized");
     }
 
-    String name = processName.getValue();
+    String name = workflowName.getValue();
     
     // 1. Store in registry
-    PROCESS_REGISTRY.put(name, processFunc);
+    PROCESS_REGISTRY.put(name, workflowFunc);
     
     // 2. Register activities if provided
     if (activities != null) {
@@ -298,12 +298,12 @@ public static Object registerProcessWithWorker(
             new BallerinaActivityAdapter());
     }
     
-    LOGGER.info("Registered process: {}", name);
+    LOGGER.info("Registered workflow: {}", name);
     return true;
 }
 ```
 
-**Worker Lifecycle:**
+**Program Lifecycle:**
 ```java
 public static Object startSingletonWorker() {
     if (!initialized.get()) {
@@ -344,7 +344,7 @@ public static Object stopSingletonWorker() {
 
 ### 3. Compiler Plugin Layer
 
-The compiler plugin has **no direct involvement** in the singleton worker pattern. It auto-generates `registerProcess()` calls, but the singleton pattern is entirely managed by the runtime (module init + native code).
+The compiler plugin has **no direct involvement** in the singleton program pattern. It auto-generates `registerWorkflow()` calls, but the singleton pattern is entirely managed by the runtime (module init + native code).
 
 ## Lifecycle Sequence
 
@@ -360,8 +360,8 @@ The compiler plugin has **no direct involvement** in the singleton worker patter
 
 2. Compiler Plugin Code Generation
    └─> For each @Workflow function
-       └─> Generates: registerProcess(myProcess, "myProcess", activities)
-           └─> registerProcessWithWorker() called
+       └─> Generates: registerWorkflow(myWorkflow, "myWorkflow", activities)
+           └─> registerWorkflow() called
                ├─> PROCESS_REGISTRY.put(name, function)
                ├─> ACTIVITY_REGISTRY.put(name, function) for each activity
                ├─> Register BallerinaWorkflowAdapter (once)
@@ -386,10 +386,10 @@ The compiler plugin has **no direct involvement** in the singleton worker patter
 
 ## Key Design Points
 
-1. **One Worker Per JVM**: The singleton pattern ensures only one workflow worker exists
+1. **One Program Per JVM**: The singleton pattern ensures only one workflow program exists
 2. **Lazy Registration**: Workflows/activities are registered during code generation phase
-3. **Eager Initialization**: Worker is created at module init (before `start()`)
-4. **Late Start**: Worker only starts polling after all registrations complete
+3. **Eager Initialization**: Program is created at module init (before `start()`)
+4. **Late Start**: Program only starts polling after all registrations complete
 5. **No Listener Pattern**: Unlike previous designs, no `workflow:Listener` - everything is automatic
 6. **Thread-Safe**: Uses `AtomicBoolean` and `ConcurrentHashMap` for thread safety
 
@@ -397,20 +397,20 @@ The compiler plugin has **no direct involvement** in the singleton worker patter
 
 ✅ **Initialization:**
 - Module init successfully creates WorkflowServiceStubs, WorkflowClient, WorkerFactory
-- Worker is created with configured task queue
+- Program is created with configured task queue
 - Configuration is correctly read from Config.toml
 - Default configuration works without Config.toml
 
 ✅ **Registration:**
-- `registerProcess()` successfully stores process functions in PROCESS_REGISTRY
+- `registerWorkflow()` successfully stores workflow functions in PROCESS_REGISTRY
 - Activity functions are stored in ACTIVITY_REGISTRY
 - Dynamic adapters are registered exactly once
-- Multiple process registrations work without conflicts
+- Multiple workflow registrations work without conflicts
 
-✅ **Worker Lifecycle:**
-- Worker starts polling only after `start()` is called
-- Worker gracefully shuts down on `stop()`
-- No duplicate workers are created
+✅ **Program Lifecycle:**
+- Program starts polling only after `start()` is called
+- Program gracefully shuts down on `stop()`
+- No duplicate programs are created
 - Thread-safe initialization prevents race conditions
 
 ✅ **Runtime Execution:**

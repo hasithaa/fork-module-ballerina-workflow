@@ -31,9 +31,7 @@ import io.ballerina.stdlib.workflow.worker.WorkflowWorkerNative;
 import io.temporal.workflow.Workflow;
 
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -96,14 +94,12 @@ public final class WorkflowContextNative {
             String workflowType = Workflow.getInfo().getWorkflowType();
             String fullActivityName = workflowType + "." + simpleActivityName;
 
-            // Convert args map (BMap) to Java array for Temporal
-            // Extract values from the record in order
-            List<Object> argsList = new ArrayList<>();
-            for (BString key : args.getKeys()) {
-                Object value = args.get(key);
-                argsList.add(TypesUtil.convertBallerinaToJavaType(value));
-            }
-            Object[] javaArgs = argsList.toArray();
+            // Convert args map (BMap) to a Java Map for Temporal serialization.
+            // We pass the entire named map as a single argument so that the
+            // BallerinaActivityAdapter can reconstruct positional args using the
+            // function's parameter names. This avoids misalignment when optional
+            // parameters are omitted from the args map.
+            Map<String, Object> namedArgs = TypesUtil.convertBMapToMap(args);
 
             // Parse ActivityOptions from the Ballerina record
             boolean failOnError = true;
@@ -154,17 +150,14 @@ public final class WorkflowContextNative {
                     Workflow.newUntypedActivityStub(activityOptions);
 
             // Pass the failOnError flag to the activity adapter as a call config map
-            // appended to the activity arguments
+            // The adapter receives [namedArgs, callConfig] as Temporal arguments
             Map<String, Object> callConfig = new HashMap<>();
             callConfig.put(CALL_CONFIG_MARKER, true);
             callConfig.put(FAIL_ON_ERROR_KEY, failOnError);
-            
-            Object[] argsWithConfig = new Object[javaArgs.length + 1];
-            System.arraycopy(javaArgs, 0, argsWithConfig, 0, javaArgs.length);
-            argsWithConfig[javaArgs.length] = callConfig;
 
             // Execute the activity through Temporal's activity mechanism with the full name
-            Object result = activityStub.execute(fullActivityName, Object.class, argsWithConfig);
+            Object result = activityStub.execute(fullActivityName, Object.class,
+                    new Object[] { namedArgs, callConfig });
 
             // Convert result back to Ballerina type
             Object ballerinaResult = TypesUtil.convertJavaToBallerinaType(result);
@@ -218,6 +211,20 @@ public final class WorkflowContextNative {
             return ErrorCreator.createError(
                     StringUtils.fromString("Workflow sleep failed: " + e.getMessage()));
         }
+    }
+
+    /**
+     * Returns the current workflow time as epoch milliseconds.
+     * <p>
+     * The workflow engine records the timestamp at each workflow task and
+     * provides it via {@code Workflow.currentTimeMillis()}. This value is
+     * replayed identically, making it safe to use inside workflow functions.
+     *
+     * @param contextHandle Context handle
+     * @return epoch milliseconds as a long
+     */
+    public static long currentTimeMillis(Object contextHandle) {
+        return Workflow.currentTimeMillis();
     }
 
     /**

@@ -24,6 +24,8 @@ import io.ballerina.runtime.api.Runtime;
 import io.ballerina.runtime.api.concurrent.StrandMetadata;
 import io.ballerina.runtime.api.creators.ErrorCreator;
 import io.ballerina.runtime.api.creators.ValueCreator;
+import io.ballerina.runtime.api.types.FunctionType;
+import io.ballerina.runtime.api.types.Parameter;
 import io.ballerina.runtime.api.types.RecordType;
 import io.ballerina.runtime.api.utils.StringUtils;
 import io.ballerina.runtime.api.values.BError;
@@ -32,6 +34,7 @@ import io.ballerina.runtime.api.values.BMap;
 import io.ballerina.runtime.api.values.BObject;
 import io.ballerina.runtime.api.values.BString;
 import io.ballerina.runtime.internal.values.FPValue;
+import io.ballerina.stdlib.workflow.ModuleUtils;
 import io.ballerina.stdlib.workflow.context.SignalAwaitWrapper;
 import io.ballerina.stdlib.workflow.context.WorkflowContextNative;
 import io.ballerina.stdlib.workflow.registry.EventInfo;
@@ -116,12 +119,13 @@ public final class WorkflowWorkerNative {
 
     /**
      * Module initialization - called by Ballerina runtime.
-     * Captures the Module and Runtime from Environment for later use.
+     * Captures the Runtime from Environment for later use.
+     * The Module reference is obtained from ModuleUtils (set during initModule()).
      *
      * @param env the Ballerina runtime environment
      */
     public static void init(Environment env) {
-        workflowModule = env.getCurrentModule();
+        workflowModule = ModuleUtils.getModule();
         ballerinaRuntime = env.getRuntime();
     }
 
@@ -322,53 +326,54 @@ public final class WorkflowWorkerNative {
     }
 
     /**
-     * Register a workflow process with the singleton worker.
-     * Called from Ballerina code for each workflow process.
+     * Register a workflow with the singleton program.
+     * Called from Ballerina code for each workflow.
      *
      * @param env Environment for capturing runtime
-     * @param processFunction The Ballerina process function pointer
-     * @param processName The name of the process (workflow type)
+     * @param workflowFunction The Ballerina workflow function pointer
+     * @param workflowName The name of the workflow (workflow type)
      * @param activities Optional map of activity functions
      * @return true on success, error on failure
      */
-    public static Object registerProcessWithWorker(
+    public static Object registerWorkflow(
             Environment env,
-            BFunctionPointer processFunction,
-            BString processName,
+            BFunctionPointer workflowFunction,
+            BString workflowName,
             Object activities) {
 
-        // Use init() method's already set values, or set them with synchronization
+        // Use ModuleUtils to get the workflow module (set during initModule() in module.bal)
+        // env.getCurrentModule() returns the caller's module, not ballerina/workflow
         synchronized (WorkflowWorkerNative.class) {
             if (ballerinaRuntime == null) {
                 ballerinaRuntime = env.getRuntime();
             }
             if (workflowModule == null) {
-                workflowModule = env.getCurrentModule();
+                workflowModule = ModuleUtils.getModule();
             }
         }
 
         if (!initialized.get()) {
             return ErrorCreator.createError(
-                    StringUtils.fromString("Workflow worker not initialized. Module initialization may have failed."));
+                    StringUtils.fromString("Workflow program not initialized. Module initialization may have failed."));
         }
 
         if (singletonWorker == null) {
             return ErrorCreator.createError(
-                    StringUtils.fromString("Worker is null. Call initSingletonWorker first."));
+                    StringUtils.fromString("Workflow program is null. Initialization may have failed."));
         }
 
         try {
-            String workflowType = processName.getValue();
-            LOGGER.debug("Registering process: {}", workflowType);
+            String workflowType = workflowName.getValue();
+            LOGGER.debug("Registering workflow: {}", workflowType);
 
             // Check for duplicate registration
             if (PROCESS_REGISTRY.containsKey(workflowType)) {
                 return ErrorCreator.createError(
-                        StringUtils.fromString("Process with name '" + workflowType + "' is already registered"));
+                        StringUtils.fromString("Workflow with name '" + workflowType + "' is already registered"));
             }
 
-            // Store the process function in the process registry
-            PROCESS_REGISTRY.put(workflowType, processFunction);
+            // Store the workflow function in the process registry
+            PROCESS_REGISTRY.put(workflowType, workflowFunction);
 
             // Register activities if provided
             if (activities != null) {
@@ -382,8 +387,8 @@ public final class WorkflowWorkerNative {
                 }
             }
 
-            // Extract and register events from the process function signature
-            List<EventInfo> events = EventExtractor.extractEvents(processFunction, workflowType);
+            // Extract and register events from the workflow function signature
+            List<EventInfo> events = EventExtractor.extractEvents(workflowFunction, workflowType);
             if (!events.isEmpty()) {
                 List<String> eventNames = new ArrayList<>();
                 for (EventInfo event : events) {
@@ -396,9 +401,9 @@ public final class WorkflowWorkerNative {
             return true;
 
         } catch (Exception e) {
-            LOGGER.error("Failed to register process {}: {}", processName.getValue(), e.getMessage(), e);
+            LOGGER.error("Failed to register workflow {}: {}", workflowName.getValue(), e.getMessage(), e);
             return ErrorCreator.createError(
-                    StringUtils.fromString("Failed to register process: " + e.getMessage()));
+                    StringUtils.fromString("Failed to register workflow: " + e.getMessage()));
         }
     }
 
@@ -832,7 +837,7 @@ public final class WorkflowWorkerNative {
 
                 if (processFunction == null && templateService == null) {
                     String errorMsg = String.format("Workflow '%s' is not registered. " +
-                            "Please call registerProcess() for this workflow.", workflowType);
+                            "Please call registerWorkflow() for this workflow.", workflowType);
                     LOGGER.error("[JWorkflowAdapter] {}", errorMsg);
 
                     io.temporal.failure.ApplicationFailure failure =
@@ -1211,45 +1216,57 @@ public final class WorkflowWorkerNative {
                 throw new RuntimeException(errorMsg);
             }
 
-            // Decode arguments from Temporal - get each argument by index
-            // EncodedValues doesn't have a size() method, so try to get up to 10 args
-            List<Object> argsList = new ArrayList<>();
-            for (int i = 0; i < 10; i++) {
-                try {
-                    Object arg = args.get(i, Object.class);
-                    if (arg != null) {
-                        argsList.add(arg);
-                    } else {
-                        break;
-                    }
-                } catch (Exception e) {
-                    // No more arguments
-                    break;
-                }
-            }
+            // Decode arguments from Temporal.
+            // callActivity sends [namedArgsMap, callConfigMap].
+            // The first argument is a Map<String,Object> of named activity args,
+            // the second is the call configuration map.
+            @SuppressWarnings("unchecked")
+            Map<String, Object> namedArgs = args.get(0, Map.class);
 
-            // Extract call configuration from the last argument if present
+            // Extract call configuration from the second argument
             boolean failOnError = true; // default behavior
-            if (!argsList.isEmpty()) {
-                Object lastArg = argsList.get(argsList.size() - 1);
-                if (lastArg instanceof Map<?, ?> configMap 
-                        && Boolean.TRUE.equals(configMap.get(CALL_CONFIG_MARKER))) {
-                    Object failOnErrorVal = ((Map<String, Object>) configMap).get(FAIL_ON_ERROR_KEY);
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> callConfigMap = args.get(1, Map.class);
+                if (callConfigMap != null
+                        && Boolean.TRUE.equals(callConfigMap.get(CALL_CONFIG_MARKER))) {
+                    Object failOnErrorVal = callConfigMap.get(FAIL_ON_ERROR_KEY);
                     if (failOnErrorVal instanceof Boolean) {
                         failOnError = (Boolean) failOnErrorVal;
                     }
-                    // Remove the config map from args before passing to the activity function
-                    argsList.remove(argsList.size() - 1);
+                }
+            } catch (Exception e) {
+                // No call config available
+            }
+
+            // Reconstruct positional args by matching named map keys to the
+            // function's parameter names. This ensures that omitted optional
+            // parameters don't cause misalignment (e.g. when only url and auth
+            // are provided but method/headers/payload are skipped).
+            FunctionType funcType = (FunctionType) activityFunction.getType();
+            Parameter[] params = funcType.getParameters();
+
+            // Find the last parameter that is present in the map so we can
+            // omit trailing absent params (FPValue.call fills defaults for those).
+            int lastProvidedIndex = -1;
+            for (int i = 0; i < params.length; i++) {
+                if (namedArgs.containsKey(params[i].name)) {
+                    lastProvidedIndex = i;
                 }
             }
 
-            Object[] javaArgs = argsList.toArray();
-
-            // Convert Java arguments to Ballerina types
-            Object[] ballerinaArgs = new Object[javaArgs.length];
-            for (int i = 0; i < javaArgs.length; i++) {
-                ballerinaArgs[i] = convertJavaToBallerinaType(javaArgs[i]);
+            // Build positional Ballerina args up to the last provided param
+            List<Object> orderedArgs = new ArrayList<>();
+            for (int i = 0; i <= lastProvidedIndex; i++) {
+                String paramName = params[i].name;
+                if (namedArgs.containsKey(paramName)) {
+                    orderedArgs.add(convertJavaToBallerinaType(namedArgs.get(paramName)));
+                } else {
+                    orderedArgs.add(null); // intermediate absent param → null
+                }
             }
+
+            Object[] ballerinaArgs = orderedArgs.toArray();
 
             // Execute the Ballerina activity function
             FPValue fpValue = (FPValue) activityFunction;

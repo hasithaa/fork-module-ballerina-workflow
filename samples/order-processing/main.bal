@@ -69,11 +69,10 @@ service /orders on new http:Listener(9090) {
 }
 
 # Module initialization
-# Start worker before handling requests
 #
 # + return - Error if initialization fails
 public function main() returns error? {
     io:println("Starting Order Processing Sample...");
-    io:println("Worker started. HTTP Service listening on http://localhost:9090/orders");
+    io:println("Program started. HTTP Service listening on http://localhost:9090/orders");
     io:println("Test with: curl -X POST http://localhost:9090/orders -H 'Content-Type: application/json' -d '{\"orderId\":\"ORD-001\",\"item\":\"laptop\",\"quantity\":2}'");
 }

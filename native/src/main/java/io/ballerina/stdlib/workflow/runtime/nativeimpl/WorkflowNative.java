@@ -58,7 +58,7 @@ import java.util.concurrent.TimeUnit;
  *   <li>callActivity - Execute an activity within a workflow</li>
  *   <li>run - Start a new workflow</li>
  *   <li>sendData - Send data to a running workflow</li>
- *   <li>registerProcess - Register a process function with the runtime</li>
+ *   <li>registerWorkflow - Register a workflow function with the runtime</li>
  * </ul>
  *
  * @since 0.1.0

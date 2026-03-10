@@ -220,9 +220,13 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
     /**
      * Validates @Activity function signature.
      * <ul>
-     *   <li>All parameters must be subtypes of anydata</li>
+     *   <li>All parameters must be subtypes of anydata or typedesc</li>
      *   <li>Return type must be subtype of anydata|error</li>
      * </ul>
+     * <p>
+     * {@code typedesc} parameters are allowed for dependently-typed activities
+     * (e.g., built-in REST call). They are not serialised by the workflow engine
+     * and are excluded from {@code callActivity} argument matching.
      */
     private void validateActivityFunction(FunctionDefinitionNode functionNode, SyntaxNodeAnalysisContext context) {
         SemanticModel semanticModel = context.semanticModel();
@@ -235,11 +239,16 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         FunctionSymbol functionSymbol = (FunctionSymbol) symbolOpt.get();
         FunctionTypeSymbol typeSymbol = functionSymbol.typeDescriptor();
 
-        // Validate all parameters are subtypes of anydata
+        // Validate all parameters are subtypes of anydata (typedesc params are also allowed)
         Optional<List<ParameterSymbol>> paramsOpt = typeSymbol.params();
         if (paramsOpt.isPresent()) {
             for (ParameterSymbol param : paramsOpt.get()) {
                 TypeSymbol paramType = param.typeDescriptor();
+                if (paramType.typeKind() == TypeDescKind.TYPEDESC) {
+                    // typedesc parameters are allowed — they carry type metadata,
+                    // not data, and are excluded from workflow history serialization.
+                    continue;
+                }
                 if (!WorkflowPluginUtils.isSubtypeOfAnydata(paramType, semanticModel)) {
                     reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_103);
                     return;
@@ -347,6 +356,10 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
             // Check for required parameters
             List<ParameterSymbol> expectedParams = paramsOpt.get();
             for (ParameterSymbol param : expectedParams) {
+                // Skip typedesc parameters — not user-supplied data
+                if (param.typeDescriptor().typeKind() == TypeDescKind.TYPEDESC) {
+                    continue;
+                }
                 if (param.paramKind() == ParameterKind.REQUIRED) {
                     Optional<String> nameOpt = param.getName();
                     String paramName = nameOpt.orElse("unnamed");
@@ -387,6 +400,11 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
             Set<String> requiredParamNames = new HashSet<>();
             
             for (ParameterSymbol param : expectedParams) {
+                // Skip typedesc parameters — they are type metadata provided by
+                // the compiler's dependent-typing mechanism, not user-supplied data.
+                if (param.typeDescriptor().typeKind() == TypeDescKind.TYPEDESC) {
+                    continue;
+                }
                 Optional<String> nameOpt = param.getName();
                 if (nameOpt.isPresent()) {
                     expectedParamNames.add(nameOpt.get());
@@ -514,7 +532,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
     /**
      * Validates that no time:utcNow() calls are made within @Workflow functions.
      * time:utcNow() is non-deterministic and should not be used inside workflows.
-     * Users should use activity:currentTime() instead.
+     * Users should use ctx.currentTime() instead.
      */
     private void validateNoUtcNowCalls(FunctionDefinitionNode functionNode, SyntaxNodeAnalysisContext context) {
         UtcNowCallValidator validator = new UtcNowCallValidator(context);

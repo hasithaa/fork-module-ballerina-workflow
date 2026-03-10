@@ -211,53 +211,72 @@ public static class BallerinaWorkflowAdapter implements DynamicWorkflow {
 }
 ```
 
-**Dynamic Activity Adapter:**
+**Dynamic Activity Adapter (Named Args Map Pattern):**
+
+Activity arguments are passed through Temporal as a **named map** (`Map<String, Object>`) rather than a positional array. This avoids misalignment when optional parameters are omitted. The adapter reconstructs positional arguments by matching map keys to the function's parameter names using `FunctionType.getParameters()`.
+
 ```java
 public static class BallerinaActivityAdapter implements DynamicActivity {
-    private static final Logger LOGGER = LoggerFactory.getLogger(BallerinaActivityAdapter.class);
-    
     @Override
     public Object execute(EncodedValues args) {
         // 1. Get activity name from Temporal context
-        ActivityExecutionContext activityContext = Activity.getExecutionContext();
-        String activityType = activityContext.getInfo().getActivityType();
-        
-        LOGGER.debug("Executing activity: {}", activityType);
+        String activityName = Activity.getExecutionContext().getInfo().getActivityType();
         
         // 2. Get registered activity function
-        BFunctionPointer activityFunction = ACTIVITY_REGISTRY.get(activityType);
+        BFunctionPointer activityFunction = ACTIVITY_REGISTRY.get(activityName);
         
-        if (activityFunction == null) {
-            String errorMsg = "Activity '" + activityType + "' is not registered";
-            LOGGER.error(errorMsg);
-            throw new IllegalStateException(errorMsg);
+        // 3. Decode [namedArgsMap, callConfigMap] from Temporal
+        Map<String, Object> namedArgs = args.get(0, Map.class);
+        
+        // 4. Extract call configuration (failOnError flag)
+        boolean failOnError = true;
+        try {
+            Map<String, Object> callConfigMap = args.get(1, Map.class);
+            if (callConfigMap != null && Boolean.TRUE.equals(callConfigMap.get(CALL_CONFIG_MARKER))) {
+                Object failOnErrorVal = callConfigMap.get(FAIL_ON_ERROR_KEY);
+                if (failOnErrorVal instanceof Boolean) {
+                    failOnError = (Boolean) failOnErrorVal;
+                }
+            }
+        } catch (Exception e) { /* No call config available */ }
+        
+        // 5. Reconstruct positional args from named map using parameter metadata
+        FunctionType funcType = (FunctionType) activityFunction.getType();
+        Parameter[] params = funcType.getParameters();
+        
+        // Find last provided parameter index (trailing absent params use defaults)
+        int lastProvidedIndex = -1;
+        for (int i = 0; i < params.length; i++) {
+            if (namedArgs.containsKey(params[i].name)) {
+                lastProvidedIndex = i;
+            }
         }
         
-        // 3. Extract activity arguments
-        Object[] activityArgs = extractActivityArguments(args);
-        
-        // 4. Convert Java arguments to Ballerina types
-        Object[] ballerinaArgs = new Object[activityArgs.length];
-        for (int i = 0; i < activityArgs.length; i++) {
-            ballerinaArgs[i] = convertJavaToBallerinaType(activityArgs[i]);
+        // Build positional args, filling gaps with null for intermediate absent params
+        List<Object> orderedArgs = new ArrayList<>();
+        for (int i = 0; i <= lastProvidedIndex; i++) {
+            String paramName = params[i].name;
+            if (namedArgs.containsKey(paramName)) {
+                orderedArgs.add(convertJavaToBallerinaType(namedArgs.get(paramName)));
+            } else {
+                orderedArgs.add(null);
+            }
         }
         
-        // 5. Invoke the activity function
+        // 6. Invoke the activity function
         FPValue fpValue = (FPValue) activityFunction;
         fpValue.metadata = new StrandMetadata(true, fpValue.metadata.properties());
-        Object result = activityFunction.call(ballerinaRuntime, ballerinaArgs);
+        Object result = activityFunction.call(ballerinaRuntime, orderedArgs.toArray());
         
-        // 6. Handle errors
-        if (result instanceof BError err) {
-            LOGGER.error("Activity {} failed: {}", activityType, err.getMessage());
-            throw new RuntimeException("Activity failed: " + err.getMessage());
+        // 7. Handle errors based on failOnError
+        if (result instanceof BError bError) {
+            if (failOnError) {
+                throw berrorToApplicationFailure(bError, "ActivityFailed");
+            }
+            // failOnError=false: return error as normal completion value
         }
         
-        // 7. Convert result to Java type for Temporal
-        Object javaResult = convertBallerinaToJavaType(result);
-        LOGGER.debug("Activity {} completed successfully", activityType);
-        
-        return javaResult;
+        return convertBallerinaToJavaType(result);
     }
 }
 ```
@@ -267,31 +286,58 @@ Location: [WorkflowContextNative.java](native/src/main/java/io/ballerina/stdlib/
 
 Implements the `workflow:Context` client class remote methods:
 ```java
-// Called from Ballerina: ctx->callActivity(activityFunc, args...)
-public static Object callActivity(BObject contextObj, BFunctionPointer activityFunc, Object... args) {
-    // 1. Extract activity name from function metadata
-    String activityName = extractActivityName(activityFunc);
+// Called from Ballerina: ctx->callActivity(activityFunc, {"arg1": val1}, options = {...})
+public static Object callActivity(BObject self, BFunctionPointer activityFunction,
+        BMap<BString, Object> args, Object options, BTypedesc typedesc) {
+    // 1. Extract activity name and build full name (workflowType.activityName)
+    String simpleActivityName = activityFunction.getType().getName();
+    String workflowType = Workflow.getInfo().getWorkflowType();
+    String fullActivityName = workflowType + "." + simpleActivityName;
     
-    // 2. Get workflow type from context
-    String workflowType = getWorkflowType(contextObj);
-    String fullActivityName = workflowType + "." + activityName;
+    // 2. Convert BMap args to Java Map for Temporal serialization
+    //    Named map avoids positional misalignment with optional params
+    Map<String, Object> namedArgs = TypesUtil.convertBMapToMap(args);
     
-    // 3. Create ActivityOptions
-    ActivityOptions options = ActivityOptions.newBuilder()
+    // 3. Parse options (failOnError, retryPolicy)
+    boolean failOnError = true;
+    RetryOptions retryOptions = null;
+    if (options != null) {
+        BMap<BString, Object> optionsMap = (BMap<BString, Object>) options;
+        // Extract failOnError and retryPolicy from options...
+    }
+    
+    // 4. Build ActivityOptions with timeout and retry policy
+    ActivityOptions activityOptions = ActivityOptions.newBuilder()
         .setStartToCloseTimeout(Duration.ofMinutes(5))
+        .setRetryOptions(retryOptions)
         .build();
+    ActivityStub stub = Workflow.newUntypedActivityStub(activityOptions);
     
-    // 4. Create activity stub
-    ActivityStub stub = Workflow.newUntypedActivityStub(options);
+    // 5. Build call config map for the adapter
+    Map<String, Object> callConfig = new HashMap<>();
+    callConfig.put(CALL_CONFIG_MARKER, true);
+    callConfig.put(FAIL_ON_ERROR_KEY, failOnError);
     
-    // 5. Convert Ballerina args to Java types
-    Object[] javaArgs = convertBallerinaArgsToJava(args);
+    // 6. Execute activity - passes [namedArgs, callConfig] as two Temporal args
+    Object result = stub.execute(fullActivityName, Object.class,
+            new Object[] { namedArgs, callConfig });
     
-    // 6. Execute activity
-    Object result = stub.execute(fullActivityName, Object.class, javaArgs);
-    
-    // 7. Convert result back to Ballerina type
-    return convertJavaToBallerinaType(result);
+    // 7. Convert result back to Ballerina type using typedesc
+    Object ballerinaResult = TypesUtil.convertJavaToBallerinaType(result);
+    return TypesUtil.cloneWithType(ballerinaResult, typedesc.getDescribingType());
+}
+```
+
+Additional Context methods:
+```java
+// Deterministic time - returns same value during replays
+public static long currentTimeMillis(Object contextHandle) {
+    return Workflow.currentTimeMillis();
+}
+
+// Replay detection
+public static boolean isReplaying(Object contextHandle) {
+    return Workflow.isReplaying();
 }
 ```
 
@@ -299,7 +345,7 @@ public static Object callActivity(BObject contextObj, BFunctionPointer activityF
 
 The compiler plugin has **limited involvement** in dynamic workflow implementation:
 - Validates `@Workflow` and `@Activity` function signatures
-- Auto-generates `registerProcess()` calls
+- Auto-generates `registerWorkflow()` calls
 - Validates `ctx->callActivity()` calls use `@Activity` functions (WORKFLOW_107)
 - Prevents direct activity calls (WORKFLOW_108)
 
@@ -327,9 +373,11 @@ The compiler plugin has **limited involvement** in dynamic workflow implementati
 3. Activity Execution (from within workflow)
    └─> Ballerina: ctx->callActivity(myActivity, {"arg1": val1, "arg2": val2})
        └─> WorkflowContextNative.callActivity()
-           ├─> Extract activity name
-           ├─> Create ActivityStub
-           ├─> stub.execute(activityName, args)
+           ├─> Extract activity name (workflowType.activityName)
+           ├─> Convert BMap args to named Map<String,Object>
+           ├─> Build callConfig map with failOnError flag
+           ├─> Create ActivityStub with options
+           ├─> stub.execute(name, [namedArgs, callConfig])
            └─> Temporal schedules activity task
 
 4. Activity Task Execution
@@ -337,9 +385,10 @@ The compiler plugin has **limited involvement** in dynamic workflow implementati
        └─> BallerinaActivityAdapter.execute(encodedArgs)
            ├─> Get activity name from Activity.getExecutionContext()
            ├─> Lookup activityFunction in ACTIVITY_REGISTRY
-           ├─> Extract and convert arguments
-           ├─> activityFunction.call(ballerinaRuntime, args)
-           └─> Convert result to Java type
+           ├─> Decode [namedArgsMap, callConfigMap] from Temporal
+           ├─> Reconstruct positional args using FunctionType.getParameters()
+           ├─> activityFunction.call(ballerinaRuntime, orderedArgs)
+           └─> Convert result to Java type (or throw on error if failOnError)
 
 5. Event Handling
    └─> Ballerina: wait events.approval
@@ -361,8 +410,9 @@ The compiler plugin has **limited involvement** in dynamic workflow implementati
 4. **Signal Wrapper Per Instance**: Each workflow execution gets its own `SignalAwaitWrapper` for signal isolation
 5. **Context Injection**: `workflow:Context` automatically created and injected as first parameter if signature has it
 6. **Events Injection**: Events record with `TemporalFutureValue` objects automatically created if signature has it
-7. **Error Handling**: Ballerina errors converted to Temporal `ApplicationFailure` (non-retryable)
-8. **Backward Compatibility**: Falls back to service object pattern if no process function registered
+7. **Error Handling**: Ballerina errors converted to Temporal `ApplicationFailure` (non-retryable). `failOnError` flag controls whether activity errors are retried or returned as values.
+8. **Named Args Map Pattern**: Activity arguments are passed through Temporal as a named `Map<String, Object>` rather than a positional array. The adapter reconstructs positional args using `FunctionType.getParameters()` and `Parameter.name`. This avoids misalignment when optional parameters are omitted from the args map.
+9. **Call Config Map**: Each activity call includes a separate call config map (`[namedArgs, callConfig]`) carrying the `failOnError` flag and a marker to distinguish it from user data.
 
 ## Success Criteria
 

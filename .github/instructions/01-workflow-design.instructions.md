@@ -49,10 +49,13 @@ public isolated function registerWorkflow(function workflowFunction, string work
 public client class Context {
     # Call an activity from within a workflow
     remote function callActivity(function activityFunction, map<anydata> args = {}, 
-        typedesc<anydata> T = <>) returns T|error;
+        ActivityOptions? options = (), typedesc<anydata> T = <>) returns T|error;
     
-    # Sleep for the specified duration (deterministic)
+    # Sleep for the specified duration (deterministic, survives restarts)
     function sleep(time:Duration duration) returns error?;
+    
+    # Get deterministic current time (same value during replays)
+    function currentTime() returns time:Utc;
     
     # Check if workflow is currently replaying
     function isReplaying() returns boolean;
@@ -93,13 +96,13 @@ private static final Map<String, BFunctionPointer> ACTIVITY_REGISTRY;
 private static final Map<String, List<String>> EVENT_REGISTRY;
 ```
 
-**Singleton worker management:**
+**Singleton program management:**
 ```java
 public static Object initSingletonWorker(BString url, BString namespace, 
     BString taskQueue, long maxWorkflows, long maxActivities,
     BString apiKey, BString mtlsCert, BString mtlsKey);
-public static Object registerProcessWithWorker(BFunctionPointer processFunc, 
-    BString processName, BMap activities);
+public static Object registerWorkflow(BFunctionPointer workflowFunc, 
+    BString workflowName, BMap activities);
 public static Object startSingletonWorker();
 ```
 
@@ -115,10 +118,18 @@ public static class BallerinaWorkflowAdapter implements DynamicWorkflow {
 public static class BallerinaActivityAdapter implements DynamicActivity {
     @Override
     public Object execute(EncodedValues args) {
+        // Receives [namedArgsMap, callConfigMap] from Temporal
+        // Reconstructs positional args using FunctionType.getParameters()
         // Routes to registered activity function via ACTIVITY_REGISTRY
     }
 }
 ```
+
+#### Submodules
+
+**workflow.internal** - Internal registration functions (not user-facing):
+- `registerWorkflow()` - Called by compiler-generated code to register workflows
+
 
 #### WorkflowNative.java
 Location: [WorkflowNative.java](native/src/main/java/io/ballerina/stdlib/workflow/runtime/nativeimpl/WorkflowNative.java)

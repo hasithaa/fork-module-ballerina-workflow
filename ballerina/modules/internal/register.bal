@@ -28,5 +28,5 @@ import ballerina/jballerina.java;
 # + return - `true` if registration was successful, or an error if registration fails
 public isolated function registerWorkflow(function workflowFunction, string workflowName, map<function>? activities = ()) returns boolean|error = @java:Method {
     'class: "io.ballerina.stdlib.workflow.worker.WorkflowWorkerNative",
-    name: "registerProcessWithWorker"
+    name: "registerWorkflow"
 } external;

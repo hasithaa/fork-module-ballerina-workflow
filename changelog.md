@@ -10,16 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - New `ballerina/workflow.'internal` submodule containing internal registration APIs used by the
   compiler plugin. Not intended for direct use by application code.
-- New `ballerina/workflow.activity` submodule with workflow-safe utility functions:
-  - `activity:sleep(time:Duration duration)` — Durable, deterministic sleep that replaces
-    `Context.sleep()`. Persisted in workflow history and survives program restarts.
-  - `activity:currentTime() returns time:Utc` — Returns the current workflow time as
-    reported by the workflow engine. This value is deterministic across replays and is
-    **not** the same as `time:utcNow()` from `ballerina/time`, which reads the OS clock
-    and must not be used inside `@workflow:Workflow` functions.
-- Both `workflow.internal` and `workflow.activity` submodules are now exported in `Ballerina.toml`.
+- Added `ctx.currentTime() returns time:Utc` method to the `Context` client class — returns
+  the current workflow time as reported by the workflow engine. This value is deterministic
+  across replays and is **not** the same as `time:utcNow()` from `ballerina/time`, which
+  reads the OS clock and must not be used inside `@workflow:Workflow` functions.
 - Added `WORKFLOW_113` compiler diagnostic (warning) for usage of `time:utcNow()` inside
-  `@workflow:Workflow` functions — suggests using `activity:currentTime()` instead.
+  `@workflow:Workflow` functions — suggests using `ctx.currentTime()` instead.
 
 ### Changed
 
@@ -32,8 +28,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   internal API used by the compiler plugin code generation. It has been moved to the
   `ballerina/workflow.'internal` submodule as `registerWorkflow()`. User code
   and compiler plugin-generated code should not call this function directly.
-- **[Breaking]** Removed `Context.sleep()` method — use the new `activity:sleep()` function
-  instead.
 
 
 ## [0.2.0] - 2026-03-04

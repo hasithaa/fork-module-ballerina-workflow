@@ -122,6 +122,8 @@ The `startSharedTestServer` task checks port 7233 first. If a server is already 
 - Uses Temporal CLI dev server
 - Tests full workflow execution, activities, signals, correlation
 - Supports `ListWorkflowExecutions` for correlation-based signal routing
+- Includes HTTP activity tests (GET, POST, PUT, PATCH, DELETE, auth, XML responses)
+- Includes builtin activity tests (sleep, currentTime, isReplaying, getWorkflowId, getWorkflowType)
 - Example: Test workflow start, signal sending, completion
 ```ballerina
 @test:Config {}
@@ -135,7 +137,7 @@ function testWorkflowExecution() returns error? {
 ### Compiler Plugin Tests (compiler-plugin-tests/)
 - Tests compile-time validations
 - No Temporal server needed
-- Tests WORKFLOW_107, WORKFLOW_108, and other error codes
+- Tests WORKFLOW_107, WORKFLOW_108, WORKFLOW_113, and other error codes
 
 ## Test Commands
 

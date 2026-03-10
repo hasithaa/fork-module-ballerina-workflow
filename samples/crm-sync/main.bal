@@ -82,6 +82,6 @@ service /sync on new http:Listener(9091) {
 # + return - Error if initialization fails
 public function main() returns error? {
     io:println("Starting CRM Sync Sample...");
-    io:println("Worker started. HTTP Service listening on http://localhost:9091/sync");
+    io:println("Program started. HTTP Service listening on http://localhost:9091/sync");
     io:println("Test with: curl -X POST http://localhost:9091/sync/contact -H 'Content-Type: application/json' -d '{\"id\":\"CONT-001\",\"email\":\"user@example.com\",\"firstName\":\"John\",\"lastName\":\"Doe\",\"phone\":\"+1234567890\",\"company\":\"ACME Corp\"}'");
 }

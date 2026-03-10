@@ -7,6 +7,7 @@ A Ballerina standard library module providing durable workflow orchestration via
 
 ### Module Structure
 - `ballerina/` - Core Ballerina module (types, annotations, context, public API)
+  - `modules/internal/` - Internal registration functions (`registerWorkflow()`) called by compiler-generated code
 - `native/` - Java native implementation (Temporal SDK integration, worker management)
 - `compiler-plugin/` - Validates `@Workflow`/`@Activity` annotations, transforms activity calls
 - `compiler-plugin-tests/` - Compiler plugin test suite
@@ -19,7 +20,7 @@ A Ballerina standard library module providing durable workflow orchestration via
 
 **Annotations**: `@Workflow` and `@Activity`.
 
-**Context Client Class**: `workflow:Context` is a client class with `callActivity` as a remote method. Users **must** call activities via `ctx->callActivity(activityFunc, args...)`. Direct activity function calls are not allowed. Parameters use `map<anydata>` type.
+**Context Client Class**: `workflow:Context` is a client class with `callActivity` as a remote method. Users **must** call activities via `ctx->callActivity(activityFunc, args...)`. Direct activity function calls are not allowed. Parameters use `map<anydata>` type. Activity arguments are passed through Temporal as a **named map** and reconstructed into positional args using `FunctionType.getParameters()` in `BallerinaActivityAdapter`. Also provides `sleep()`, `currentTime()`, `isReplaying()`, `getWorkflowId()`, `getWorkflowType()`.
 
 **Compiler Plugin Validation**: The plugin at [WorkflowCompilerPlugin.java](compiler-plugin/src/main/java/io/ballerina/stdlib/workflow/compiler/WorkflowCompilerPlugin.java) performs validation:
 1. Validates that `ctx->callActivity()` calls use functions with `@Activity` annotation (produces `WORKFLOW_107` error otherwise)
@@ -194,10 +195,17 @@ mtlsKey = "/path/to/client.key"
 | WORKFLOW_107 | callActivity target not @Activity | Calling non-activity via ctx->callActivity() |
 | WORKFLOW_108 | Direct activity call | Direct call to @Activity function (must use ctx->callActivity()) |
 | WORKFLOW_112 | Ambiguous signal types (warning) | Multiple signals with same structure in workflow definition |
+| WORKFLOW_113 | Non-deterministic time call | Using `time:utcNow()` inside `@Workflow` function (use `ctx.currentTime()` instead) |
 
 ## Common Pitfalls
 - Register all test processes in `@test:BeforeSuite` - registry cannot be cleared with singleton pattern
 - Process functions must be deterministic - no I/O, use activities instead
+- Don't mix Listener pattern (deprecated) with singleton pattern
+- **Never use Java blocking calls** in workflow code (causes `PotentialDeadlockException`)
+- Signal waiting uses `TemporalFutureValue.getAndSetWaited()` to intercept Ballerina's `wait` and use `Workflow.await()` instead of blocking `CompletableFuture.get()`
+- **Typed records lose specificity** through Temporal JSON serialization — `BasicAuth`, `BearerAuth`, `map<string>` all become `map<anydata>`. Use field-presence checks (`authMap.hasKey("username")`) instead of type guards
+- **Ballerina `xml` type** cannot be serialized by Temporal's Jackson-based persistence. Convert XML to `string` before returning from activities
+- **Use `ctx.currentTime()`** instead of `time:utcNow()` inside workflow functions for deterministic time (compiler plugin produces WORKFLOW_113 error otherwise)
 - Don't mix Listener pattern (deprecated) with singleton pattern
 - **Never use Java blocking calls** in workflow code (causes `PotentialDeadlockException`)
 - Signal waiting uses `TemporalFutureValue.getAndSetWaited()` to intercept Ballerina's `wait` and use `Workflow.await()` instead of blocking `CompletableFuture.get()`

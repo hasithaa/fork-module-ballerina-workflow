@@ -31,7 +31,7 @@ import io.ballerina.projects.plugins.CompilerPluginContext;
  *   <li>Code modification to detect functions annotated with @workflow:Workflow</li>
  *   <li>Finding @workflow:Activity function calls within process functions</li>
  *   <li>Replacing activity calls with callActivity(functionPointer, args...)</li>
- *   <li>Adding registerProcess call at module level</li>
+ *   <li>Adding registerWorkflow call at module level</li>
  * </ul>
  *
  * @since 0.1.0
