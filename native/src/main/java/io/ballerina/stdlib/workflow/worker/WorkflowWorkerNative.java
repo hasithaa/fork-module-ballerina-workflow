@@ -589,23 +589,39 @@ public final class WorkflowWorkerNative {
         io.temporal.common.RetryOptions.Builder retryBuilder = io.temporal.common.RetryOptions.newBuilder();
 
         Object initialInterval = retryMap.get(StringUtils.fromString("initialIntervalInSeconds"));
-        if (initialInterval instanceof Long) {
-            retryBuilder.setInitialInterval(java.time.Duration.ofSeconds((Long) initialInterval));
+        if (initialInterval instanceof Long intervalVal) {
+            if (intervalVal <= 0) {
+                throw new IllegalArgumentException(
+                        "initialIntervalInSeconds must be a positive integer, got " + intervalVal);
+            }
+            retryBuilder.setInitialInterval(java.time.Duration.ofSeconds(intervalVal));
         }
 
         Object backoff = retryMap.get(StringUtils.fromString("backoffCoefficient"));
         if (backoff instanceof io.ballerina.runtime.api.values.BDecimal) {
-            retryBuilder.setBackoffCoefficient(
-                    ((io.ballerina.runtime.api.values.BDecimal) backoff).floatValue());
+            double backoffVal = ((io.ballerina.runtime.api.values.BDecimal) backoff).floatValue();
+            if (backoffVal < 1.0) {
+                throw new IllegalArgumentException(
+                        "backoffCoefficient must be >= 1.0, got " + backoffVal);
+            }
+            retryBuilder.setBackoffCoefficient(backoffVal);
         }
 
         Object maxInterval = retryMap.get(StringUtils.fromString("maximumIntervalInSeconds"));
-        if (maxInterval instanceof Long) {
-            retryBuilder.setMaximumInterval(java.time.Duration.ofSeconds((Long) maxInterval));
+        if (maxInterval instanceof Long maxIntervalVal) {
+            if (maxIntervalVal <= 0) {
+                throw new IllegalArgumentException(
+                        "maximumIntervalInSeconds must be a positive integer, got " + maxIntervalVal);
+            }
+            retryBuilder.setMaximumInterval(java.time.Duration.ofSeconds(maxIntervalVal));
         }
 
         Object maxAttempts = retryMap.get(StringUtils.fromString("maximumAttempts"));
         if (maxAttempts instanceof Long maxAttemptsLong) {
+            if (maxAttemptsLong < 0) {
+                throw new IllegalArgumentException(
+                        "maximumAttempts must be a non-negative integer, got " + maxAttemptsLong);
+            }
             retryBuilder.setMaximumAttempts(Math.toIntExact(maxAttemptsLong));
         }
 

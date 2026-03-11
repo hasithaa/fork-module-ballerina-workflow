@@ -23,7 +23,7 @@ import ballerina/workflow.internal as wfInternal;
 // For workflow execution tests (run, sendData), a separate integration test 
 // suite should be created that initializes the embedded test server before registering workflows.
 //
-// IMPORTANT: With the singleton worker pattern, we cannot clear the registry between tests.
+// IMPORTANT: With the single workflow scheduler pattern, we cannot clear the registry between tests.
 // All processes are registered once in @test:BeforeSuite and tests verify specific registrations.
 
 // Record types for events in test processes

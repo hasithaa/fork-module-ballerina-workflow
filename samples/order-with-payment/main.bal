@@ -111,7 +111,7 @@ service /orders on new http:Listener(9094) {
 # + return - Error if startup fails
 public function main() returns error? {
     io:println("Starting Order with Payment Sample...");
-    io:println("Worker started. HTTP Service listening on http://localhost:9094/orders");
+    io:println("Workflow scheduler started. HTTP Service listening on http://localhost:9094/orders");
     io:println("Test with:");
     io:println("  1. Place order: curl -X POST http://localhost:9094/orders -H 'Content-Type: application/json' -d '{\"orderId\":\"ORD-001\",\"item\":\"laptop\"}'");
     io:println("  2. Send payment: curl -X POST http://localhost:9094/orders/ORD-001/payment -H 'Content-Type: application/json' -d '{\"amount\":1999.99}'");

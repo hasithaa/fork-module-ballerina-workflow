@@ -101,12 +101,10 @@ function processOrderWithPayment(
 The Workflow library requires a running Temporal server. You can configure the connection using a `Config.toml` file in your project root:
 
 ```toml
-[ballerina.workflow.workflowConfig]
+[ballerina.workflow]
 mode = "LOCAL"
 url = "localhost:7233"
 namespace = "default"
-
-[ballerina.workflow.workflowConfig.scheduler]
 taskQueue = "MY_TASK_QUEUE"
 maxConcurrentWorkflows = 100
 ```

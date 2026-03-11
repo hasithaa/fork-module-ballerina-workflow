@@ -62,54 +62,108 @@ function initModule() = @java:Method {
 # This creates the workflow client and program that will be shared across
 # all workflow executions in this runtime.
 #
-# + return - An error if initialization fails, otherwise nil
+# Performs mode-based validation:
+# - IN_MEMORY: No server connection needed; all other config fields are ignored.
+# - LOCAL: Connects to a local dev server; auth fields are ignored.
+# - CLOUD: Requires url, namespace, and authentication (apiKey or mTLS).
+# - SELF_HOSTED: Requires url; authentication is optional.
+#
+# + return - An error if initialization or validation fails, otherwise nil
 isolated function initWorkflowRuntime() returns error? {
     lock {
         if programStarted {
             return;
         }
-        WorkflowConfig config = workflowConfig;
-        if config is InMemoryConfig {
-            // In-memory mode: use embedded test server, no external server needed
+        Mode currentMode = mode;
+        if currentMode == IN_MEMORY {
             check initInMemoryProgramNative();
             programStarted = true;
             return;
         }
-        // Extract connection parameters based on deployment mode
-        string url;
-        string namespace;
-        SchedulerConfig schedulerCfg;
-        string apiKey = "";
-        string mtlsCert = "";
-        string mtlsKey = "";
-        if config is CloudConfig {
-            url = config.url;
-            namespace = config.namespace;
-            schedulerCfg = config.scheduler;
-            apiKey = config.auth.apiKey ?: "";
-            mtlsCert = config.auth.mtlsCert ?: "";
-            mtlsKey = config.auth.mtlsKey ?: "";
-        } else if config is SelfHostedConfig {
-            url = config.url;
-            namespace = config.namespace;
-            schedulerCfg = config.scheduler;
-            if config.auth is AuthConfig {
-                AuthConfig auth = <AuthConfig>config.auth;
-                apiKey = auth.apiKey ?: "";
-                mtlsCert = auth.mtlsCert ?: "";
-                mtlsKey = auth.mtlsKey ?: "";
-            }
-        } else {
-            // LocalConfig
-            LocalConfig localCfg = <LocalConfig>config;
-            url = localCfg.url;
-            namespace = localCfg.namespace;
-            schedulerCfg = localCfg.scheduler;
+
+        // Validate url for CLOUD and SELF_HOSTED (must be explicitly provided)
+        string currentUrl = url;
+        if currentUrl == "" {
+            return error("'url' is required for " + currentMode + " mode");
         }
-        check initProgramNative(url, namespace, schedulerCfg.taskQueue,
-                schedulerCfg.maxConcurrentWorkflows, schedulerCfg.maxConcurrentActivities,
-                apiKey, mtlsCert, mtlsKey,
-                schedulerCfg.defaultActivityRetryPolicy);
+
+        // Validate authentication for CLOUD (must have apiKey or mTLS)
+        string? currentApiKey = authApiKey;
+        string? currentMtlsCert = authMtlsCert;
+        string? currentMtlsKey = authMtlsKey;
+        if currentMode == CLOUD {
+            if currentApiKey is () && (currentMtlsCert is () || currentMtlsKey is ()) {
+                return error("CLOUD mode requires authentication: "
+                        + "provide either 'authApiKey' or both 'authMtlsCert' and 'authMtlsKey'");
+            }
+        }
+
+        // Validate mTLS pair completeness (both or neither)
+        if (currentMtlsCert is string && currentMtlsKey is ())
+                || (currentMtlsCert is () && currentMtlsKey is string) {
+            return error("Both 'authMtlsCert' and 'authMtlsKey' must be provided together");
+        }
+
+        // Validate scheduler fields
+        int concurrentWorkflows = maxConcurrentWorkflows;
+        int concurrentActivities = maxConcurrentActivities;
+        if concurrentWorkflows <= 0 {
+            return error("'maxConcurrentWorkflows' must be a positive integer, got "
+                    + concurrentWorkflows.toString());
+        }
+        if concurrentActivities <= 0 {
+            return error("'maxConcurrentActivities' must be a positive integer, got "
+                    + concurrentActivities.toString());
+        }
+
+        // Validate default retry policy fields
+        int retryInitialInterval = activityRetryInitialInterval;
+        decimal retryBackoff = activityRetryBackoffCoefficient;
+        int retryMaxInterval = activityRetryMaximumInterval;
+        int retryMaxAttempts = activityRetryMaximumAttempts;
+        if retryInitialInterval <= 0 {
+            return error("'activityRetryInitialInterval' must be a positive integer, got "
+                    + retryInitialInterval.toString());
+        }
+        if retryBackoff < 1.0d {
+            return error("'activityRetryBackoffCoefficient' must be >= 1.0, got "
+                    + retryBackoff.toString());
+        }
+        if retryMaxInterval < 0 {
+            return error("'activityRetryMaximumInterval' must be a non-negative integer, got "
+                    + retryMaxInterval.toString());
+        }
+        if retryMaxAttempts < 0 {
+            return error("'activityRetryMaximumAttempts' must be a non-negative integer, got "
+                    + retryMaxAttempts.toString());
+        }
+
+        // Build the ActivityRetryPolicy record for the native layer
+        ActivityRetryPolicy defaultRetryPolicy;
+        if retryMaxInterval > 0 {
+            defaultRetryPolicy = {
+                initialIntervalInSeconds: retryInitialInterval,
+                backoffCoefficient: retryBackoff,
+                maximumIntervalInSeconds: retryMaxInterval,
+                maximumAttempts: retryMaxAttempts
+            };
+        } else {
+            defaultRetryPolicy = {
+                initialIntervalInSeconds: retryInitialInterval,
+                backoffCoefficient: retryBackoff,
+                maximumAttempts: retryMaxAttempts
+            };
+        }
+
+        // For LOCAL mode, ignore auth fields; coalesce nil → "" for native layer
+        string effectiveApiKey = currentMode == LOCAL ? "" : (currentApiKey ?: "");
+        string effectiveMtlsCert = currentMode == LOCAL ? "" : (currentMtlsCert ?: "");
+        string effectiveMtlsKey = currentMode == LOCAL ? "" : (currentMtlsKey ?: "");
+
+        check initProgramNative(currentUrl, namespace, taskQueue,
+                concurrentWorkflows, concurrentActivities,
+                effectiveApiKey, effectiveMtlsCert, effectiveMtlsKey,
+                defaultRetryPolicy);
         programStarted = true;
     }
 }

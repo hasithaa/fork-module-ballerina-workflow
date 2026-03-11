@@ -31,7 +31,7 @@ Location: [TemporalFutureValue.java](native/src/main/java/io/ballerina/stdlib/wo
 Location: [EventFutureCreator.java](native/src/main/java/io/ballerina/stdlib/workflow/utils/EventFutureCreator.java)
 
 **Purpose**: Creates the events record with `TemporalFutureValue` objects for each signal field.
-- `createEventsRecord(RecordType, SignalAwaitWrapper, Scheduler)` — iterates over record fields, creates a `TemporalFutureValue` for each, returns a populated `BMap` record. The `Scheduler` parameter supplies the execution context (thread pool / task executor) used to schedule resolution callbacks for each `TemporalFutureValue` and coordinate async signal handling; it is expected to be long-lived (matching the worker lifecycle) and does not support cancellation of individual signal callbacks
+- `createEventsRecord(RecordType, SignalAwaitWrapper, Scheduler)` — iterates over record fields, creates a `TemporalFutureValue` for each, returns a populated `BMap` record. The `Scheduler` parameter supplies the execution context (thread pool / task executor) used to schedule resolution callbacks for each `TemporalFutureValue` and coordinate async signal handling; it is expected to be long-lived (matching the scheduler lifecycle) and does not support cancellation of individual signal callbacks
 
 #### SignalAwaitWrapper.java
 Location: [SignalAwaitWrapper.java](native/src/main/java/io/ballerina/stdlib/workflow/context/SignalAwaitWrapper.java)

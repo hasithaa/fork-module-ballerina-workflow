@@ -10,27 +10,28 @@ The workflow module manages a Temporal scheduler ensuring:
 - One workflow SDK instance per JVM
 - Scheduler created at module initialization time
 - Configuration via Ballerina configurable variables
-- Union-type configuration supporting multiple deployment modes
+- Enum-based mode selection (LOCAL, CLOUD, SELF_HOSTED, IN_MEMORY)
 
 ## Current Implementation
 
 ### 1. Ballerina Layer
 
-#### Configuration Types
-Defined in [types.bal](ballerina/types.bal):
-- `WorkflowConfig` — union type: `LocalConfig|CloudConfig|SelfHostedConfig|InMemoryConfig`
-- Each variant is a closed record discriminated by a `mode` field (`"LOCAL"`, `"CLOUD"`, `"SELF_HOSTED"`, `"IN_MEMORY"`)
-- `SchedulerConfig` — controls `taskQueue`, `maxConcurrentWorkflows`, `maxConcurrentActivities`, `defaultActivityRetryPolicy`
-- `AuthConfig` — optional `apiKey`, `mtlsCert`, `mtlsKey`
+#### Configuration Variables
+Defined in [config.bal](ballerina/config.bal) as flat `configurable` variables:
+- `mode` — deployment mode enum: `LOCAL`, `CLOUD`, `SELF_HOSTED`, or `IN_MEMORY`
+- `url`, `namespace` — server connection parameters
+- `authApiKey`, `authMtlsCert`, `authMtlsKey` — authentication (`string?` optional, used by CLOUD/SELF_HOSTED modes)
+- `taskQueue`, `maxConcurrentWorkflows`, `maxConcurrentActivities` — scheduler parameters
+- `activityRetryInitialInterval`, `activityRetryBackoffCoefficient`, `activityRetryMaximumInterval`, `activityRetryMaximumAttempts` — default activity retry policy
 
 #### Configurable Variable
 Declared in [config.bal](ballerina/config.bal):
-- `configurable WorkflowConfig workflowConfig = {mode: "LOCAL"};`
+- All variables are flat `configurable` values under `[ballerina.workflow]` in Config.toml
 
 #### Module Initialization
 Implemented in [module.bal](ballerina/module.bal):
 - `init()` — calls `initModule()` to capture module reference, then `initWorkflowRuntime()`
-- `initWorkflowRuntime()` — extracts connection parameters from the `WorkflowConfig` union type, dispatches to `initProgramNative()` or `initInMemoryProgramNative()`
+- `initWorkflowRuntime()` — validates mode-specific constraints (e.g., CLOUD requires auth), validates positive integer fields, dispatches to `initProgramNative()` or `initInMemoryProgramNative()`
 - `startWorkflowRuntime()` — starts the Temporal scheduler (begins polling for tasks)
 - `stopWorkflowRuntime()` — shuts down the scheduler gracefully
 
@@ -38,12 +39,10 @@ Implemented in [module.bal](ballerina/module.bal):
 
 **Local (default):**
 ```toml
-[ballerina.workflow.workflowConfig]
+[ballerina.workflow]
 mode = "LOCAL"
 url = "localhost:7233"
 namespace = "default"
-
-[ballerina.workflow.workflowConfig.scheduler]
 taskQueue = "my-task-queue"
 maxConcurrentWorkflows = 50
 maxConcurrentActivities = 50
@@ -51,30 +50,22 @@ maxConcurrentActivities = 50
 
 **Cloud with API key:**
 ```toml
-[ballerina.workflow.workflowConfig]
+[ballerina.workflow]
 mode = "CLOUD"
 url = "my-ns.my-account.tmprl.cloud:7233"
 namespace = "my-ns.my-account"
-
-[ballerina.workflow.workflowConfig.auth]
-apiKey = "my-api-key"
-
-[ballerina.workflow.workflowConfig.scheduler]
+authApiKey = "my-api-key"
 taskQueue = "my-task-queue"
 ```
 
 **Self-hosted with mTLS:**
 ```toml
-[ballerina.workflow.workflowConfig]
+[ballerina.workflow]
 mode = "SELF_HOSTED"
 url = "temporal.mycompany.com:7233"
 namespace = "production"
-
-[ballerina.workflow.workflowConfig.auth]
-mtlsCert = "/path/to/client.pem"
-mtlsKey = "/path/to/client.key"
-
-[ballerina.workflow.workflowConfig.scheduler]
+authMtlsCert = "/path/to/client.pem"
+authMtlsKey = "/path/to/client.key"
 taskQueue = "my-task-queue"
 ```
 
@@ -86,7 +77,7 @@ Location: [WorkflowWorkerNative.java](native/src/main/java/io/ballerina/stdlib/w
 **Scheduler state** — static volatile fields for `WorkflowServiceStubs`, `WorkflowClient`, `WorkerFactory`, `Worker`, and `taskQueue`. Thread safety via `AtomicBoolean` flags (`initialized`, `started`, `dynamicWorkflowRegistered`, `dynamicActivityRegistered`).
 
 **Key methods:**
-- `initSingletonWorker(BString url, BString namespace, BString taskQueue, long maxWorkflows, long maxActivities, BString apiKey, BString mtlsCert, BString mtlsKey, BMap retryPolicy)` — creates gRPC connection, `WorkflowClient`, `WorkerFactory`, and `Worker` with the configured task queue and concurrency limits. Configures mTLS or API key auth when provided.
+- `initSingletonWorker(BString url, BString namespace, BString taskQueue, long maxWorkflows, long maxActivities, BString apiKey, BString mtlsCert, BString mtlsKey, BMap retryPolicy)` — creates gRPC connection, `WorkflowClient`, `WorkerFactory`, and `Worker` with the configured task queue and concurrency limits. Auth strings are empty when not configured (Ballerina layer coalesces `()` → `""` before calling native). Configures mTLS or API key auth when provided.
 - `initInMemoryWorker()` — creates an in-memory test scheduler (no external Temporal server needed)
 - `registerWorkflow(Environment, BFunctionPointer workflowFunc, BString workflowName, Object activities)` — stores workflow in `PROCESS_REGISTRY`, activities in `ACTIVITY_REGISTRY`, registers `BallerinaWorkflowAdapter` and `BallerinaActivityAdapter` (once each)
 - `startSingletonWorker()` — calls `workerFactory.start()` to begin polling the task queue
@@ -103,8 +94,8 @@ The compiler plugin has **no direct involvement** in the scheduler lifecycle. It
    └─> init() called
        ├─> initModule() — capture module reference
        └─> initWorkflowRuntime()
-           ├─> Extract config from WorkflowConfig union type
-           ├─> Configure auth (mTLS/API key) if provided
+           ├─> Validate mode-specific constraints (enum-based)
+           ├─> Coalesce optional auth (nil → "") for native layer
            └─> initProgramNative() → creates WorkflowServiceStubs, WorkflowClient, WorkerFactory, Worker
 
 2. Compiler Plugin Code Generation
@@ -158,4 +149,4 @@ The compiler plugin has **no direct involvement** in the scheduler lifecycle. It
 ✅ **Configuration:**
 - Config.toml overrides work correctly
 - Invalid configuration produces clear error messages
-- Worker respects concurrency limits from configuration
+- The workflow scheduler respects concurrency limits from configuration

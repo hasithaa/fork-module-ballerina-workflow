@@ -54,6 +54,10 @@ type TimeResult record {|
 
 # Workflow that calls ctx.currentTime() and returns the result.
 # Covers the currentTime() method on Context and its millis-to-Utc conversion.
+#
+# + ctx - Workflow context for deterministic time access
+# + input - Workflow input (unused; required by framework)
+# + return - A `TimeResult` with the current epoch seconds, or an error
 @workflow:Workflow
 function currentTimeWorkflow(workflow:Context ctx, BuiltinActivityInput input) returns TimeResult|error {
     time:Utc now = ctx.currentTime();
@@ -62,6 +66,10 @@ function currentTimeWorkflow(workflow:Context ctx, BuiltinActivityInput input) r
 
 # Workflow that calls ctx.sleep() with a short duration.
 # Covers the sleep() method on Context and its Duration-to-millis conversion.
+#
+# + ctx - Workflow context providing deterministic sleep
+# + input - Workflow input (unused; required by framework)
+# + return - A confirmation string on success, or an error
 @workflow:Workflow
 function sleepWorkflow(workflow:Context ctx, BuiltinActivityInput input) returns string|error {
     check ctx.sleep({seconds: 1});
@@ -70,6 +78,10 @@ function sleepWorkflow(workflow:Context ctx, BuiltinActivityInput input) returns
 
 # Workflow that calls ctx.currentTime() before and after ctx.sleep() to verify
 # that workflow time advances.
+#
+# + ctx - Workflow context providing deterministic time and sleep
+# + input - Workflow input (unused; required by framework)
+# + return - A `TimeResult` with epoch seconds before and after sleep, or an error
 @workflow:Workflow
 function sleepWithTimeWorkflow(workflow:Context ctx, BuiltinActivityInput input) returns TimeResult|error {
     time:Utc before = ctx.currentTime();

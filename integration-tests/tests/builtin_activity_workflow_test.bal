@@ -40,7 +40,7 @@ function testCurrentTime() returns error? {
 
     if execInfo.result is map<anydata> {
         map<anydata> result = <map<anydata>>execInfo.result;
-        int seconds = <int>(check result["seconds"]);
+        int seconds = <int>result["seconds"];
         // Workflow time should fall within the wall-clock window of the test (±5 s tolerance)
         test:assertTrue(seconds >= beforeTime[0] - 5, "Workflow time should be at or after test start");
         test:assertTrue(seconds <= afterTime[0] + 5, "Workflow time should be at or before test end");
@@ -79,8 +79,8 @@ function testSleepWithTimeAdvancement() returns error? {
 
     if execInfo.result is map<anydata> {
         map<anydata> result = <map<anydata>>execInfo.result;
-        int beforeSleep = <int>(check result["beforeSleep"]);
-        int afterSleep = <int>(check result["afterSleep"]);
+        int beforeSleep = <int>result["beforeSleep"];
+        int afterSleep = <int>result["afterSleep"];
         // time:Utc[0] is epoch seconds, so after sleeping 2s the difference should be >= 2
         test:assertTrue((afterSleep - beforeSleep) >= 2,
             "Workflow time should advance by at least 2 seconds after sleep");

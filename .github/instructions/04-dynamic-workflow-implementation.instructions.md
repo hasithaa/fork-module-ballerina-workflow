@@ -73,8 +73,8 @@ The compiler plugin has **limited involvement** in dynamic workflow implementati
    └─> WorkflowClient.start(workflowType, input)
        └─> Temporal schedules workflow task on task queue
 
-2. Worker Polls and Executes
-   └─> Worker.poll() receives workflow task
+2. Scheduler Polls and Executes
+   └─> Temporal scheduler polls and receives workflow task
        └─> BallerinaWorkflowAdapter (new instance per execution)
            ├─> Constructor registers signal/query handlers
            └─> execute(encodedArgs)
@@ -98,7 +98,7 @@ The compiler plugin has **limited involvement** in dynamic workflow implementati
            └─> Temporal schedules activity task
 
 4. Activity Task Execution
-   └─> Worker.poll() receives activity task
+   └─> Temporal scheduler polls and receives activity task
        └─> BallerinaActivityAdapter.execute(encodedArgs)
            ├─> Get activity name from Activity.getExecutionContext()
            ├─> Lookup activityFunction in ACTIVITY_REGISTRY
@@ -138,7 +138,7 @@ The compiler plugin has **limited involvement** in dynamic workflow implementati
 
 - Process functions successfully registered in `PROCESS_REGISTRY`
 - Activity functions registered in `ACTIVITY_REGISTRY` with qualified names (`workflowType.activityName`)
-- Dynamic adapters registered exactly once per Temporal worker
+- Dynamic adapters registered exactly once per workflow scheduler
 - `BallerinaWorkflowAdapter` routes to correct process function
 - Context and events parameters injected when signature requires them
 - `BallerinaActivityAdapter` reconstructs positional args from named map correctly

@@ -28,8 +28,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Changed
 
-- **[Breaking]** Renamed `WorkerConfig` to `SchedulerConfig` — all references to "worker" in the
-  public API have been replaced with "scheduler".
+- **[Breaking]** Flattened `WorkflowConfig` from a union of nested records (`LocalConfig`,
+  `CloudConfig`, `SelfHostedConfig`, `InMemoryConfig`, `SchedulerConfig`, `AuthConfig`) to a
+  flat set of `configurable` variables under `[ballerina.workflow]` in Config.toml.
+  This improves the low-code UI experience by removing nested TOML sections.
+  Mode-specific validation (e.g., CLOUD requires authentication) is now performed at module
+  init time; fields irrelevant to the selected mode are ignored.
+- Added `Mode` enum type (`LOCAL`, `CLOUD`, `SELF_HOSTED`, `IN_MEMORY`) for the `mode`
+  configurable variable, replacing the previous plain string.
+- Auth fields (`authApiKey`, `authMtlsCert`, `authMtlsKey`) now use `string?` optional type
+  instead of empty string defaults.
+- Activity retry fields use descriptive `activityRetry*` prefixes
+  (`activityRetryInitialInterval`, `activityRetryBackoffCoefficient`,
+  `activityRetryMaximumInterval`, `activityRetryMaximumAttempts`).
+- Added init-time validation for positive integer constraints on scheduler and retry policy
+  configurable values (`maxConcurrentWorkflows`, `maxConcurrentActivities`,
+  `activityRetryInitialInterval`, `activityRetryBackoffCoefficient`,
+  `activityRetryMaximumInterval`, `activityRetryMaximumAttempts`).
+- Added runtime validation in `parseRetryPolicy` (native layer) to reject invalid retry policy
+  values from `callActivity` options (defense-in-depth for per-call `ActivityOptions`).
 
 ### Removed
 

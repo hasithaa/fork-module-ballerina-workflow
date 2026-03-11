@@ -1,8 +1,6 @@
-[ballerina.workflow.workflowConfig]
+[ballerina.workflow]
 mode = "LOCAL"
 url = "localhost:7233"
 namespace = "default"
-
-[ballerina.workflow.workflowConfig.scheduler]
 taskQueue = "ORDER_PROCESSING_QUEUE"
 maxConcurrentWorkflows = 50

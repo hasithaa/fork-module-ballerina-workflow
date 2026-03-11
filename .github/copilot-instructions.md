@@ -153,40 +153,34 @@ fpValue.metadata = new StrandMetadata(true, fpValue.metadata.properties());
 
 ## Configuration
 
-Via `Config.toml` or programmatic defaults. The `WorkflowConfig` is a union type supporting four deployment modes:
+Via `Config.toml` or programmatic defaults. All configuration uses flat `configurable` variables under `[ballerina.workflow]`. The `mode` field selects the deployment mode; irrelevant fields for a given mode are ignored at init time.
 
 **Local (default):**
 ```toml
-[ballerina.workflow.workflowConfig]
+[ballerina.workflow]
 mode = "LOCAL"
 url = "localhost:7233"
 namespace = "default"
-
-[ballerina.workflow.workflowConfig.scheduler]
 taskQueue = "BALLERINA_WORKFLOW_TASK_QUEUE"
 maxConcurrentWorkflows = 100
 ```
 
 **Cloud with API key:**
 ```toml
-[ballerina.workflow.workflowConfig]
+[ballerina.workflow]
 mode = "CLOUD"
 url = "my-ns.my-account.tmprl.cloud:7233"
 namespace = "my-ns.my-account"
-
-[ballerina.workflow.workflowConfig.auth]
-apiKey = "my-api-key"
+authApiKey = "my-api-key"
 ```
 
 **Self-hosted with mTLS:**
 ```toml
-[ballerina.workflow.workflowConfig]
+[ballerina.workflow]
 mode = "SELF_HOSTED"
 url = "temporal.mycompany.com:7233"
-
-[ballerina.workflow.workflowConfig.auth]
-mtlsCert = "/path/to/client.pem"
-mtlsKey = "/path/to/client.key"
+authMtlsCert = "/path/to/client.pem"
+authMtlsKey = "/path/to/client.key"
 ```
 
 ## Version Requirements

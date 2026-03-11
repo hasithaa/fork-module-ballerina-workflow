@@ -1,4 +1,4 @@
 # Unit test configuration - uses IN_MEMORY mode (no external server needed)
 
-[ballerina.workflow.workflowConfig]
+[ballerina.workflow]
 mode = "IN_MEMORY"

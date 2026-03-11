@@ -25,7 +25,7 @@
 - [ballerina/context.bal](../../ballerina/context.bal) - Context client class
 - [ballerina/functions.bal](../../ballerina/functions.bal) - run(), sendData()
 - [ballerina/types.bal](../../ballerina/types.bal) - ProcessInfo, ActivityInfo
-- [ballerina/config.bal](../../ballerina/config.bal) - WorkflowConfig
+- [ballerina/config.bal](../../ballerina/config.bal) - Flat configurable variables (mode, url, namespace, auth, scheduler, retry policy)
 - [ballerina/module.bal](../../ballerina/module.bal) - Module initialization
 
 ### Compiler Plugin
@@ -35,7 +35,7 @@
 - [SendEventValidatorTask.java](../../compiler-plugin/src/main/java/io/ballerina/stdlib/workflow/compiler/SendEventValidatorTask.java) - sendData validation
 
 ### Native Implementation
-- [WorkflowWorkerNative.java](../../native/src/main/java/io/ballerina/stdlib/workflow/worker/WorkflowWorkerNative.java) - Temporal worker
+- [WorkflowWorkerNative.java](../../native/src/main/java/io/ballerina/stdlib/workflow/worker/WorkflowWorkerNative.java) - Workflow scheduler (Temporal task polling and execution)
 - [WorkflowRuntime.java](../../native/src/main/java/io/ballerina/stdlib/workflow/runtime/WorkflowRuntime.java) - Runtime management
 - [TemporalFutureValue.java](../../native/src/main/java/io/ballerina/stdlib/workflow/context/TemporalFutureValue.java) - Signal futures
 - [CorrelationExtractor.java](../../native/src/main/java/io/ballerina/stdlib/workflow/utils/CorrelationExtractor.java) - Correlation keys
