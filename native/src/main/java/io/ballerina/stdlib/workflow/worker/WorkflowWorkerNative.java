@@ -104,6 +104,10 @@ public final class WorkflowWorkerNative {
     // Flags for singleton state
     private static final AtomicBoolean initialized = new AtomicBoolean(false);
     private static final AtomicBoolean started = new AtomicBoolean(false);
+
+    // Deadline for blocking gRPC introspection calls (e.g., describeWorkflowExecution).
+    // Increase if the Temporal server is remote and latency is higher than 5 seconds.
+    private static final int GET_INFO_DEADLINE_SECONDS = 5;
     private static volatile boolean inMemoryMode = false;
 
     // Global default activity retry policy (set from WorkerConfig.defaultActivityRetryPolicy)
@@ -1411,7 +1415,9 @@ public final class WorkflowWorkerNative {
                             .build();
 
             io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionResponse response =
-                    client.getWorkflowServiceStubs().blockingStub().describeWorkflowExecution(request);
+                    client.getWorkflowServiceStubs().blockingStub()
+                            .withDeadlineAfter(GET_INFO_DEADLINE_SECONDS, TimeUnit.SECONDS)
+                            .describeWorkflowExecution(request);
 
             io.temporal.api.workflow.v1.WorkflowExecutionInfo execInfo =
                     response.getWorkflowExecutionInfo();

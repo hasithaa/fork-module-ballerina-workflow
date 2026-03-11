@@ -47,7 +47,13 @@ In [WorkflowWorkerNative.java](native/src/main/java/io/ballerina/stdlib/workflow
 
 ### 3. Compiler Plugin Layer
 
-The compiler plugin (in [WorkflowValidatorTask.java](../../compiler-plugin/src/main/java/io/ballerina/stdlib/workflow/compiler/WorkflowValidatorTask.java)) validates the events parameter signature — the third parameter must be a record type where all fields are `future<anydata>` subtypes.
+The compiler plugin (in [WorkflowValidatorTask.java](../../compiler-plugin/src/main/java/io/ballerina/stdlib/workflow/compiler/WorkflowValidatorTask.java)) validates the events parameter signature. The events record is the **trailing/final** parameter in the workflow function signature; it may appear after the optional `workflow:Context` and input parameters. Accepted patterns:
+- `function name(record{future<U>...} events) returns R|error`
+- `function name(workflow:Context ctx, record{future<U>...} events) returns R|error`
+- `function name(T input, record{future<U>...} events) returns R|error`
+- `function name(workflow:Context ctx, T input, record{future<U>...} events) returns R|error`
+
+When present, the events record must be a record type where all fields are `future<anydata>` subtypes.
 
 ## Execution Flow
 
@@ -76,7 +82,7 @@ The compiler plugin (in [WorkflowValidatorTask.java](../../compiler-plugin/src/m
        └─> completableFuture.get() → Returns immediately (already done)
 
 4. Signal Arrives (External)
-   └─> workflow:sendData(processFunc, workflowId, "approval", eventData)
+   └─> workflow:sendData(workflowFunc, workflowId, "approval", eventData)
        └─> Temporal delivers signal → DynamicSignalHandler.signal()
            └─> signalWrapper.recordSignal("approval", data)
                ├─> promise.complete(SignalData) → Temporal promise complete

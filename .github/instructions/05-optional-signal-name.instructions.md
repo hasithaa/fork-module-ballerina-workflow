@@ -42,8 +42,11 @@ Start a workflow with `workflow:run()`, get the ID, then send data using the ID.
 ## Success Criteria
 
 - All `sendData()` parameters are required — enforced by type system
-- WORKFLOW_112 warning for ambiguous signal types (same structure) in workflow definition
 - `sendData()` delivers data to the correct workflow by ID
 - Clear error when workflow ID is invalid or not found
-- Clear error when no workflow matches correlation keys
+
+## Future Success Criteria
+
+- `WORKFLOW_112` warning for ambiguous signal types (same structure) in workflow definition
+- Clear error when no workflow matches correlation keys (requires `searchWorkflow()`)
 
