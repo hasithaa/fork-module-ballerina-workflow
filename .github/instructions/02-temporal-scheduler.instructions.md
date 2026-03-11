@@ -31,7 +31,7 @@ Declared in [config.bal](ballerina/config.bal):
 #### Module Initialization
 Implemented in [module.bal](ballerina/module.bal):
 - `init()` — calls `initModule()` to capture module reference, then `initWorkflowRuntime()`
-- `initWorkflowRuntime()` — validates mode-specific constraints (e.g., CLOUD requires auth), validates positive integer fields, dispatches to `initProgramNative()` or `initInMemoryProgramNative()`
+- `initWorkflowRuntime()` — validates mode-specific constraints (CLOUD requires `authApiKey` or mTLS), validates scheduler and retry-policy constraints (e.g., `activityRetryBackoffCoefficient >= 1.0`; allows 0 for `activityRetryMaximumInterval` meaning no cap, and 0 for `activityRetryMaximumAttempts` meaning unlimited), then dispatches to `initProgramNative()` or `initInMemoryProgramNative()`
 - `startWorkflowRuntime()` — starts the Temporal scheduler (begins polling for tasks)
 - `stopWorkflowRuntime()` — shuts down the scheduler gracefully
 
@@ -77,9 +77,9 @@ Location: [WorkflowWorkerNative.java](native/src/main/java/io/ballerina/stdlib/w
 **Scheduler state** — static volatile fields for `WorkflowServiceStubs`, `WorkflowClient`, `WorkerFactory`, `Worker`, and `taskQueue`. Thread safety via `AtomicBoolean` flags (`initialized`, `started`, `dynamicWorkflowRegistered`, `dynamicActivityRegistered`).
 
 **Key methods:**
-- `initSingletonWorker(BString url, BString namespace, BString taskQueue, long maxWorkflows, long maxActivities, BString apiKey, BString mtlsCert, BString mtlsKey, BString caCert, BMap retryPolicy)` — creates gRPC connection, `WorkflowClient`, `WorkerFactory`, and `Worker` with the configured task queue and concurrency limits. Auth strings are empty when not configured (Ballerina layer coalesces `()` → `""` before calling native). Configures mTLS or API key auth when provided; `caCert` path is used to build a custom SSL trust store when the server's certificate is from a private CA.
+- `initSingletonWorker(BString url, BString namespace, BString taskQueue, long maxWorkflows, long maxActivities, BString apiKey, BString mtlsCert, BString mtlsKey, BString caCert, BMap retryPolicy)` — creates gRPC connection, `WorkflowClient`, `WorkerFactory`, and `Worker` with the configured task queue and concurrency limits. Auth strings are empty when not configured (Ballerina layer coalesces `()` → `""` before calling native). Configures mTLS or API key auth when provided; `caCert` path is used to build a custom SSL trust store when the server's certificate is from a private CA. Also eagerly registers `BallerinaWorkflowAdapter` and `BallerinaActivityAdapter` on the worker (must happen before `workerFactory.start()`).
 - `initInMemoryWorker()` — creates an in-memory test scheduler (no external Temporal server needed)
-- `registerWorkflow(Environment, BFunctionPointer workflowFunc, BString workflowName, Object activities)` — stores workflow in `PROCESS_REGISTRY`, activities in `ACTIVITY_REGISTRY`, registers `BallerinaWorkflowAdapter` and `BallerinaActivityAdapter` (once each)
+- `registerWorkflow(Environment, BFunctionPointer workflowFunc, BString workflowName, Object activities)` — stores the workflow function in `PROCESS_REGISTRY` and each activity function in `ACTIVITY_REGISTRY`
 - `startSingletonWorker()` — calls `workerFactory.start()` to begin polling the task queue
 - `stopSingletonWorker()` — calls `workerFactory.shutdown()` (graceful drain) and `serviceStubs.shutdown()`
 - `stopSingletonWorkerNow()` — calls `workerFactory.shutdownNow()` (forceful interrupt) followed by `awaitTermination()`
@@ -99,14 +99,15 @@ The compiler plugin has **no direct involvement** in the scheduler lifecycle. It
            ├─> Coalesce optional auth (nil → "") for native layer
            └─> initProgramNative() → creates WorkflowServiceStubs, WorkflowClient, WorkerFactory, Worker
 
-2. Compiler Plugin Code Generation
-   └─> For each @Workflow function
-       └─> Generates: wfInternal:registerWorkflow(myWorkflow, "myWorkflow", activities)
-           └─> registerWorkflow() called
+2. Build-time: Compiler Plugin Code Generation
+   └─> WorkflowSourceModifier.createRegisterWorkflowCall() runs at compile time
+       └─> For each @Workflow function, inserts into the compiled source:
+               wfInternal:registerWorkflow(myWorkflow, "myWorkflow", activities)
+
+   Runtime: Generated registerWorkflow() call executes during module load
+       └─> registerWorkflow() invoked by module initializer (not by the plugin)
                ├─> PROCESS_REGISTRY.put(name, function)
-               ├─> ACTIVITY_REGISTRY.put(name, function) for each activity
-               ├─> Register BallerinaWorkflowAdapter (once)
-               └─> Register BallerinaActivityAdapter (once)
+               └─> ACTIVITY_REGISTRY.put(name, function) for each activity
 
 3. Module Start
    └─> startWorkflowRuntime()
@@ -126,7 +127,7 @@ The compiler plugin has **no direct involvement** in the scheduler lifecycle. It
 ## Key Design Points
 
 1. **One Instance Per JVM**: Only one Temporal scheduler exists per JVM
-2. **Lazy Registration**: Workflows/activities are registered during code generation phase
+2. **Lazy Registration**: Workflow/activity functions are registered at module-load time via `registerWorkflow()` calls that the compiler plugin inserted at build time
 3. **Eager Initialization**: Scheduler is created at module init (before `start()`)
 4. **Late Start**: Scheduler only starts polling after all registrations complete
 5. **No Listener Pattern**: No `workflow:Listener` — everything is automatic

@@ -60,7 +60,7 @@ Location: [WorkflowWorkerNative.java](native/src/main/java/io/ballerina/stdlib/w
 
 **Key registries** — `PROCESS_REGISTRY` (workflow type → `BFunctionPointer`), `ACTIVITY_REGISTRY` (activity name → `BFunctionPointer`), `EVENT_REGISTRY` (workflow name → event names list)
 
-**Scheduler management** — `initSingletonWorker()`, `registerWorkflow()`, `startSingletonWorker()`, `stopSingletonWorker()` (see [02-temporal-scheduler.instructions.md](.github/instructions/02-temporal-scheduler.instructions.md))
+**Scheduler management** — `initSingletonWorker()`, `registerWorkflow()`, `startSingletonWorker()`, `stopSingletonWorker()` (see [02-temporal-scheduler.instructions.md](02-temporal-scheduler.instructions.md))
 
 **Dynamic adapters:**
 - `BallerinaWorkflowAdapter` (implements `DynamicWorkflow`) — routes all workflow types through a single adapter, injects `Context`, creates event futures, calls registered workflow functions

@@ -257,9 +257,14 @@ task ballerinaAuthVariantTest {
         def certsDir = file("${project.rootDir}/build/test-certs")
         def tlsProxyRunning = false
 
-        // Detect TLS proxy availability (port 7235 = mTLS, port 7236 = TLS-only)
+        // Detect TLS proxy availability — both ports must respond (7235 = mTLS, 7236 = TLS-only)
         try {
-            def s = new java.net.Socket(); s.connect(new java.net.InetSocketAddress("localhost", 7235), 500); s.close()
+            def s1 = new java.net.Socket()
+            s1.connect(new java.net.InetSocketAddress("localhost", 7235), 500)
+            s1.close()
+            def s2 = new java.net.Socket()
+            s2.connect(new java.net.InetSocketAddress("localhost", 7236), 500)
+            s2.close()
             tlsProxyRunning = true
         } catch (Exception ignored) {}
 
