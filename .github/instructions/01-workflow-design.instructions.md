@@ -90,8 +90,8 @@ function fetchData(string url, typedesc<anydata> targetType = <>) returns target
 
 - The constraint type must be `anydata` (i.e., `typedesc<anydata>`, not `typedesc<string>` etc.)
 - The function must be `external` (Ballerina requires this for inferred typedesc defaults)
-- The typedesc parameter is excluded from workflow history serialization by the compiler plugin
-- At runtime, `BallerinaActivityAdapter` filters out the typedesc param when reconstructing positional args from the named args map, then injects the `BTypedesc` from `callActivity` as the last argument
+- `WorkflowValidatorTask` (compiler plugin) skips typedesc parameters during argument-count validation only; the actual omission from Temporal's workflow history is caused by the `callActivity` API shape (`callActivity(function, map<anydata>, ActivityOptions?, typedesc<anydata>)`) on `workflow:Context` — the `map<anydata>` args sent to Temporal do not include the `typedesc`
+- At runtime, `BallerinaActivityAdapter` filters typedesc from named-args reconstruction and injects a `BTypedesc<anydata>` as the last positional arg when invoking the activity function; `WorkflowContextNative.callActivity()` then applies `cloneWithType` on the result using the original typedesc to produce the expected target type
 - Only the inferred-default form is allowed — explicit defaults and required typedesc params produce `WORKFLOW_114`
 
 ### Calling Activities (Required Pattern)
@@ -107,7 +107,7 @@ Events are received via `check wait events.fieldName` using the Ballerina `wait`
 | Process input | Subtype of `anydata`, must have `@workflow:CorrelationKey` fields for correlation if using signals |
 | Process return | Subtype of `anydata` or `error` |
 | Activity params | Subtype of `anydata`; or `typedesc<anydata>` with inferred default `<>` (dependent typing) |
-| Activity return | Subtype of `anydata` or `error`; or `targetType|error` when dependently typed |
+| Activity return | Subtype of `anydata` or `error`; or `targetType\|error` when dependently typed |
 | Signal futures | `future<T>` where `T` is subtype of `anydata` |
 | Event data | Subtype of `anydata` |
 

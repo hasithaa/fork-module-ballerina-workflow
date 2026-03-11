@@ -8,7 +8,7 @@ applyTo: "**/SendEventValidatorTask.java,**/WorkflowNative.java"
 
 The `sendData()` function requires all parameters explicitly: the workflow function, the target workflow ID, the data name (matching an event field name), and the data payload. There is no signal name inference or automatic correlation-based routing.
 
-For finding workflows by correlation keys, a separate `searchWorkflow()` function will be provided in future. This clean separation gives users full control over workflow identification and data delivery.
+For finding workflows by correlation keys, a separate `searchWorkflow()` function will be provided in the future. This clean separation gives users full control over workflow identification and data delivery.
 
 ## Current Implementation
 

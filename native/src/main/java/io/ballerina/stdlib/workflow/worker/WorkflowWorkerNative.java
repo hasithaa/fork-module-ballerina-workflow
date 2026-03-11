@@ -26,6 +26,7 @@ import io.ballerina.runtime.api.creators.ErrorCreator;
 import io.ballerina.runtime.api.creators.ValueCreator;
 import io.ballerina.runtime.api.types.FunctionType;
 import io.ballerina.runtime.api.types.Parameter;
+import io.ballerina.runtime.api.types.PredefinedTypes;
 import io.ballerina.runtime.api.types.RecordType;
 import io.ballerina.runtime.api.types.TypeTags;
 import io.ballerina.runtime.api.utils.StringUtils;
@@ -367,14 +368,13 @@ public final class WorkflowWorkerNative {
             String workflowType = workflowName.getValue();
             LOGGER.debug("Registering workflow: {}", workflowType);
 
-            // Check for duplicate registration
-            if (PROCESS_REGISTRY.containsKey(workflowType)) {
+            // Atomically register — putIfAbsent returns the existing value (non-null) if
+            // a workflow with this name is already registered, null if insertion succeeded.
+            BFunctionPointer existing = PROCESS_REGISTRY.putIfAbsent(workflowType, workflowFunction);
+            if (existing != null) {
                 return ErrorCreator.createError(
                         StringUtils.fromString("Workflow with name '" + workflowType + "' is already registered"));
             }
-
-            // Store the workflow function in the process registry
-            PROCESS_REGISTRY.put(workflowType, workflowFunction);
 
             // Register activities if provided
             if (activities != null) {
@@ -1250,11 +1250,15 @@ public final class WorkflowWorkerNative {
             FunctionType funcType = (FunctionType) activityFunction.getType();
             Parameter[] allParams = funcType.getParameters();
 
-            // Filter out typedesc parameters — they carry type metadata only
-            // and are excluded from workflow history serialization by the compiler plugin.
+            // Filter out typedesc parameters — they are not serialized in Temporal
+            // workflow history. Capture the param so we can inject a BTypedesc<anydata>
+            // as the last positional argument when calling the activity function.
             List<Parameter> dataParams = new ArrayList<>();
+            Parameter typedescParam = null;
             for (Parameter p : allParams) {
-                if (p.type.getTag() != TypeTags.TYPEDESC_TAG) {
+                if (p.type.getTag() == TypeTags.TYPEDESC_TAG) {
+                    typedescParam = p; // capture for later injection
+                } else {
                     dataParams.add(p);
                 }
             }
@@ -1289,6 +1293,18 @@ public final class WorkflowWorkerNative {
             }
 
             Object[] ballerinaArgs = orderedArgs.toArray();
+
+            // If the activity declares a typedesc parameter, inject BTypedesc<anydata>
+            // as the last positional arg. WorkflowContextNative.callActivity() applies
+            // cloneWithType on the result to produce the actual target type requested
+            // by the workflow caller.
+            if (typedescParam != null) {
+                Object[] argsWithTypedesc = new Object[ballerinaArgs.length + 1];
+                System.arraycopy(ballerinaArgs, 0, argsWithTypedesc, 0, ballerinaArgs.length);
+                argsWithTypedesc[ballerinaArgs.length] =
+                        ValueCreator.createTypedescValue(PredefinedTypes.TYPE_ANYDATA);
+                ballerinaArgs = argsWithTypedesc;
+            }
 
             // Execute the Ballerina activity function
             FPValue fpValue = (FPValue) activityFunction;
