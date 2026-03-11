@@ -152,10 +152,11 @@ public class ProcessFunctionAnalysisTask implements AnalysisTask<SyntaxNodeAnaly
                         
                         // Get the full function reference (may include module prefix)
                         String fullRef = extractFunctionName(expression);
-                        // Get the simple function name (without module prefix) for the registry key
-                        String simpleKey = extractSimpleFunctionName(expression);
-                        if (fullRef != null && simpleKey != null) {
-                            activityMap.put(simpleKey, fullRef);
+                        if (fullRef != null) {
+                            // Use the full reference as the map key to avoid collisions
+                            // when different modules export functions with the same simple name
+                            // (e.g., payments:send vs notifications:send).
+                            activityMap.put(fullRef, fullRef);
                         }
                     }
                 }
@@ -174,25 +175,6 @@ public class ProcessFunctionAnalysisTask implements AnalysisTask<SyntaxNodeAnaly
                 return expression.toString().trim();
             } else if (expression.kind() == SyntaxKind.QUALIFIED_NAME_REFERENCE) {
                 return expression.toString().trim();
-            }
-            return null;
-        }
-
-        /**
-         * Extracts the simple function name (without module prefix) from an expression node.
-         * For qualified names like "activity:sendHttpRequest", returns "sendHttpRequest".
-         * For simple names like "myActivity", returns "myActivity".
-         */
-        private String extractSimpleFunctionName(Node expression) {
-            if (expression.kind() == SyntaxKind.SIMPLE_NAME_REFERENCE) {
-                return expression.toString().trim();
-            } else if (expression.kind() == SyntaxKind.QUALIFIED_NAME_REFERENCE) {
-                String fullName = expression.toString().trim();
-                int colonIndex = fullName.indexOf(':');
-                if (colonIndex >= 0 && colonIndex < fullName.length() - 1) {
-                    return fullName.substring(colonIndex + 1);
-                }
-                return fullName;
             }
             return null;
         }

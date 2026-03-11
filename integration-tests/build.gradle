@@ -187,8 +187,9 @@ def writeCoverageToDir(File srcReport, String variantName) {
 
 def verifyTestResults(File testResultFile, String variantLabel) {
     if (!testResultFile.exists()) {
-        logger.warn("  Warning: test results file not found for '${variantLabel}'")
-        return
+        throw new GradleException(
+                "Auth variant '${variantLabel}': test results file was not produced: ${testResultFile.absolutePath}. " +
+                "The test run may have crashed before producing output.")
     }
     def slurper = new groovy.json.JsonSlurper()
     def results = slurper.parse(testResultFile)
@@ -201,7 +202,7 @@ def verifyTestResults(File testResultFile, String variantLabel) {
     }
 }
 
-def runBallerinaTests = { String label ->
+def runBallerinaTests = { String label, String variantKey ->
     exec {
         workingDir project.projectDir
         environment "JAVA_OPTS", "-DBALLERINA_DEV_COMPILE_BALLERINA_ORG=true"
@@ -209,7 +210,7 @@ def runBallerinaTests = { String label ->
     }
     verifyTestResults(file("${project.projectDir}/target/report/test_results.json"), label)
     writeCoverageToDir(file("${project.projectDir}/target/report/workflow_tests/coverage-report.xml"),
-            label.toLowerCase().replace(" ", "-").replace("+", "-"))
+            variantKey)
 }
 
 def writeAuthConfig(String tomlPath, Map cfg) {
@@ -286,17 +287,19 @@ task ballerinaAuthVariantTest {
             logger.lifecycle("To run TLS variants: ./gradlew generateMtlsTestCerts startTlsTestProxy ballerinaAuthVariantTest")
         }
 
-        variants.each { variant ->
-            logger.lifecycle("=" * 60)
-            logger.lifecycle("Auth variant: ${variant.label}")
-            writeAuthConfig("${project.projectDir}/tests/Config.toml", variant)
-            runBallerinaTests(variant.label)
+        try {
+            variants.each { variant ->
+                logger.lifecycle("=" * 60)
+                logger.lifecycle("Auth variant: ${variant.label}")
+                writeAuthConfig("${project.projectDir}/tests/Config.toml", variant)
+                runBallerinaTests(variant.label, variant.variantKey)
+            }
+        } finally {
+            // Always restore LOCAL mode config so subsequent tasks start clean
+            writeAuthConfig("${project.projectDir}/tests/Config.toml", [
+                mode: "LOCAL", url: "localhost:7233", label: "LOCAL (restored after variant tests)"
+            ])
         }
-
-        // Restore LOCAL mode config for subsequent tasks
-        writeAuthConfig("${project.projectDir}/tests/Config.toml", [
-            mode: "LOCAL", url: "localhost:7233", label: "LOCAL (restored after variant tests)"
-        ])
         logger.lifecycle("=" * 60)
         logger.lifecycle("Auth variant tests complete. Coverage reports in build/coverage/")
     }

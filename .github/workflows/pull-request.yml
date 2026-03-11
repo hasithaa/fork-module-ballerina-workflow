@@ -53,19 +53,14 @@ jobs:
       - name: Generate mTLS Test Certificates
         run: ./gradlew generateMtlsTestCerts
 
-      - name: Start nginx TLS Proxy (mTLS + TLS)
-        run: ./gradlew startTlsTestProxy
-
-      - name: Run mTLS + API-key Auth Variant Tests
+      - name: Run mTLS + API-key Auth Variant Tests (with TLS proxy)
         env:
           packageUser: ${{ github.actor }}
           packagePAT: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ./gradlew :workflow-integration-tests:ballerinaAuthVariantTest
-
-      - name: Stop nginx TLS Proxy
-        if: always()
-        run: ./gradlew stopTlsTestProxy
+          # Start proxy and run tests in a single Gradle invocation so the proxy
+          # remains alive for the test phase (gradle.buildFinished tears it down after).
+          ./gradlew startTlsTestProxy :workflow-integration-tests:ballerinaAuthVariantTest
 
       - name: Generate CodeCov Report
         uses: codecov/codecov-action@v5

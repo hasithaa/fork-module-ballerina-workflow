@@ -91,8 +91,8 @@ configurable decimal activityRetryBackoffCoefficient = 2.0;
 
 # Maximum delay (in seconds) between activity retries.
 # Caps the exponential backoff to prevent excessively long waits.
-# When not set (0), there is no upper limit on the retry interval.
-# Must be a positive integer when set (> 0).
+# 0 means unset/no upper limit and is allowed.
+# When explicitly set to a non-zero value it must be a positive integer (> 0).
 configurable int activityRetryMaximumInterval = 0;
 
 # Maximum number of activity retry attempts.

@@ -13,8 +13,8 @@ The Ballerina Workflow module provides durable workflow orchestration via Tempor
 ### 1. Ballerina Layer ([ballerina/](ballerina/))
 
 #### Annotations ([annotations.bal](ballerina/annotations.bal))
-- `@Workflow` — marks a function as a workflow function
-- `@Activity` — marks a function as a workflow activity
+- `@workflow:Workflow` — marks a function as a workflow function
+- `@workflow:Activity` — marks a function as a workflow activity
 
 #### Public API Functions ([functions.bal](ballerina/functions.bal))
 - `run(function, map<anydata>?)` → `string|error` — start a new workflow instance
@@ -27,7 +27,7 @@ The Ballerina Workflow module provides durable workflow orchestration via Tempor
 - `registerWorkflow(function, string, map<function>?)` → `boolean|error` — called by compiler-generated code to register workflows
 
 #### Context Client Class ([context.bal](ballerina/context.bal))
-- `callActivity(function, map<anydata>, ActivityOptions?, typedesc<anydata>)` → `T|error` — remote method to call an activity
+- `callActivity(function, map<anydata> args = {}, ActivityOptions? options = (), typedesc<anydata> T = <>)` → `T|error` — remote method to call an activity; `args`, `options`, and `T` are all optional with the shown defaults, so most calls only pass the function and argument map
 - `sleep(time:Duration)` → `error?` — deterministic sleep (survives restarts)
 - `currentTime()` → `time:Utc` — deterministic current time (same value during replays)
 - `isReplaying()` → `boolean` — check if workflow is currently replaying

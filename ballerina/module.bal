@@ -42,6 +42,9 @@ class WorkflowListener {
         check startWorkflowRuntime();
     }
 
+    // Both gracefulStop and immediateStop call stopWorkflowRuntime() identically.
+    // Temporal's WorkerFactory.shutdown() performs a graceful drain by default;
+    // there is no separate force-kill API in the Temporal Java SDK at this abstraction level.
     public function gracefulStop() returns error? {
         check stopWorkflowRuntime();
     }
@@ -138,21 +141,15 @@ isolated function initWorkflowRuntime() returns error? {
                     + retryMaxAttempts.toString());
         }
 
-        // Build the ActivityRetryPolicy record for the native layer
-        ActivityRetryPolicy defaultRetryPolicy;
+        // Build the ActivityRetryPolicy record for the native layer.
+        // maximumIntervalInSeconds is only set when retryMaxInterval > 0 (0 means no cap).
+        ActivityRetryPolicy defaultRetryPolicy = {
+            initialIntervalInSeconds: retryInitialInterval,
+            backoffCoefficient: retryBackoff,
+            maximumAttempts: retryMaxAttempts
+        };
         if retryMaxInterval > 0 {
-            defaultRetryPolicy = {
-                initialIntervalInSeconds: retryInitialInterval,
-                backoffCoefficient: retryBackoff,
-                maximumIntervalInSeconds: retryMaxInterval,
-                maximumAttempts: retryMaxAttempts
-            };
-        } else {
-            defaultRetryPolicy = {
-                initialIntervalInSeconds: retryInitialInterval,
-                backoffCoefficient: retryBackoff,
-                maximumAttempts: retryMaxAttempts
-            };
+            defaultRetryPolicy.maximumIntervalInSeconds = retryMaxInterval;
         }
 
         // For LOCAL mode, ignore auth fields; coalesce nil → "" for native layer

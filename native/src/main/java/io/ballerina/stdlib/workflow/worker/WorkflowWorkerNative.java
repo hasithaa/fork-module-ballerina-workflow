@@ -132,6 +132,11 @@ public final class WorkflowWorkerNative {
      */
     public static void init(Environment env) {
         workflowModule = ModuleUtils.getModule();
+        if (workflowModule == null) {
+            throw new IllegalStateException(
+                    "ModuleUtils.getModule() returned null in WorkflowWorkerNative.init; " +
+                    "ensure the Ballerina module has been initialized before the runtime starts.");
+        }
         ballerinaRuntime = env.getRuntime();
     }
 
@@ -1265,6 +1270,12 @@ public final class WorkflowWorkerNative {
             // the second is the call configuration map.
             @SuppressWarnings("unchecked")
             Map<String, Object> namedArgs = args.get(0, Map.class);
+            if (namedArgs == null) {
+                throw new RuntimeException(
+                        "Malformed activity invocation for '" + activityName +
+                        "': the named-argument map (args[0]) is null. " +
+                        "Ensure callActivity passes a valid map<anydata> as the first argument.");
+            }
 
             // Extract call configuration from the second argument
             boolean failOnError = true; // default behavior
@@ -1449,10 +1460,21 @@ public final class WorkflowWorkerNative {
                                     .build())
                             .build();
 
-            io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionResponse response =
-                    client.getWorkflowServiceStubs().blockingStub()
-                            .withDeadlineAfter(GET_INFO_DEADLINE_SECONDS, TimeUnit.SECONDS)
-                            .describeWorkflowExecution(request);
+            io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionResponse response;
+            try {
+                response = client.getWorkflowServiceStubs().blockingStub()
+                        .withDeadlineAfter(GET_INFO_DEADLINE_SECONDS, TimeUnit.SECONDS)
+                        .describeWorkflowExecution(request);
+            } catch (io.grpc.StatusRuntimeException e) {
+                throw new RuntimeException(
+                        "gRPC error describing workflow '" + workflowId +
+                        "' in namespace '" + client.getOptions().getNamespace() +
+                        "': [" + e.getStatus().getCode() + "] " + e.getStatus().getDescription(), e);
+            } catch (Exception e) {
+                throw new RuntimeException(
+                        "Failed to describe workflow '" + workflowId +
+                        "' in namespace '" + client.getOptions().getNamespace() + "'", e);
+            }
 
             io.temporal.api.workflow.v1.WorkflowExecutionInfo execInfo =
                     response.getWorkflowExecutionInfo();

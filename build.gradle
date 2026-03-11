@@ -297,13 +297,15 @@ def stopTestServerIfRunning = {
 
 // Helper: stop the nginx TLS proxy container
 def stopTlsProxyIfRunning = {
-    if (!tlsProxyStarted) return
+    def ownerFile = new File(mtlsDockerDir, '.tls-proxy-owned')
+    if (!tlsProxyStarted && !ownerFile.exists()) return
     try {
         logger.lifecycle("Stopping nginx TLS proxy container...")
         def proc = ['docker', 'compose', '-f',
                     "${mtlsDockerDir}/docker-compose-mtls.yml", 'down'].execute()
         proc.waitFor()
         tlsProxyStarted = false
+        ownerFile.delete()
         logger.lifecycle("TLS proxy container stopped.")
     } catch (Exception e) {
         logger.warn("Error stopping TLS proxy: ${e.message}")
@@ -383,15 +385,14 @@ task startTlsTestProxy {
             return
         }
         logger.lifecycle("Starting nginx TLS proxy (ports 7235/7236 → 7233)...")
-        def env = System.getenv().findAll { it.key.startsWith("PATH") }
-        def proc = new ProcessBuilder(
+        def pb = new ProcessBuilder(
                 'docker', 'compose',
                 '-f', "${mtlsDockerDir}/docker-compose-mtls.yml".toString(),
                 'up', '-d', '--force-recreate')
             .directory(mtlsDockerDir)
             .redirectErrorStream(true)
-            .start()
-        proc.environment().put("CERTS_DIR", mtlsCertsDir.absolutePath)
+        pb.environment().put("CERTS_DIR", mtlsCertsDir.absolutePath)
+        def proc = pb.start()
         proc.waitFor()
         if (proc.exitValue() != 0) {
             logger.warn("nginx container failed to start:\n${proc.inputStream.text}")
@@ -404,8 +405,11 @@ task startTlsTestProxy {
             Thread.sleep(500)
             waited++
             if (isServerRunning("localhost", 7235) && isServerRunning("localhost", 7236)) {
-                tlsProxyStarted = true
-                logger.lifecycle("TLS proxy ready after ${waited * 0.5}s (ports 7235/7236).")
+        // Mark this build as the proxy owner so stopTlsProxyIfRunning can tear it down
+        // even if tlsProxyStarted flag is stale (e.g. across Gradle invocations).
+        new File(mtlsDockerDir, '.tls-proxy-owned').text = String.valueOf(ProcessHandle.current().pid())
+        tlsProxyStarted = true
+        logger.lifecycle("TLS proxy ready after ${waited * 0.5}s (ports 7235/7236).")
                 return
             }
         }
@@ -562,6 +566,9 @@ task mergeCoverageReports {
 }
 
 release {
+    // failOnPublishNeeded is false because this module publishes to GitHub Packages
+    // rather than Maven Central; the release plugin cannot verify GitHub Package
+    // publication state. Re-enable once migrated to a supported publish target.
     failOnPublishNeeded = false
     buildTasks = ['build']
     failOnSnapshotDependencies = true

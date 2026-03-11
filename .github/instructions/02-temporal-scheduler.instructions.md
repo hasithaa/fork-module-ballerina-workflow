@@ -1,6 +1,6 @@
 # Temporal Scheduler
 
-applyTo: "**/*.bal,**/WorkflowWorkerNative.java"
+applyTo: "ballerina/*.bal,ballerina/config.bal,ballerina/module.bal,**/WorkflowWorkerNative.java"
 
 ---
 

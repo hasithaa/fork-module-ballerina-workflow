@@ -3,3 +3,4 @@ mode = "LOCAL"
 url = "localhost:7233"
 namespace = "default"
 taskQueue = "ORDER_PAYMENT_QUEUE"
+maxConcurrentWorkflows = 100

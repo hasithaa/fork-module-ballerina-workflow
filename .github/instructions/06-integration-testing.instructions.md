@@ -153,14 +153,9 @@ The `startSharedTestServer` task checks port 7233 first. If a server is already 
 # Generate mTLS test certificates (requires openssl, Linux/macOS only)
 ./gradlew generateMtlsTestCerts
 
-# Start nginx TLS proxy for mTLS + API-key auth tests (requires Docker)
-./gradlew startTlsTestProxy
-
-# Run all auth variants including TLS (run after startTlsTestProxy)
-./gradlew :workflow-integration-tests:ballerinaAuthVariantTest
-
-# Stop the TLS proxy container
-./gradlew stopTlsTestProxy
+# Run all auth variants including TLS in a single Gradle invocation
+# (proxy stays alive throughout because buildFinished tears it down at the end)
+./gradlew startTlsTestProxy :workflow-integration-tests:ballerinaAuthVariantTest
 ```
 
 ## Auth Coverage Test Strategy
@@ -186,7 +181,7 @@ those branches.
 
 ### Docker Proxy Architecture (Tier 2)
 
-```
+```text
 Ballerina test client
   │
   ├── port 7235 (mTLS) ─────┐
