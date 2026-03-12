@@ -16,7 +16,7 @@
  * under the License.
  */
 
-package io.ballerina.stdlib.workflow.compiler;
+package io.ballerina.lib.workflow.compiler;
 
 import io.ballerina.projects.DiagnosticResult;
 import io.ballerina.projects.ProjectEnvironmentBuilder;
