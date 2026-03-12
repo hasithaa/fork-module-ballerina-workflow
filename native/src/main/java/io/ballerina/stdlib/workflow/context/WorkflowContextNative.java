@@ -31,9 +31,7 @@ import io.ballerina.stdlib.workflow.worker.WorkflowWorkerNative;
 import io.temporal.workflow.Workflow;
 
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -96,14 +94,12 @@ public final class WorkflowContextNative {
             String workflowType = Workflow.getInfo().getWorkflowType();
             String fullActivityName = workflowType + "." + simpleActivityName;
 
-            // Convert args map (BMap) to Java array for Temporal
-            // Extract values from the record in order
-            List<Object> argsList = new ArrayList<>();
-            for (BString key : args.getKeys()) {
-                Object value = args.get(key);
-                argsList.add(TypesUtil.convertBallerinaToJavaType(value));
-            }
-            Object[] javaArgs = argsList.toArray();
+            // Convert args map (BMap) to a Java Map for Temporal serialization.
+            // We pass the entire named map as a single argument so that the
+            // BallerinaActivityAdapter can reconstruct positional args using the
+            // function's parameter names. This avoids misalignment when optional
+            // parameters are omitted from the args map.
+            Map<String, Object> namedArgs = TypesUtil.convertBMapToMap(args);
 
             // Parse ActivityOptions from the Ballerina record
             boolean failOnError = true;
@@ -154,17 +150,14 @@ public final class WorkflowContextNative {
                     Workflow.newUntypedActivityStub(activityOptions);
 
             // Pass the failOnError flag to the activity adapter as a call config map
-            // appended to the activity arguments
+            // The adapter receives [namedArgs, callConfig] as Temporal arguments
             Map<String, Object> callConfig = new HashMap<>();
             callConfig.put(CALL_CONFIG_MARKER, true);
             callConfig.put(FAIL_ON_ERROR_KEY, failOnError);
-            
-            Object[] argsWithConfig = new Object[javaArgs.length + 1];
-            System.arraycopy(javaArgs, 0, argsWithConfig, 0, javaArgs.length);
-            argsWithConfig[javaArgs.length] = callConfig;
 
             // Execute the activity through Temporal's activity mechanism with the full name
-            Object result = activityStub.execute(fullActivityName, Object.class, argsWithConfig);
+            Object result = activityStub.execute(fullActivityName, Object.class,
+                    new Object[] { namedArgs, callConfig });
 
             // Convert result back to Ballerina type
             Object ballerinaResult = TypesUtil.convertJavaToBallerinaType(result);
@@ -196,11 +189,10 @@ public final class WorkflowContextNative {
      *
      * @param workflowId the workflow ID
      * @param workflowType the workflow type name
-     * @param correlationData initial correlation data
      * @return a ContextInfo object
      */
-    public static Object createContext(String workflowId, String workflowType, Map<String, Object> correlationData) {
-        return new ContextInfo(workflowId, workflowType, correlationData);
+    public static Object createContext(String workflowId, String workflowType) {
+        return new ContextInfo(workflowId, workflowType);
     }
 
     /**
@@ -218,6 +210,20 @@ public final class WorkflowContextNative {
             return ErrorCreator.createError(
                     StringUtils.fromString("Workflow sleep failed: " + e.getMessage()));
         }
+    }
+
+    /**
+     * Returns the current workflow time as epoch milliseconds.
+     * <p>
+     * The workflow engine records the timestamp at each workflow task and
+     * provides it via {@code Workflow.currentTimeMillis()}. This value is
+     * replayed identically, making it safe to use inside workflow functions.
+     *
+     * @param contextHandle Context handle
+     * @return epoch milliseconds as a long
+     */
+    public static long currentTimeMillis(Object contextHandle) {
+        return Workflow.currentTimeMillis();
     }
 
     /**
@@ -271,72 +277,9 @@ public final class WorkflowContextNative {
     /**
      * Context information holder. Stores workflow-specific context information.
      *
-     * @param workflowId      the workflow ID
-     * @param workflowType    the workflow type
-     * @param correlationData the correlation data
+     * @param workflowId   the workflow ID
+     * @param workflowType the workflow type
      */
-        public record ContextInfo(String workflowId, String workflowType, Map<String, Object> correlationData) {
-            /**
-             * Creates a new ContextInfo.
-             *
-             * @param workflowId      the workflow ID
-             * @param workflowType    the workflow type
-             * @param correlationData the correlation data
-             */
-            public ContextInfo(String workflowId, String workflowType, Map<String, Object> correlationData) {
-                this.workflowId = workflowId;
-                this.workflowType = workflowType;
-                this.correlationData = correlationData != null ? new HashMap<>(correlationData) : new HashMap<>();
-            }
-
-            /**
-             * Gets the workflow ID.
-             *
-             * @return the workflow ID
-             */
-            @Override
-            public String workflowId() {
-                return workflowId;
-            }
-
-            /**
-             * Gets the workflow type.
-             *
-             * @return the workflow type
-             */
-            @Override
-            public String workflowType() {
-                return workflowType;
-            }
-
-            /**
-             * Gets the correlation data.
-             *
-             * @return the correlation data map
-             */
-            @Override
-            public Map<String, Object> correlationData() {
-                return correlationData;
-            }
-
-            /**
-             * Adds correlation data.
-             *
-             * @param key   the key
-             * @param value the value
-             */
-            public void addCorrelationData(String key, Object value) {
-                correlationData.put(key, value);
-            }
-
-            /**
-             * Gets a correlation value.
-             *
-             * @param key the key
-             * @return the value, or null if not found
-             */
-            public Object getCorrelationValue(String key) {
-                return correlationData.get(key);
-            }
-        }
+    public record ContextInfo(String workflowId, String workflowType) {
+    }
 }

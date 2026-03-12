@@ -22,6 +22,7 @@ import io.ballerina.compiler.syntax.tree.FunctionDefinitionNode;
 import io.ballerina.compiler.syntax.tree.IdentifierToken;
 import io.ballerina.compiler.syntax.tree.ImportDeclarationNode;
 import io.ballerina.compiler.syntax.tree.ImportOrgNameNode;
+import io.ballerina.compiler.syntax.tree.ImportPrefixNode;
 import io.ballerina.compiler.syntax.tree.ModuleMemberDeclarationNode;
 import io.ballerina.compiler.syntax.tree.ModulePartNode;
 import io.ballerina.compiler.syntax.tree.ModuleVariableDeclarationNode;
@@ -48,7 +49,7 @@ import java.util.Map;
  * <p>
  * This modifier performs AST transformations:
  * 1. Replaces activity function calls with callActivity(funcPtr, args...)
- * 2. Adds registerProcess call at module level for each @Workflow function
+ * 2. Adds registerWorkflow call at module level for each @Workflow function
  *
  * @since 0.1.0
  */
@@ -77,7 +78,7 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
             ModulePartNode updatedRootNode = transformDocument(rootNode, workflowContext);
 
             // Add import if needed
-            updatedRootNode = addWorkflowImportIfMissing(updatedRootNode);
+            updatedRootNode = addWorkflowInternalImportIfMissing(updatedRootNode);
 
             // Update the syntax tree
             SyntaxTree syntaxTree = module.document(documentId).syntaxTree().modifyWith(updatedRootNode);
@@ -96,7 +97,7 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
         WorkflowTreeModifier treeModifier = new WorkflowTreeModifier(workflowContext);
         ModulePartNode modifiedRoot = (ModulePartNode) rootNode.apply(treeModifier);
 
-        // Then, add registerProcess calls at module level
+        // Then, add registerWorkflow calls at module level
         NodeList<ModuleMemberDeclarationNode> members = modifiedRoot.members();
         List<ModuleMemberDeclarationNode> newMembers = new ArrayList<>();
 
@@ -104,9 +105,9 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
             newMembers.add(member);
         }
 
-        // Add registerProcess calls for each process function
+        // Add registerWorkflow calls for each process function
         for (ProcessFunctionInfo processInfo : workflowContext.getProcessInfoMap().values()) {
-            ModuleVariableDeclarationNode registerCall = createRegisterProcessCall(processInfo);
+            ModuleVariableDeclarationNode registerCall = createRegisterWorkflowCall(processInfo);
             newMembers.add(registerCall);
         }
 
@@ -114,7 +115,7 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
         return modifiedRoot.modify(modifiedRoot.imports(), updatedMembers, modifiedRoot.eofToken());
     }
 
-    private ModuleVariableDeclarationNode createRegisterProcessCall(ProcessFunctionInfo processInfo) {
+    private ModuleVariableDeclarationNode createRegisterWorkflowCall(ProcessFunctionInfo processInfo) {
         StringBuilder mapLiteral = new StringBuilder("{");
         boolean first = true;
         for (Map.Entry<String, String> activity : processInfo.activityMap().entrySet()) {
@@ -129,7 +130,8 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
         String activitiesArg = processInfo.activityMap().isEmpty() ? "()" : mapLiteral.toString();
 
         String registerStatement = String.format(
-                "boolean _ = check workflow:registerProcess(%s, \"%s\", %s);",
+                "boolean _ = check %s:registerWorkflow(%s, \"%s\", %s);",
+                WorkflowConstants.INTERNAL_MODULE_ALIAS,
                 processInfo.functionName(),
                 processInfo.functionName(),
                 activitiesArg
@@ -138,26 +140,26 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
         return (ModuleVariableDeclarationNode) NodeParser.parseModuleMemberDeclaration(registerStatement);
     }
 
-    private ModulePartNode addWorkflowImportIfMissing(ModulePartNode rootNode) {
-        boolean hasWorkflowImport = false;
+    private ModulePartNode addWorkflowInternalImportIfMissing(ModulePartNode rootNode) {
+        boolean hasInternalImport = false;
 
         for (ImportDeclarationNode importNode : rootNode.imports()) {
-            if (isWorkflowImportNode(importNode)) {
-                hasWorkflowImport = true;
+            if (isWorkflowInternalImportNode(importNode)) {
+                hasInternalImport = true;
                 break;
             }
         }
 
-        if (!hasWorkflowImport) {
-            ImportDeclarationNode workflowImport = createWorkflowImportNode();
-            NodeList<ImportDeclarationNode> imports = rootNode.imports().add(workflowImport);
+        if (!hasInternalImport) {
+            ImportDeclarationNode internalImport = createWorkflowInternalImportNode();
+            NodeList<ImportDeclarationNode> imports = rootNode.imports().add(internalImport);
             return rootNode.modify().withImports(imports).apply();
         }
 
         return rootNode;
     }
 
-    private boolean isWorkflowImportNode(ImportDeclarationNode importNode) {
+    private boolean isWorkflowInternalImportNode(ImportDeclarationNode importNode) {
         if (importNode.orgName().isEmpty()) {
             return false;
         }
@@ -166,13 +168,23 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
             return false;
         }
         SeparatedNodeList<IdentifierToken> moduleNames = importNode.moduleName();
-        if (moduleNames.isEmpty()) {
+        if (moduleNames.size() < 2) {
             return false;
         }
-        return WorkflowConstants.PACKAGE_NAME.equals(moduleNames.get(0).text());
+        if (!WorkflowConstants.PACKAGE_NAME.equals(moduleNames.get(0).text())
+                || !WorkflowConstants.INTERNAL_MODULE_NAME.equals(moduleNames.get(1).text())) {
+            return false;
+        }
+        // Also verify that the import uses the expected alias so that the hardcoded alias
+        // in createRegisterWorkflowCall() resolves correctly. If the user has imported the
+        // module with a different alias, we treat it as missing and insert our own import.
+        if (importNode.prefix().isEmpty()) {
+            return false;
+        }
+        return WorkflowConstants.INTERNAL_MODULE_ALIAS.equals(importNode.prefix().get().prefix().text());
     }
 
-    private ImportDeclarationNode createWorkflowImportNode() {
+    private ImportDeclarationNode createWorkflowInternalImportNode() {
         Token importKeyword = NodeFactory.createToken(SyntaxKind.IMPORT_KEYWORD,
                 NodeFactory.createEmptyMinutiaeList(),
                 NodeFactory.createMinutiaeList(NodeFactory.createWhitespaceMinutiae(" ")));
@@ -181,12 +193,25 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
         Token slashToken = NodeFactory.createToken(SyntaxKind.SLASH_TOKEN);
         ImportOrgNameNode importOrgNameToken = NodeFactory.createImportOrgNameNode(orgNameToken, slashToken);
 
-        IdentifierToken moduleNameNode = NodeFactory.createIdentifierToken(WorkflowConstants.PACKAGE_NAME);
-        SeparatedNodeList<IdentifierToken> moduleName = NodeFactory.createSeparatedNodeList(moduleNameNode);
+        // Module name: workflow.internal
+        IdentifierToken workflowToken = NodeFactory.createIdentifierToken(WorkflowConstants.PACKAGE_NAME);
+        Token dotToken = NodeFactory.createToken(SyntaxKind.DOT_TOKEN);
+        IdentifierToken internalToken = NodeFactory.createIdentifierToken(
+                WorkflowConstants.INTERNAL_MODULE_NAME);
+        SeparatedNodeList<IdentifierToken> moduleName = NodeFactory.createSeparatedNodeList(
+                workflowToken, dotToken, internalToken);
+
+        // Prefix alias: as wfInternal
+        Token asKeyword = NodeFactory.createToken(SyntaxKind.AS_KEYWORD,
+                NodeFactory.createMinutiaeList(NodeFactory.createWhitespaceMinutiae(" ")),
+                NodeFactory.createMinutiaeList(NodeFactory.createWhitespaceMinutiae(" ")));
+        Token prefixToken = NodeFactory.createIdentifierToken(WorkflowConstants.INTERNAL_MODULE_ALIAS);
+        ImportPrefixNode importPrefix = NodeFactory.createImportPrefixNode(asKeyword, prefixToken);
+
         Token semicolonToken = NodeFactory.createToken(SyntaxKind.SEMICOLON_TOKEN);
 
-        return NodeFactory.createImportDeclarationNode(importKeyword, importOrgNameToken, moduleName, null,
-                semicolonToken);
+        return NodeFactory.createImportDeclarationNode(importKeyword, importOrgNameToken, moduleName,
+                importPrefix, semicolonToken);
     }
 
     /**

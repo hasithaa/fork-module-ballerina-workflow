@@ -33,7 +33,7 @@ import java.util.Map;
  * 1. Detects functions annotated with @workflow:Workflow
  * 2. Analyzes process function bodies to find @workflow:Activity calls
  * 3. Replaces activity calls with callActivity(functionPointer, args...)
- * 4. Adds registerProcess call at module level
+ * 4. Adds registerWorkflow call at module level
  *
  * @since 0.1.0
  */

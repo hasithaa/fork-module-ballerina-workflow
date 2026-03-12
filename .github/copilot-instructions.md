@@ -1,13 +1,14 @@
 # Ballerina Workflow Module - AI Coding Instructions
 
 ## Project Overview
-A Ballerina standard library module providing durable workflow orchestration via Temporal SDK. The module uses a **singleton worker pattern** with a compiler plugin that transforms annotated functions.
+A Ballerina standard library module providing durable workflow orchestration via Temporal SDK. The module uses a compiler plugin that transforms annotated functions and a Temporal scheduler that manages one SDK instance per JVM.
 
 ## Architecture
 
 ### Module Structure
 - `ballerina/` - Core Ballerina module (types, annotations, context, public API)
-- `native/` - Java native implementation (Temporal SDK integration, worker management)
+  - `modules/internal/` - Internal registration functions (`registerWorkflow()`) called by compiler-generated code
+- `native/` - Java native implementation (Temporal SDK integration, scheduler management)
 - `compiler-plugin/` - Validates `@Workflow`/`@Activity` annotations, transforms activity calls
 - `compiler-plugin-tests/` - Compiler plugin test suite
 
@@ -15,16 +16,16 @@ A Ballerina standard library module providing durable workflow orchestration via
 
 **Dynamic Workflow/Activity Adapters**: All workflows route through `BallerinaWorkflowAdapter` (implements `DynamicWorkflow`), all activities through `BallerinaActivityAdapter` (implements `DynamicActivity`). See [WorkflowWorkerNative.java](native/src/main/java/io/ballerina/stdlib/workflow/worker/WorkflowWorkerNative.java).
 
-**Singleton Worker**: One workflow SDK instance per JVM, initialized at module load via configurable variables. No Listener pattern - use `registerProcess()` + `startWorker()`.
+**Temporal Scheduler**: One workflow SDK instance per JVM, initialized at module load via configurable variables. No Listener pattern - use `registerWorkflow()` (internal) + `startWorkflowRuntime()`.
 
 **Annotations**: `@Workflow` and `@Activity`.
 
-**Context Client Class**: `workflow:Context` is a client class with `callActivity` as a remote method. Users **must** call activities via `ctx->callActivity(activityFunc, args...)`. Direct activity function calls are not allowed. Parameters use `map<anydata>` type.
+**Context Client Class**: `workflow:Context` is a client class with `callActivity` as a remote method. Users **must** call activities via `ctx->callActivity(activityFunc, args...)`. Direct activity function calls are not allowed. Parameters use `map<anydata>` type. Activity arguments are passed through Temporal as a **named map** and reconstructed into positional args using `FunctionType.getParameters()` in `BallerinaActivityAdapter`. Also provides `sleep()`, `currentTime()`, `isReplaying()`, `getWorkflowId()`, `getWorkflowType()`.
 
 **Compiler Plugin Validation**: The plugin at [WorkflowCompilerPlugin.java](compiler-plugin/src/main/java/io/ballerina/stdlib/workflow/compiler/WorkflowCompilerPlugin.java) performs validation:
 1. Validates that `ctx->callActivity()` calls use functions with `@Activity` annotation (produces `WORKFLOW_107` error otherwise)
 2. Validates that `@Activity` functions are not called directly inside `@Workflow` functions (produces `WORKFLOW_108` error)
-3. Auto-generates `registerProcess()` call at module level for each `@Workflow` function
+3. Auto-generates `registerWorkflow()` call at module level for each `@Workflow` function
 
 ## Key Conventions
 
@@ -52,6 +53,12 @@ function sendEmailActivity(string email) returns boolean|error {
 - Parameters and return types must be `anydata` subtypes
 - Activities are non-deterministic - executed once, results cached during replay
 - **Must** be called via `ctx->callActivity()` within `@Workflow` functions (direct calls produce `WORKFLOW_108` error)
+- **Dependently-typed activities** are supported: a `typedesc<anydata>` parameter with inferred default `<>` lets the caller specify the return type. The constraint must be `anydata` and the function must be `external`:
+  ```ballerina
+  @workflow:Activity
+  function fetchData(string url, typedesc<anydata> targetType = <>) returns targetType|error = external;
+  ```
+  Only the inferred-default form is allowed — explicit defaults (e.g., `= string`) and required typedesc params produce `WORKFLOW_114`.
 
 ### Calling Activities
 Activities **must** be called using `ctx->callActivity()` within `@Workflow` functions:
@@ -146,46 +153,40 @@ fpValue.metadata = new StrandMetadata(true, fpValue.metadata.properties());
 
 ## Configuration
 
-Via `Config.toml` or programmatic defaults. The `WorkflowConfig` is a union type supporting four deployment modes:
+Via `Config.toml` or programmatic defaults. All configuration uses flat `configurable` variables under `[ballerina.workflow]`. The `mode` field selects the deployment mode; irrelevant fields for a given mode are ignored at init time.
 
 **Local (default):**
 ```toml
-[ballerina.workflow.workflowConfig]
+[ballerina.workflow]
 mode = "LOCAL"
 url = "localhost:7233"
 namespace = "default"
-
-[ballerina.workflow.workflowConfig.params]
 taskQueue = "BALLERINA_WORKFLOW_TASK_QUEUE"
 maxConcurrentWorkflows = 100
 ```
 
 **Cloud with API key:**
 ```toml
-[ballerina.workflow.workflowConfig]
+[ballerina.workflow]
 mode = "CLOUD"
 url = "my-ns.my-account.tmprl.cloud:7233"
 namespace = "my-ns.my-account"
-
-[ballerina.workflow.workflowConfig.auth]
-apiKey = "my-api-key"
+authApiKey = "my-api-key"
 ```
 
 **Self-hosted with mTLS:**
 ```toml
-[ballerina.workflow.workflowConfig]
+[ballerina.workflow]
 mode = "SELF_HOSTED"
 url = "temporal.mycompany.com:7233"
-
-[ballerina.workflow.workflowConfig.auth]
-mtlsCert = "/path/to/client.pem"
-mtlsKey = "/path/to/client.key"
+authMtlsCert = "/path/to/client.pem"
+authMtlsKey = "/path/to/client.key"
 ```
 
 ## Version Requirements
 - **Ballerina**: 2201.13.0
 - **Java**: 21
-- **Temporal SDK**: 1.32.0 (with matching gRPC 1.58.1)
+- **Temporal SDK**: 1.32.0 (with matching gRPC 1.68.2)
 
 ## Compiler Plugin Error Codes
 
@@ -194,13 +195,17 @@ mtlsKey = "/path/to/client.key"
 | WORKFLOW_107 | callActivity target not @Activity | Calling non-activity via ctx->callActivity() |
 | WORKFLOW_108 | Direct activity call | Direct call to @Activity function (must use ctx->callActivity()) |
 | WORKFLOW_112 | Ambiguous signal types (warning) | Multiple signals with same structure in workflow definition |
+| WORKFLOW_113 | Non-deterministic time call | Using `time:utcNow()` inside `@Workflow` function (use `ctx.currentTime()` instead) |
+| WORKFLOW_114 | Unsupported typedesc parameter | `@Activity` has a typedesc param that is not the inferred-default form `typedesc<anydata> t = <>` |
 
 ## Common Pitfalls
-- Register all test processes in `@test:BeforeSuite` - registry cannot be cleared with singleton pattern
+- Register all test processes in `@test:BeforeSuite` - registry cannot be cleared after initialization
 - Process functions must be deterministic - no I/O, use activities instead
-- Don't mix Listener pattern (deprecated) with singleton pattern
 - **Never use Java blocking calls** in workflow code (causes `PotentialDeadlockException`)
 - Signal waiting uses `TemporalFutureValue.getAndSetWaited()` to intercept Ballerina's `wait` and use `Workflow.await()` instead of blocking `CompletableFuture.get()`
+- **Typed records lose specificity** through Temporal JSON serialization — `BasicAuth`, `BearerAuth`, `map<string>` all become `map<anydata>`. Use field-presence checks (`authMap.hasKey("username")`) instead of type guards
+- **Ballerina `xml` type** cannot be serialized by Temporal's Jackson-based persistence. Convert XML to `string` before returning from activities
+- **Use `ctx.currentTime()`** instead of `time:utcNow()` inside workflow functions for deterministic time (compiler plugin produces WORKFLOW_113 error otherwise)
 
 ## Agent Workflow Rules
 - **Do NOT automatically commit and push** changes. Always leave committing and pushing to the user unless explicitly asked to do so.

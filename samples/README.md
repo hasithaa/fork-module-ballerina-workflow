@@ -116,12 +116,10 @@ Each sample uses following workflow executor initialization configuration in `Co
 
 ```toml
 # Config.toml
-[ballerina.workflow.workflowConfig]
+[ballerina.workflow]
 mode = "LOCAL"
 url = "localhost:7233"
 namespace = "default"
-
-[ballerina.workflow.workflowConfig.params]
 taskQueue = "MY_TASK_QUEUE"
 ```
 

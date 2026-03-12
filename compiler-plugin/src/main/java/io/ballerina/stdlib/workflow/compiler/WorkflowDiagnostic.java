@@ -71,7 +71,16 @@ public enum WorkflowDiagnostic {
     WORKFLOW_112("WORKFLOW_112",
             "The process '%s' has structurally equivalent signal types '%s' and '%s'. "
                     + "Signal types in the events record should have distinct structures",
-            DiagnosticSeverity.WARNING);
+            DiagnosticSeverity.WARNING),
+    WORKFLOW_113("WORKFLOW_113",
+            "Using 'time:utcNow()' inside a @Workflow function is non-deterministic. "
+                    + "Use 'ctx.currentTime()' instead",
+            DiagnosticSeverity.WARNING),
+    WORKFLOW_114("WORKFLOW_114",
+            "@Activity function has an unsupported typedesc parameter. "
+                    + "Only dependently-typed functions with inferred default '<>' are allowed "
+                    + "(e.g., typedesc<anydata> t = <>)",
+            DiagnosticSeverity.ERROR);
 
     private final String code;
     private final String message;

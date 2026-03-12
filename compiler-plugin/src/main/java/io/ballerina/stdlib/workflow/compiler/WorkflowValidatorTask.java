@@ -28,6 +28,7 @@ import io.ballerina.compiler.api.symbols.Symbol;
 import io.ballerina.compiler.api.symbols.SymbolKind;
 import io.ballerina.compiler.api.symbols.TypeDescKind;
 import io.ballerina.compiler.api.symbols.TypeSymbol;
+import io.ballerina.compiler.syntax.tree.DefaultableParameterNode;
 import io.ballerina.compiler.syntax.tree.ExpressionNode;
 import io.ballerina.compiler.syntax.tree.FunctionArgumentNode;
 import io.ballerina.compiler.syntax.tree.FunctionCallExpressionNode;
@@ -35,6 +36,7 @@ import io.ballerina.compiler.syntax.tree.FunctionDefinitionNode;
 import io.ballerina.compiler.syntax.tree.MappingConstructorExpressionNode;
 import io.ballerina.compiler.syntax.tree.MappingFieldNode;
 import io.ballerina.compiler.syntax.tree.NodeVisitor;
+import io.ballerina.compiler.syntax.tree.ParameterNode;
 import io.ballerina.compiler.syntax.tree.PositionalArgumentNode;
 import io.ballerina.compiler.syntax.tree.RemoteMethodCallActionNode;
 import io.ballerina.compiler.syntax.tree.SeparatedNodeList;
@@ -78,6 +80,8 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
             validateCallActivityUsage(functionNode, context);
             // Validate no direct @Activity function calls are made
             validateNoDirectActivityCalls(functionNode, context);
+            // Validate no time:utcNow() calls are made (non-deterministic)
+            validateNoUtcNowCalls(functionNode, context);
         }
 
         // Check if function has @Activity annotation
@@ -219,6 +223,9 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
      * Validates @Activity function signature.
      * <ul>
      *   <li>All parameters must be subtypes of anydata</li>
+     *   <li>typedesc parameters are only allowed for dependently-typed external
+     *       functions with inferred default {@code <>}. Required or explicitly
+     *       defaultable typedesc parameters are rejected.</li>
      *   <li>Return type must be subtype of anydata|error</li>
      * </ul>
      */
@@ -233,11 +240,28 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         FunctionSymbol functionSymbol = (FunctionSymbol) symbolOpt.get();
         FunctionTypeSymbol typeSymbol = functionSymbol.typeDescriptor();
 
-        // Validate all parameters are subtypes of anydata
+        // Validate all parameters are subtypes of anydata.
+        // typedesc parameters are only allowed for dependently-typed functions
+        // (i.e., with inferred default <>).
         Optional<List<ParameterSymbol>> paramsOpt = typeSymbol.params();
         if (paramsOpt.isPresent()) {
-            for (ParameterSymbol param : paramsOpt.get()) {
-                TypeSymbol paramType = param.typeDescriptor();
+            List<ParameterSymbol> params = paramsOpt.get();
+            SeparatedNodeList<ParameterNode> syntaxParams =
+                    functionNode.functionSignature().parameters();
+
+            for (int i = 0; i < params.size(); i++) {
+                TypeSymbol paramType = params.get(i).typeDescriptor();
+                if (paramType.typeKind() == TypeDescKind.TYPEDESC) {
+                    // Only allow typedesc if it uses the inferred default <>
+                    // (dependently-typed function). Reject required or
+                    // explicitly defaultable typedesc params.
+                    if (!isInferredTypedescDefault(syntaxParams, i)) {
+                        reportDiagnostic(context, functionNode,
+                                WorkflowDiagnostic.WORKFLOW_114);
+                        return;
+                    }
+                    continue;
+                }
                 if (!WorkflowPluginUtils.isSubtypeOfAnydata(paramType, semanticModel)) {
                     reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_103);
                     return;
@@ -253,6 +277,24 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                 reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_104);
             }
         }
+    }
+
+    /**
+     * Checks whether the syntax-tree parameter at {@code index} is a
+     * {@link DefaultableParameterNode} whose default expression is the
+     * inferred typedesc default {@code <>}.
+     */
+    private static boolean isInferredTypedescDefault(
+            SeparatedNodeList<ParameterNode> syntaxParams, int index) {
+        if (index >= syntaxParams.size()) {
+            return false;
+        }
+        ParameterNode paramNode = syntaxParams.get(index);
+        if (paramNode instanceof DefaultableParameterNode defaultParam) {
+            return defaultParam.expression().kind()
+                    == SyntaxKind.INFERRED_TYPEDESC_DEFAULT;
+        }
+        return false;
     }
 
     /**
@@ -345,6 +387,10 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
             // Check for required parameters
             List<ParameterSymbol> expectedParams = paramsOpt.get();
             for (ParameterSymbol param : expectedParams) {
+                // Skip typedesc parameters — not user-supplied data
+                if (param.typeDescriptor().typeKind() == TypeDescKind.TYPEDESC) {
+                    continue;
+                }
                 if (param.paramKind() == ParameterKind.REQUIRED) {
                     Optional<String> nameOpt = param.getName();
                     String paramName = nameOpt.orElse("unnamed");
@@ -385,6 +431,11 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
             Set<String> requiredParamNames = new HashSet<>();
             
             for (ParameterSymbol param : expectedParams) {
+                // Skip typedesc parameters — they are type metadata provided by
+                // the compiler's dependent-typing mechanism, not user-supplied data.
+                if (param.typeDescriptor().typeKind() == TypeDescKind.TYPEDESC) {
+                    continue;
+                }
                 Optional<String> nameOpt = param.getName();
                 if (nameOpt.isPresent()) {
                     expectedParamNames.add(nameOpt.get());
@@ -506,6 +557,63 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                     WorkflowDiagnostic.WORKFLOW_111.getSeverity());
             context.reportDiagnostic(DiagnosticFactory.createDiagnostic(diagnosticInfo,
                     node.arguments().get(0).location()));
+        }
+    }
+
+    /**
+     * Validates that no time:utcNow() calls are made within @Workflow functions.
+     * time:utcNow() is non-deterministic and should not be used inside workflows.
+     * Users should use ctx.currentTime() instead.
+     */
+    private void validateNoUtcNowCalls(FunctionDefinitionNode functionNode, SyntaxNodeAnalysisContext context) {
+        UtcNowCallValidator validator = new UtcNowCallValidator(context);
+        functionNode.functionBody().accept(validator);
+    }
+
+    /**
+     * Node visitor that detects calls to time:utcNow() inside workflow functions.
+     */
+    private static class UtcNowCallValidator extends NodeVisitor {
+        private final SyntaxNodeAnalysisContext context;
+        private final SemanticModel semanticModel;
+        private static final String TIME_MODULE_ORG = "ballerina";
+        private static final String TIME_MODULE_NAME = "time";
+        private static final String UTC_NOW_FUNCTION = "utcNow";
+
+        UtcNowCallValidator(SyntaxNodeAnalysisContext context) {
+            this.context = context;
+            this.semanticModel = context.semanticModel();
+        }
+
+        @Override
+        public void visit(FunctionCallExpressionNode callNode) {
+            Optional<Symbol> symbolOpt = semanticModel.symbol(callNode);
+            if (symbolOpt.isPresent() && symbolOpt.get().kind() == SymbolKind.FUNCTION) {
+                FunctionSymbol funcSymbol = (FunctionSymbol) symbolOpt.get();
+                if (isTimeUtcNow(funcSymbol)) {
+                    DiagnosticInfo diagnosticInfo = new DiagnosticInfo(
+                            WorkflowDiagnostic.WORKFLOW_113.getCode(),
+                            WorkflowDiagnostic.WORKFLOW_113.getMessage(),
+                            WorkflowDiagnostic.WORKFLOW_113.getSeverity());
+                    context.reportDiagnostic(DiagnosticFactory.createDiagnostic(diagnosticInfo,
+                            callNode.functionName().location()));
+                }
+            }
+            // Continue visiting child nodes
+            callNode.arguments().forEach(arg -> arg.accept(this));
+        }
+
+        private boolean isTimeUtcNow(FunctionSymbol funcSymbol) {
+            if (!UTC_NOW_FUNCTION.equals(funcSymbol.getName().orElse(""))) {
+                return false;
+            }
+            var moduleOpt = funcSymbol.getModule();
+            if (moduleOpt.isEmpty()) {
+                return false;
+            }
+            var moduleSymbol = moduleOpt.get();
+            return TIME_MODULE_ORG.equals(moduleSymbol.id().orgName())
+                    && TIME_MODULE_NAME.equals(moduleSymbol.id().moduleName());
         }
     }
 

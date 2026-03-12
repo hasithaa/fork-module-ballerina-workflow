@@ -13,174 +13,92 @@ The Ballerina Workflow module provides durable workflow orchestration via Tempor
 ### 1. Ballerina Layer ([ballerina/](ballerina/))
 
 #### Annotations ([annotations.bal](ballerina/annotations.bal))
-```ballerina
-# Marks a function as a workflow process
-public annotation Workflow on function;
-
-# Marks a function as a workflow activity
-public annotation Activity on function;
-
-# Marks a record field as a correlation key for signal routing
-public annotation CorrelationKey on record field;
-```
+- `@workflow:Workflow` — marks a function as a workflow function
+- `@workflow:Activity` — marks a function as a workflow activity
 
 #### Public API Functions ([functions.bal](ballerina/functions.bal))
-```ballerina
-# Start a new workflow instance
-public isolated function run(function processFunction, map<anydata>? input = ()) 
-    returns string|error;
+- `run(function, map<anydata>?)` → `string|error` — start a new workflow instance
+- `sendData(function, string, string, anydata)` → `error?` — send data to a running workflow
+- `getWorkflowResult(string, int)` → `WorkflowExecutionInfo|error` — get workflow result
+- `getWorkflowInfo(string)` → `WorkflowExecutionInfo|error` — get workflow execution info
+- `getRegisteredWorkflows()` → `WorkflowRegistry|error` — list registered workflows
 
-# Send data to a running workflow
-public isolated function sendData(function workflow, string workflowId,
-    string dataName, anydata data) returns error?;
-
-# Search for a running workflow by correlation keys
-public isolated function searchWorkflow(function workflow, map<anydata> correlationKeys)
-    returns string|error;
-
-# Register a process with the singleton worker
-public isolated function registerProcess(function processFunction, string processName, 
-    map<function>? activities = ()) returns boolean|error;
-```
+#### Internal Registration ([modules/internal/register.bal](ballerina/modules/internal/register.bal))
+- `registerWorkflow(function, string, map<function>?)` → `boolean|error` — called by compiler-generated code to register workflows
 
 #### Context Client Class ([context.bal](ballerina/context.bal))
-```ballerina
-# Workflow execution context
-public client class Context {
-    # Call an activity from within a workflow
-    remote function callActivity(function activityFunction, map<anydata> args = {}, 
-        typedesc<anydata> T = <>) returns T|error;
-    
-    # Sleep for the specified duration (deterministic)
-    function sleep(time:Duration duration) returns error?;
-    
-    # Check if workflow is currently replaying
-    function isReplaying() returns boolean;
-    
-    # Get the workflow ID
-    function getWorkflowId() returns string|error;
-    
-    # Get the workflow type name
-    function getWorkflowType() returns string|error;
-}
-```
+- `callActivity(function, map<anydata> args = {}, ActivityOptions? options = (), typedesc<anydata> T = <>)` → `T|error` — remote method to call an activity; `args`, `options`, and `T` are all optional with the shown defaults, so most calls only pass the function and argument map
+- `sleep(time:Duration)` → `error?` — deterministic sleep (survives restarts)
+- `currentTime()` → `time:Utc` — deterministic current time (same value during replays)
+- `isReplaying()` → `boolean` — check if workflow is currently replaying
+- `getWorkflowId()` → `string|error` — get the workflow ID
+- `getWorkflowType()` → `string|error` — get the workflow type name
 
 ### 2. Compiler Plugin Layer ([compiler-plugin/](compiler-plugin/))
 
 #### WorkflowCompilerPlugin ([WorkflowCompilerPlugin.java](compiler-plugin/src/main/java/io/ballerina/stdlib/workflow/compiler/WorkflowCompilerPlugin.java))
 - Registers analysis and code modification tasks
-- Validates `@Workflow` and `@Activity` function signatures
+- Validates `@workflow:Workflow` and `@workflow:Activity` function signatures
 
 #### WorkflowValidatorTask ([WorkflowValidatorTask.java](compiler-plugin/src/main/java/io/ballerina/stdlib/workflow/compiler/WorkflowValidatorTask.java))
 - **WORKFLOW_107**: Validates `ctx->callActivity()` calls use `@Activity` functions
 - **WORKFLOW_108**: Prevents direct calls to `@Activity` functions inside `@Workflow`
-- Validates process function signature: `(Context?, anydata, record{future<T>...}?)`
+- **WORKFLOW_114**: Validates that `typedesc` parameters in `@Activity` functions use the inferred-default form `typedesc<anydata> t = <>` — explicit defaults and required typedesc params are rejected
+- Validates workflow function signature: `(Context?, anydata?, record{future<T>...}?)`
 - Validates activity function parameters and return types are `anydata` subtypes
+- Skips typedesc parameters when validating `callActivity` argument counts (typedesc is not passed via the args map)
 
-#### WorkflowCodeModifier ([WorkflowCodeModifier.java](compiler-plugin/src/main/java/io/ballerina/stdlib/workflow/compiler/WorkflowCodeModifier.java))
-- Auto-generates `registerProcess()` calls for each `@Workflow` function at module level
-- Extracts activity functions used in each process
+#### WorkflowSourceModifier ([WorkflowSourceModifier.java](compiler-plugin/src/main/java/io/ballerina/stdlib/workflow/compiler/WorkflowSourceModifier.java))
+- Auto-generates `wfInternal:registerWorkflow()` calls for each `@Workflow` function at module level
+- Generates `import ballerina/workflow.internal as wfInternal;` import
+- Extracts activity functions used in each workflow
 
 ### 3. Native Layer ([native/](native/))
 
 #### WorkflowWorkerNative.java
 Location: [WorkflowWorkerNative.java](native/src/main/java/io/ballerina/stdlib/workflow/worker/WorkflowWorkerNative.java)
 
-**Key registries:**
-```java
-private static final Map<String, BFunctionPointer> PROCESS_REGISTRY;
-private static final Map<String, BFunctionPointer> ACTIVITY_REGISTRY;
-private static final Map<String, List<String>> EVENT_REGISTRY;
-```
+**Key registries** — `PROCESS_REGISTRY` (workflow type → `BFunctionPointer`), `ACTIVITY_REGISTRY` (activity name → `BFunctionPointer`), `EVENT_REGISTRY` (workflow name → event names list)
 
-**Singleton worker management:**
-```java
-public static Object initSingletonWorker(BString url, BString namespace, 
-    BString taskQueue, long maxWorkflows, long maxActivities,
-    BString apiKey, BString mtlsCert, BString mtlsKey);
-public static Object registerProcessWithWorker(BFunctionPointer processFunc, 
-    BString processName, BMap activities);
-public static Object startSingletonWorker();
-```
+**Scheduler management** — `initSingletonWorker()`, `registerWorkflow()`, `startSingletonWorker()`, `stopSingletonWorker()` (see [02-temporal-scheduler.instructions.md](02-temporal-scheduler.instructions.md))
 
 **Dynamic adapters:**
-```java
-public static class BallerinaWorkflowAdapter implements DynamicWorkflow {
-    @Override
-    public Object execute(EncodedValues args) {
-        // Routes to registered process function via PROCESS_REGISTRY
-    }
-}
-
-public static class BallerinaActivityAdapter implements DynamicActivity {
-    @Override
-    public Object execute(EncodedValues args) {
-        // Routes to registered activity function via ACTIVITY_REGISTRY
-    }
-}
-```
+- `BallerinaWorkflowAdapter` (implements `DynamicWorkflow`) — routes all workflow types through a single adapter, injects `Context`, creates event futures, calls registered workflow functions
+- `BallerinaActivityAdapter` (implements `DynamicActivity`) — reconstructs positional args from named map using `FunctionType.getParameters()`, calls registered activity functions
 
 #### WorkflowNative.java
 Location: [WorkflowNative.java](native/src/main/java/io/ballerina/stdlib/workflow/runtime/nativeimpl/WorkflowNative.java)
-
-Implements `run()`, `sendData()`, and `searchWorkflow()` by interacting with Temporal's `WorkflowClient`.
+- Implements `run()`, `sendData()` by interacting with Temporal's `WorkflowClient`
 
 ## Usage Patterns
 
-### Process Function Signature
-```ballerina
-@workflow:Workflow
-function processName(
-    workflow:Context ctx,           // Optional, must be first if calling activities
-    T input,                        // Input data (anydata subtype)
-    record { future<U> event1; future<V> event2; } events  // Optional signals
-) returns R|error {
-    // Workflow logic - must be deterministic
-}
-```
+### Workflow Function Signature
+`@workflow:Workflow` functions follow this parameter order (see examples in [integration-tests/](integration-tests/)):
+1. `workflow:Context ctx` — optional, must be first if calling activities
+2. `T input?` — optional input data (`anydata` subtype)
+3. `record {| future<U> event1; ... |} events` — optional event futures
 
 ### Activity Function Signature
+`@workflow:Activity` functions accept `anydata` parameters and return `anydata|error`. See examples in [integration-tests/](integration-tests/).
+
+**Dependently-typed activities** are also supported. A `typedesc<anydata>` parameter with the inferred default `<>` enables the caller to specify the expected return type:
+
 ```ballerina
 @workflow:Activity
-function activityName(T param1, U param2) returns R|error {
-    // Non-deterministic operations (I/O, external calls)
-}
+function fetchData(string url, typedesc<anydata> targetType = <>) returns targetType|error = external;
 ```
+
+- The constraint type must be `anydata` (i.e., `typedesc<anydata>`, not `typedesc<string>` etc.)
+- The function must be `external` (Ballerina requires this for inferred typedesc defaults)
+- `WorkflowValidatorTask` (compiler plugin) skips typedesc parameters during argument-count validation only; the actual omission from Temporal's workflow history is caused by the `callActivity` API shape (`callActivity(function, map<anydata>, ActivityOptions?, typedesc<anydata>)`) on `workflow:Context` — the `map<anydata>` args sent to Temporal do not include the `typedesc`
+- At runtime, `BallerinaActivityAdapter` filters typedesc from named-args reconstruction and injects a `BTypedesc<anydata>` as the last positional arg when invoking the activity function; `WorkflowContextNative.callActivity()` then applies `cloneWithType` on the result using the original typedesc to produce the expected target type
+- Only the inferred-default form is allowed — explicit defaults and required typedesc params produce `WORKFLOW_114`
 
 ### Calling Activities (Required Pattern)
-```ballerina
-@workflow:Workflow
-function myProcess(workflow:Context ctx, Input input) returns Result|error {
-    // ✅ Correct: Use ctx->callActivity() with a map<anydata> args
-    boolean result = check ctx->callActivity(sendEmail, {"email": input.email, "subject": "Subject"});
-    
-    // ❌ Error WORKFLOW_108: Direct calls not allowed
-    // boolean result = check sendEmail(input.email, "Subject");
-    
-    return {status: result ? "sent" : "failed"};
-}
-```
+Activities **must** be called via `ctx->callActivity(activityFunc, args)` — direct calls produce `WORKFLOW_108` error.
 
 ### Waiting for Events
-```ballerina
-@workflow:Workflow
-function processWithEvents(
-    workflow:Context ctx,
-    Input input,
-    record { future<ApprovalData> approval; future<PaymentData> payment; } events
-) returns Result|error {
-    // Wait for approval signal
-    ApprovalData approvalData = check wait events.approval;
-    
-    if approvalData.approved {
-        // Wait for payment signal
-        PaymentData paymentData = check wait events.payment;
-        return {status: "completed", amount: paymentData.amount};
-    }
-    
-    return {status: "rejected"};
-}
-```
+Events are received via `check wait events.fieldName` using the Ballerina `wait` keyword.
 
 ## Type Requirements
 
@@ -188,30 +106,20 @@ function processWithEvents(
 |-----------|-------------|
 | Process input | Subtype of `anydata`, must have `@workflow:CorrelationKey` fields for correlation if using signals |
 | Process return | Subtype of `anydata` or `error` |
-| Activity params | Subtype of `anydata` |
-| Activity return | Subtype of `anydata` or `error` |
+| Activity params | Subtype of `anydata`; or `typedesc<anydata>` with inferred default `<>` (dependent typing) |
+| Activity return | Subtype of `anydata` or `error`; or `targetType\|error` when dependently typed |
 | Signal futures | `future<T>` where `T` is subtype of `anydata` |
 | Event data | Subtype of `anydata` |
 
 ## Success Criteria
 
-✅ **Compilation:**
 - `@Workflow` functions compile with valid signatures
 - `@Activity` functions compile with `anydata` parameters and return types
 - `ctx->callActivity()` calls compile when targeting `@Activity` functions
 - Direct activity calls produce WORKFLOW_108 compiler error
 - Calls to non-activity functions via `callActivity()` produce WORKFLOW_107 error
-
-✅ **Runtime Behavior:**
 - `run()` successfully starts workflows and returns workflow ID
 - `sendData()` successfully sends data to running workflows
 - `ctx->callActivity()` executes activities and returns results
-- Process functions execute deterministically (same inputs → same outputs)
-- Activities execute exactly once (not repeated during replay)
-- Signals are received and processed via `wait` keyword
-- Workflows handle errors properly with Ballerina error semantics
-
-✅ **Code Generation:**
-- Compiler plugin auto-generates `registerProcess()` calls for each `@Workflow` function
-- Generated code includes activity map for each process
-- Build succeeds without manual registration code
+- Compiler plugin auto-generates `wfInternal:registerWorkflow()` calls for each `@Workflow` function
+- Typedesc parameters in `@Activity` functions produce `WORKFLOW_114` unless they use the inferred-default form `typedesc<anydata> t = <>`

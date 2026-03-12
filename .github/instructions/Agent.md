@@ -10,10 +10,10 @@
 | # | Topic | File | Coverage |
 |---|-------|------|----------|
 | 01 | Workflow Design | [01-workflow-design.instructions.md](01-workflow-design.instructions.md) | Annotations, Context, Activities, Process signatures |
-| 02 | Singleton Worker Pattern | [02-singleton-worker-pattern.instructions.md](02-singleton-worker-pattern.instructions.md) | Worker lifecycle, configuration, initialization |
+| 02 | Temporal Scheduler | [02-temporal-scheduler.instructions.md](02-temporal-scheduler.instructions.md) | Scheduler lifecycle, configuration, initialization |
 | 03 | Future-Based Signals | [03-future-based-signals.instructions.md](03-future-based-signals.instructions.md) | TemporalFutureValue, signal handling, deadlock avoidance |
 | 04 | Dynamic Workflow Implementation | [04-dynamic-workflow-implementation.instructions.md](04-dynamic-workflow-implementation.instructions.md) | BallerinaWorkflowAdapter, dynamic routing, execution flow |
-| 05 | Explicit sendData API | [05-optional-signal-name.instructions.md](05-optional-signal-name.instructions.md) | sendData with required params, searchWorkflow, SendEventValidatorTask |
+| 05 | Explicit sendData API | [05-optional-signal-name.instructions.md](05-optional-signal-name.instructions.md) | sendData with required params, SendEventValidatorTask |
 | 06 | Integration Testing | [06-integration-testing.instructions.md](06-integration-testing.instructions.md) | Embedded Temporal server, Gradle test lifecycle |
 | 07 | Dependencies & Build | [07-dependencies-build.instructions.md](07-dependencies-build.instructions.md) | Version requirements, build commands, module structure |
 | 08 | Correlation Keys | [08-correlation.md](08-correlation.md) | Readonly fields, Search Attributes, duplicate detection |
@@ -23,9 +23,9 @@
 ### Ballerina Module
 - [ballerina/annotations.bal](../../ballerina/annotations.bal) - @Workflow, @Activity annotations
 - [ballerina/context.bal](../../ballerina/context.bal) - Context client class
-- [ballerina/functions.bal](../../ballerina/functions.bal) - run(), sendData(), searchWorkflow()
+- [ballerina/functions.bal](../../ballerina/functions.bal) - run(), sendData()
 - [ballerina/types.bal](../../ballerina/types.bal) - ProcessInfo, ActivityInfo
-- [ballerina/config.bal](../../ballerina/config.bal) - WorkflowConfig
+- [ballerina/config.bal](../../ballerina/config.bal) - Flat configurable variables (mode, url, namespace, auth, scheduler, retry policy)
 - [ballerina/module.bal](../../ballerina/module.bal) - Module initialization
 
 ### Compiler Plugin
@@ -35,7 +35,7 @@
 - [SendEventValidatorTask.java](../../compiler-plugin/src/main/java/io/ballerina/stdlib/workflow/compiler/SendEventValidatorTask.java) - sendData validation
 
 ### Native Implementation
-- [WorkflowWorkerNative.java](../../native/src/main/java/io/ballerina/stdlib/workflow/worker/WorkflowWorkerNative.java) - Temporal worker
+- [WorkflowWorkerNative.java](../../native/src/main/java/io/ballerina/stdlib/workflow/worker/WorkflowWorkerNative.java) - Workflow scheduler (Temporal task polling and execution)
 - [WorkflowRuntime.java](../../native/src/main/java/io/ballerina/stdlib/workflow/runtime/WorkflowRuntime.java) - Runtime management
 - [TemporalFutureValue.java](../../native/src/main/java/io/ballerina/stdlib/workflow/context/TemporalFutureValue.java) - Signal futures
 - [CorrelationExtractor.java](../../native/src/main/java/io/ballerina/stdlib/workflow/utils/CorrelationExtractor.java) - Correlation keys

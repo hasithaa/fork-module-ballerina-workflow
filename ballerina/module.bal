@@ -16,16 +16,16 @@
 
 import ballerina/jballerina.java;
 
-# Flag indicating whether the singleton worker has been started.
-isolated boolean workerStarted = false;
+# Flag indicating whether the singleton program has been started.
+isolated boolean programStarted = false;
 
 # Module initialization function.
-# This captures the module reference and initializes the singleton worker.
+# This captures the module reference and initializes the program.
 #
 # + return - An error if initialization fails, otherwise nil
 function init() returns error? {
     initModule();
-    check initSingletonWorker();
+    check initWorkflowRuntime();
 }
 
 listener WorkflowListener _workflowListener = new;
@@ -39,15 +39,20 @@ class WorkflowListener {
     }
 
     public function 'start() returns error? {
-        check startWorker();
+        check startWorkflowRuntime();
     }
 
+    // gracefulStop calls stopWorkflowRuntime() which invokes workerFactory.shutdown() —
+    // a cooperative drain that lets in-flight workflow/activity tasks complete.
+    // immediateStop calls stopWorkflowRuntimeNow() which invokes workerFactory.shutdownNow() —
+    // a forceful interrupt that cancels in-flight tasks, followed by awaitTermination()
+    // to ensure the JVM threads exit before the process continues.
     public function gracefulStop() returns error? {
-        check stopWorker();
+        check stopWorkflowRuntime();
     }
 
     public function immediateStop() returns error? {
-        check stopWorker();
+        check stopWorkflowRuntimeNow();
     }
 }
 
@@ -58,63 +63,120 @@ function initModule() = @java:Method {
     name: "setModule"
 } external;
 
-# Initializes the singleton workflow worker with the configured settings.
-# This creates the workflow client and worker that will be shared across
+# Initializes the workflow program with the configured settings.
+# This creates the workflow client and program that will be shared across
 # all workflow executions in this runtime.
 #
-# + return - An error if initialization fails, otherwise nil
-isolated function initSingletonWorker() returns error? {
+# Performs mode-based validation:
+# - IN_MEMORY: No server connection needed; all other config fields are ignored.
+# - LOCAL: Connects to a local dev server; auth fields are ignored.
+# - CLOUD: Requires url, namespace, and authentication (apiKey or mTLS).
+# - SELF_HOSTED: Requires url; authentication is optional.
+#
+# + return - An error if initialization or validation fails, otherwise nil
+isolated function initWorkflowRuntime() returns error? {
     lock {
-        if workerStarted {
+        if programStarted {
             return;
         }
-        WorkflowConfig config = workflowConfig;
-        if config is InMemoryConfig {
-            // In-memory mode: use embedded test server, no external server needed
-            check initInMemoryWorkerNative();
-            workerStarted = true;
+        Mode currentMode = mode;
+        if currentMode == IN_MEMORY {
+            check initInMemoryProgramNative();
+            programStarted = true;
             return;
         }
-        // Extract connection parameters based on deployment mode
-        string url;
-        string namespace;
-        WorkerConfig workerCfg;
-        string apiKey = "";
-        string mtlsCert = "";
-        string mtlsKey = "";
-        if config is CloudConfig {
-            url = config.url;
-            namespace = config.namespace;
-            workerCfg = config.params;
-            apiKey = config.auth.apiKey ?: "";
-            mtlsCert = config.auth.mtlsCert ?: "";
-            mtlsKey = config.auth.mtlsKey ?: "";
-        } else if config is SelfHostedConfig {
-            url = config.url;
-            namespace = config.namespace;
-            workerCfg = config.params;
-            if config.auth is AuthConfig {
-                AuthConfig auth = <AuthConfig>config.auth;
-                apiKey = auth.apiKey ?: "";
-                mtlsCert = auth.mtlsCert ?: "";
-                mtlsKey = auth.mtlsKey ?: "";
+
+        // Validate url for CLOUD and SELF_HOSTED (must be explicitly provided)
+        string currentUrl = url;
+        if currentUrl == "" {
+            return error("'url' is required for " + currentMode + " mode");
+        }
+
+        // Validate authentication for CLOUD (must have apiKey or mTLS)
+        // Treat empty string as absent so "authApiKey = \"\"" is equivalent to not set.
+        string? currentApiKey = authApiKey == "" ? () : authApiKey;
+        string? currentMtlsCert = authMtlsCert == "" ? () : authMtlsCert;
+        string? currentMtlsKey = authMtlsKey == "" ? () : authMtlsKey;
+        if currentMode == CLOUD {
+            if currentApiKey is () && (currentMtlsCert is () || currentMtlsKey is ()) {
+                return error("CLOUD mode requires authentication: "
+                        + "provide either 'authApiKey' or both 'authMtlsCert' and 'authMtlsKey'");
             }
-        } else {
-            // LocalConfig
-            LocalConfig localCfg = <LocalConfig>config;
-            url = localCfg.url;
-            namespace = localCfg.namespace;
-            workerCfg = localCfg.params;
         }
-        check initWorkerNative(url, namespace, workerCfg.taskQueue,
-                workerCfg.maxConcurrentWorkflows, workerCfg.maxConcurrentActivities,
-                apiKey, mtlsCert, mtlsKey,
-                workerCfg.defaultActivityRetryPolicy);
-        workerStarted = true;
+
+        // Validate mTLS pair completeness (both or neither) when at least one is provided
+        if currentMtlsCert is () != currentMtlsKey is () {
+            return error("Both 'authMtlsCert' and 'authMtlsKey' must be provided together");
+        }
+
+        // Validate scheduler fields
+        int concurrentWorkflows = maxConcurrentWorkflows;
+        int concurrentActivities = maxConcurrentActivities;
+        if concurrentWorkflows <= 0 {
+            return error("'maxConcurrentWorkflows' must be a positive integer, got "
+                    + concurrentWorkflows.toString());
+        }
+        if concurrentWorkflows > 2147483647 {
+            return error("'maxConcurrentWorkflows' must not exceed 2147483647 (Integer.MAX_VALUE), got "
+                    + concurrentWorkflows.toString());
+        }
+        if concurrentActivities <= 0 {
+            return error("'maxConcurrentActivities' must be a positive integer, got "
+                    + concurrentActivities.toString());
+        }
+        if concurrentActivities > 2147483647 {
+            return error("'maxConcurrentActivities' must not exceed 2147483647 (Integer.MAX_VALUE), got "
+                    + concurrentActivities.toString());
+        }
+
+        // Validate default retry policy fields
+        int retryInitialInterval = activityRetryInitialInterval;
+        decimal retryBackoff = activityRetryBackoffCoefficient;
+        int retryMaxInterval = activityRetryMaximumInterval;
+        int retryMaxAttempts = activityRetryMaximumAttempts;
+        if retryInitialInterval <= 0 {
+            return error("'activityRetryInitialInterval' must be a positive integer, got "
+                    + retryInitialInterval.toString());
+        }
+        if retryBackoff < 1.0d {
+            return error("'activityRetryBackoffCoefficient' must be >= 1.0, got "
+                    + retryBackoff.toString());
+        }
+        if retryMaxInterval < 0 {
+            return error("'activityRetryMaximumInterval' must be a non-negative integer, got "
+                    + retryMaxInterval.toString());
+        }
+        if retryMaxAttempts < 0 {
+            return error("'activityRetryMaximumAttempts' must be a non-negative integer, got "
+                    + retryMaxAttempts.toString());
+        }
+
+        // Build the ActivityRetryPolicy record for the native layer.
+        // maximumIntervalInSeconds is only set when retryMaxInterval > 0 (0 means no cap).
+        ActivityRetryPolicy defaultRetryPolicy = {
+            initialIntervalInSeconds: retryInitialInterval,
+            backoffCoefficient: retryBackoff,
+            maximumAttempts: retryMaxAttempts
+        };
+        if retryMaxInterval > 0 {
+            defaultRetryPolicy.maximumIntervalInSeconds = retryMaxInterval;
+        }
+
+        // For LOCAL mode, ignore auth fields; coalesce nil → "" for native layer
+        string effectiveApiKey = currentMode == LOCAL ? "" : (currentApiKey ?: "");
+        string effectiveMtlsCert = currentMode == LOCAL ? "" : (currentMtlsCert ?: "");
+        string effectiveMtlsKey = currentMode == LOCAL ? "" : (currentMtlsKey ?: "");
+        string effectiveCaCert = currentMode == LOCAL ? "" : (authCaCert ?: "");
+
+        check initProgramNative(currentUrl, namespace, taskQueue,
+                concurrentWorkflows, concurrentActivities,
+                effectiveApiKey, effectiveMtlsCert, effectiveMtlsKey, effectiveCaCert,
+                defaultRetryPolicy);
+        programStarted = true;
     }
 }
 
-# Native function to initialize the singleton worker.
+# Native function to initialize the singleton program.
 #
 # + url - The workflow server URL
 # + namespace - The workflow namespace
@@ -124,9 +186,10 @@ isolated function initSingletonWorker() returns error? {
 # + apiKey - API key for authentication (empty string if not used)
 # + mtlsCert - Path to mTLS certificate file (empty string if not used)
 # + mtlsKey - Path to mTLS private key file (empty string if not used)
+# + caCert - Path to CA certificate for server trust (empty string to use JVM default trust store)
 # + defaultRetryPolicy - Default activity retry policy
 # + return - An error if initialization fails, otherwise nil
-isolated function initWorkerNative(
+isolated function initProgramNative(
         string url,
         string namespace,
         string taskQueue,
@@ -135,19 +198,20 @@ isolated function initWorkerNative(
         string apiKey,
         string mtlsCert,
         string mtlsKey,
+        string caCert,
         ActivityRetryPolicy defaultRetryPolicy
 ) returns error? = @java:Method {
     'class: "io.ballerina.stdlib.workflow.worker.WorkflowWorkerNative",
     name: "initSingletonWorker"
 } external;
 
-# Initializes an in-memory workflow worker using an embedded test server.
+# Initializes an in-memory workflow program using an embedded test server.
 # No external server connection is required. Workflows are not persisted
 # and are lost on restart. Signal-based communication is supported when
 # the workflow ID is known.
 #
 # + return - An error if initialization fails, otherwise nil
-isolated function initInMemoryWorkerNative() returns error? = @java:Method {
+isolated function initInMemoryProgramNative() returns error? = @java:Method {
     'class: "io.ballerina.stdlib.workflow.worker.WorkflowWorkerNative",
     name: "initInMemoryWorker"
 } external;

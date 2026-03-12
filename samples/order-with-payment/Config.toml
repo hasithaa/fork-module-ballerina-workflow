@@ -1,7 +1,6 @@
-[ballerina.workflow.workflowConfig]
+[ballerina.workflow]
 mode = "LOCAL"
 url = "localhost:7233"
 namespace = "default"
-
-[ballerina.workflow.workflowConfig.params]
 taskQueue = "ORDER_PAYMENT_QUEUE"
+maxConcurrentWorkflows = 100

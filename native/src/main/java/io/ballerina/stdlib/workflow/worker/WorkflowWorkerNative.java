@@ -24,7 +24,11 @@ import io.ballerina.runtime.api.Runtime;
 import io.ballerina.runtime.api.concurrent.StrandMetadata;
 import io.ballerina.runtime.api.creators.ErrorCreator;
 import io.ballerina.runtime.api.creators.ValueCreator;
+import io.ballerina.runtime.api.types.FunctionType;
+import io.ballerina.runtime.api.types.Parameter;
+import io.ballerina.runtime.api.types.PredefinedTypes;
 import io.ballerina.runtime.api.types.RecordType;
+import io.ballerina.runtime.api.types.TypeTags;
 import io.ballerina.runtime.api.utils.StringUtils;
 import io.ballerina.runtime.api.values.BError;
 import io.ballerina.runtime.api.values.BFunctionPointer;
@@ -32,6 +36,7 @@ import io.ballerina.runtime.api.values.BMap;
 import io.ballerina.runtime.api.values.BObject;
 import io.ballerina.runtime.api.values.BString;
 import io.ballerina.runtime.internal.values.FPValue;
+import io.ballerina.stdlib.workflow.ModuleUtils;
 import io.ballerina.stdlib.workflow.context.SignalAwaitWrapper;
 import io.ballerina.stdlib.workflow.context.WorkflowContextNative;
 import io.ballerina.stdlib.workflow.registry.EventInfo;
@@ -99,6 +104,10 @@ public final class WorkflowWorkerNative {
     // Flags for singleton state
     private static final AtomicBoolean initialized = new AtomicBoolean(false);
     private static final AtomicBoolean started = new AtomicBoolean(false);
+
+    // Deadline for blocking gRPC introspection calls (e.g., describeWorkflowExecution).
+    // Increase if the Temporal server is remote and latency is higher than 5 seconds.
+    private static final int GET_INFO_DEADLINE_SECONDS = 5;
     private static volatile boolean inMemoryMode = false;
 
     // Global default activity retry policy (set from WorkerConfig.defaultActivityRetryPolicy)
@@ -116,12 +125,18 @@ public final class WorkflowWorkerNative {
 
     /**
      * Module initialization - called by Ballerina runtime.
-     * Captures the Module and Runtime from Environment for later use.
+     * Captures the Runtime from Environment for later use.
+     * The Module reference is obtained from ModuleUtils (set during initModule()).
      *
      * @param env the Ballerina runtime environment
      */
     public static void init(Environment env) {
-        workflowModule = env.getCurrentModule();
+        workflowModule = ModuleUtils.getModule();
+        if (workflowModule == null) {
+            throw new IllegalStateException(
+                    "ModuleUtils.getModule() returned null in WorkflowWorkerNative.init; " +
+                    "ensure the Ballerina module has been initialized before the runtime starts.");
+        }
         ballerinaRuntime = env.getRuntime();
     }
 
@@ -135,8 +150,9 @@ public final class WorkflowWorkerNative {
      * @param maxConcurrentWorkflows Maximum concurrent workflow executions
      * @param maxConcurrentActivities Maximum concurrent activity executions
      * @param apiKey API key for authentication (empty string if not used)
-     * @param mtlsCert Path to mTLS certificate file (empty string if not used)
-     * @param mtlsKey Path to mTLS private key file (empty string if not used)
+     * @param mtlsCert Path to mTLS client certificate file (empty string if not used)
+     * @param mtlsKey Path to mTLS client private key file (empty string if not used)
+     * @param caCert Path to CA certificate for server trust (empty string to use JVM default trust store)
      * @param defaultRetryPolicy Default activity retry policy from WorkerConfig
      * @return null on success, error on failure
      */
@@ -150,6 +166,7 @@ public final class WorkflowWorkerNative {
             BString apiKey,
             BString mtlsCert,
             BString mtlsKey,
+            BString caCert,
             BMap<BString, Object> defaultRetryPolicy) {
 
         if (!initialized.compareAndSet(false, true)) {
@@ -164,6 +181,7 @@ public final class WorkflowWorkerNative {
             String apiKeyValue = apiKey.getValue();
             String mtlsCertPath = mtlsCert.getValue();
             String mtlsKeyPath = mtlsKey.getValue();
+            String caCertPath = caCert.getValue();
 
             LOGGER.debug("Initializing singleton workflow worker - URL: {}, Namespace: {}, TaskQueue: {}",
                     serverUrl, ns, taskQueue);
@@ -172,28 +190,44 @@ public final class WorkflowWorkerNative {
             WorkflowServiceStubsOptions.Builder stubsBuilder = WorkflowServiceStubsOptions.newBuilder()
                     .setTarget(serverUrl);
 
-            // Configure mTLS if certificate and key are provided
-            if (!mtlsCertPath.isEmpty() && !mtlsKeyPath.isEmpty()) {
-                try (InputStream certStream = new FileInputStream(mtlsCertPath);
-                     InputStream keyStream = new FileInputStream(mtlsKeyPath)) {
-                    io.grpc.netty.shaded.io.netty.handler.ssl.SslContext sslContext =
-                            io.grpc.netty.shaded.io.netty.handler.ssl.SslContextBuilder.forClient()
-                                    .keyManager(certStream, keyStream)
-                                    .build();
-                    stubsBuilder.setSslContext(sslContext);
+            boolean hasMtls = !mtlsCertPath.isEmpty() && !mtlsKeyPath.isEmpty();
+            boolean hasCaCert = !caCertPath.isEmpty();
+            boolean hasApiKey = !apiKeyValue.isEmpty();
+
+            // Configure TLS/mTLS when needed (client cert and/or custom server CA)
+            if (hasMtls || hasCaCert) {
+                try {
+                    io.grpc.netty.shaded.io.netty.handler.ssl.SslContextBuilder sslBuilder =
+                            io.grpc.netty.shaded.io.netty.handler.ssl.SslContextBuilder.forClient();
+                    if (hasMtls) {
+                        try (InputStream certStream = new FileInputStream(mtlsCertPath);
+                             InputStream keyStream = new FileInputStream(mtlsKeyPath)) {
+                            sslBuilder.keyManager(certStream, keyStream);
+                        }
+                        LOGGER.debug("mTLS client certificate configured: {}", mtlsCertPath);
+                    }
+                    if (hasCaCert) {
+                        try (InputStream caStream = new FileInputStream(caCertPath)) {
+                            sslBuilder.trustManager(caStream);
+                        }
+                        LOGGER.debug("Custom CA certificate configured: {}", caCertPath);
+                    }
+                    stubsBuilder.setSslContext(sslBuilder.build());
                     stubsBuilder.setEnableHttps(true);
-                    LOGGER.debug("mTLS configured with cert: {} and key: {}", mtlsCertPath, mtlsKeyPath);
                 } catch (IOException e) {
                     initialized.set(false);
                     return ErrorCreator.createError(
-                            StringUtils.fromString("Failed to configure mTLS: " + e.getMessage()));
+                            StringUtils.fromString("Failed to configure TLS/mTLS: " + e.getMessage()));
                 }
             }
 
             // Configure API key authentication if provided
-            if (!apiKeyValue.isEmpty()) {
+            if (hasApiKey) {
                 stubsBuilder.addApiKey(() -> apiKeyValue);
-                stubsBuilder.setEnableHttps(true);
+                if (!hasMtls && !hasCaCert) {
+                    // API key over default JVM TLS (public CA trust store)
+                    stubsBuilder.setEnableHttps(true);
+                }
                 LOGGER.debug("API key authentication configured");
             }
 
@@ -322,53 +356,53 @@ public final class WorkflowWorkerNative {
     }
 
     /**
-     * Register a workflow process with the singleton worker.
-     * Called from Ballerina code for each workflow process.
+     * Register a workflow with the singleton program.
+     * Called from Ballerina code for each workflow.
      *
      * @param env Environment for capturing runtime
-     * @param processFunction The Ballerina process function pointer
-     * @param processName The name of the process (workflow type)
+     * @param workflowFunction The Ballerina workflow function pointer
+     * @param workflowName The name of the workflow (workflow type)
      * @param activities Optional map of activity functions
      * @return true on success, error on failure
      */
-    public static Object registerProcessWithWorker(
+    public static Object registerWorkflow(
             Environment env,
-            BFunctionPointer processFunction,
-            BString processName,
+            BFunctionPointer workflowFunction,
+            BString workflowName,
             Object activities) {
 
-        // Use init() method's already set values, or set them with synchronization
+        // Use ModuleUtils to get the workflow module (set during initModule() in module.bal)
+        // env.getCurrentModule() returns the caller's module, not ballerina/workflow
         synchronized (WorkflowWorkerNative.class) {
             if (ballerinaRuntime == null) {
                 ballerinaRuntime = env.getRuntime();
             }
             if (workflowModule == null) {
-                workflowModule = env.getCurrentModule();
+                workflowModule = ModuleUtils.getModule();
             }
         }
 
         if (!initialized.get()) {
             return ErrorCreator.createError(
-                    StringUtils.fromString("Workflow worker not initialized. Module initialization may have failed."));
+                    StringUtils.fromString("Workflow program not initialized. Module initialization may have failed."));
         }
 
         if (singletonWorker == null) {
             return ErrorCreator.createError(
-                    StringUtils.fromString("Worker is null. Call initSingletonWorker first."));
+                    StringUtils.fromString("Workflow program is null. Initialization may have failed."));
         }
 
         try {
-            String workflowType = processName.getValue();
-            LOGGER.debug("Registering process: {}", workflowType);
+            String workflowType = workflowName.getValue();
+            LOGGER.debug("Registering workflow: {}", workflowType);
 
-            // Check for duplicate registration
-            if (PROCESS_REGISTRY.containsKey(workflowType)) {
+            // Atomically register — putIfAbsent returns the existing value (non-null) if
+            // a workflow with this name is already registered, null if insertion succeeded.
+            BFunctionPointer existing = PROCESS_REGISTRY.putIfAbsent(workflowType, workflowFunction);
+            if (existing != null) {
                 return ErrorCreator.createError(
-                        StringUtils.fromString("Process with name '" + workflowType + "' is already registered"));
+                        StringUtils.fromString("Workflow with name '" + workflowType + "' is already registered"));
             }
-
-            // Store the process function in the process registry
-            PROCESS_REGISTRY.put(workflowType, processFunction);
 
             // Register activities if provided
             if (activities != null) {
@@ -382,8 +416,8 @@ public final class WorkflowWorkerNative {
                 }
             }
 
-            // Extract and register events from the process function signature
-            List<EventInfo> events = EventExtractor.extractEvents(processFunction, workflowType);
+            // Extract and register events from the workflow function signature
+            List<EventInfo> events = EventExtractor.extractEvents(workflowFunction, workflowType);
             if (!events.isEmpty()) {
                 List<String> eventNames = new ArrayList<>();
                 for (EventInfo event : events) {
@@ -396,9 +430,9 @@ public final class WorkflowWorkerNative {
             return true;
 
         } catch (Exception e) {
-            LOGGER.error("Failed to register process {}: {}", processName.getValue(), e.getMessage(), e);
+            LOGGER.error("Failed to register workflow {}: {}", workflowName.getValue(), e.getMessage(), e);
             return ErrorCreator.createError(
-                    StringUtils.fromString("Failed to register process: " + e.getMessage()));
+                    StringUtils.fromString("Failed to register workflow: " + e.getMessage()));
         }
     }
 
@@ -483,6 +517,50 @@ public final class WorkflowWorkerNative {
             LOGGER.error("Error stopping worker: {}", e.getMessage(), e);
             return ErrorCreator.createError(
                     StringUtils.fromString("Failed to stop worker: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Forcefully stops the singleton workflow worker by interrupting in-flight tasks.
+     * Uses {@code WorkerFactory.shutdownNow()} instead of the graceful {@code shutdown()},
+     * then awaits termination to ensure all JVM threads exit before returning.
+     * In-memory mode falls back to {@link #stopSingletonWorker()} (TestWorkflowEnvironment
+     * does not distinguish between graceful and immediate shutdown).
+     *
+     * @return null on success, error on failure
+     */
+    public static Object stopSingletonWorkerNow() {
+        if (!started.get()) {
+            return null;
+        }
+
+        try {
+            LOGGER.debug("Force-stopping singleton worker (shutdownNow)...");
+
+            if (inMemoryMode && testEnvironment != null) {
+                // In-memory mode: TestWorkflowEnvironment has no shutdownNow API; close() is sufficient.
+                testEnvironment.close();
+                testEnvironment = null;
+                LOGGER.debug("In-memory worker closed (immediate)");
+            } else {
+                if (workerFactory != null) {
+                    workerFactory.shutdownNow();
+                    workerFactory.awaitTermination(10, TimeUnit.SECONDS);
+                }
+
+                if (serviceStubs != null) {
+                    serviceStubs.shutdown();
+                }
+            }
+
+            started.set(false);
+            LOGGER.debug("Singleton worker force-stopped");
+            return null;
+
+        } catch (Exception e) {
+            LOGGER.error("Error force-stopping worker: {}", e.getMessage(), e);
+            return ErrorCreator.createError(
+                    StringUtils.fromString("Failed to force-stop worker: " + e.getMessage()));
         }
     }
 
@@ -579,23 +657,39 @@ public final class WorkflowWorkerNative {
         io.temporal.common.RetryOptions.Builder retryBuilder = io.temporal.common.RetryOptions.newBuilder();
 
         Object initialInterval = retryMap.get(StringUtils.fromString("initialIntervalInSeconds"));
-        if (initialInterval instanceof Long) {
-            retryBuilder.setInitialInterval(java.time.Duration.ofSeconds((Long) initialInterval));
+        if (initialInterval instanceof Long intervalVal) {
+            if (intervalVal <= 0) {
+                throw new IllegalArgumentException(
+                        "initialIntervalInSeconds must be a positive integer, got " + intervalVal);
+            }
+            retryBuilder.setInitialInterval(java.time.Duration.ofSeconds(intervalVal));
         }
 
         Object backoff = retryMap.get(StringUtils.fromString("backoffCoefficient"));
         if (backoff instanceof io.ballerina.runtime.api.values.BDecimal) {
-            retryBuilder.setBackoffCoefficient(
-                    ((io.ballerina.runtime.api.values.BDecimal) backoff).floatValue());
+            double backoffVal = ((io.ballerina.runtime.api.values.BDecimal) backoff).floatValue();
+            if (backoffVal < 1.0) {
+                throw new IllegalArgumentException(
+                        "backoffCoefficient must be >= 1.0, got " + backoffVal);
+            }
+            retryBuilder.setBackoffCoefficient(backoffVal);
         }
 
         Object maxInterval = retryMap.get(StringUtils.fromString("maximumIntervalInSeconds"));
-        if (maxInterval instanceof Long) {
-            retryBuilder.setMaximumInterval(java.time.Duration.ofSeconds((Long) maxInterval));
+        if (maxInterval instanceof Long maxIntervalVal) {
+            if (maxIntervalVal <= 0) {
+                throw new IllegalArgumentException(
+                        "maximumIntervalInSeconds must be a positive integer, got " + maxIntervalVal);
+            }
+            retryBuilder.setMaximumInterval(java.time.Duration.ofSeconds(maxIntervalVal));
         }
 
         Object maxAttempts = retryMap.get(StringUtils.fromString("maximumAttempts"));
         if (maxAttempts instanceof Long maxAttemptsLong) {
+            if (maxAttemptsLong < 0) {
+                throw new IllegalArgumentException(
+                        "maximumAttempts must be a non-negative integer, got " + maxAttemptsLong);
+            }
             retryBuilder.setMaximumAttempts(Math.toIntExact(maxAttemptsLong));
         }
 
@@ -832,7 +926,7 @@ public final class WorkflowWorkerNative {
 
                 if (processFunction == null && templateService == null) {
                     String errorMsg = String.format("Workflow '%s' is not registered. " +
-                            "Please call registerProcess() for this workflow.", workflowType);
+                            "Please call registerWorkflow() for this workflow.", workflowType);
                     LOGGER.error("[JWorkflowAdapter] {}", errorMsg);
 
                     io.temporal.failure.ApplicationFailure failure =
@@ -1070,8 +1164,7 @@ public final class WorkflowWorkerNative {
             io.temporal.workflow.WorkflowInfo temporalInfo = Workflow.getInfo();
             Object contextInfo = WorkflowContextNative.createContext(
                     temporalInfo.getWorkflowId(),
-                    temporalInfo.getWorkflowType(),
-                    new HashMap<>() // correlation data
+                    temporalInfo.getWorkflowType()
             );
 
             // Wrap in HandleValue for Ballerina
@@ -1180,9 +1273,10 @@ public final class WorkflowWorkerNative {
         private static final String FAIL_ON_ERROR_KEY = "failOnError";
 
         // Built-in implicit activity names
-        public static final String BUILTIN_RUN = "__workflow_run";
-        public static final String BUILTIN_SEND_DATA = "__workflow_sendData";
-        public static final String BUILTIN_GET_RESULT = "__workflow_getResult";
+        public static final String BUILTIN_RUN = "workflow:run";
+        public static final String BUILTIN_SEND_DATA = "workflow:sendData";
+        public static final String BUILTIN_GET_RESULT = "workflow:getResult";
+        public static final String BUILTIN_GET_INFO = "workflow:getInfo";
 
         @Override
         @SuppressWarnings("unchecked")
@@ -1202,6 +1296,9 @@ public final class WorkflowWorkerNative {
             if (BUILTIN_GET_RESULT.equals(activityName)) {
                 return executeBuiltInGetResult(args);
             }
+            if (BUILTIN_GET_INFO.equals(activityName)) {
+                return executeBuiltInGetInfo(args);
+            }
 
             // Look up the registered Ballerina function for this activity
             BFunctionPointer activityFunction = ACTIVITY_REGISTRY.get(activityName);
@@ -1211,44 +1308,96 @@ public final class WorkflowWorkerNative {
                 throw new RuntimeException(errorMsg);
             }
 
-            // Decode arguments from Temporal - get each argument by index
-            // EncodedValues doesn't have a size() method, so try to get up to 10 args
-            List<Object> argsList = new ArrayList<>();
-            for (int i = 0; i < 10; i++) {
-                try {
-                    Object arg = args.get(i, Object.class);
-                    if (arg != null) {
-                        argsList.add(arg);
-                    } else {
-                        break;
-                    }
-                } catch (Exception e) {
-                    // No more arguments
-                    break;
-                }
+            // Decode arguments from Temporal.
+            // callActivity sends [namedArgsMap, callConfigMap].
+            // The first argument is a Map<String,Object> of named activity args,
+            // the second is the call configuration map.
+            @SuppressWarnings("unchecked")
+            Map<String, Object> namedArgs = args.get(0, Map.class);
+            if (namedArgs == null) {
+                throw new RuntimeException(
+                        "Malformed activity invocation for '" + activityName +
+                        "': the named-argument map (args[0]) is null. " +
+                        "Ensure callActivity passes a valid map<anydata> as the first argument.");
             }
 
-            // Extract call configuration from the last argument if present
+            // Extract call configuration from the second argument
             boolean failOnError = true; // default behavior
-            if (!argsList.isEmpty()) {
-                Object lastArg = argsList.get(argsList.size() - 1);
-                if (lastArg instanceof Map<?, ?> configMap 
-                        && Boolean.TRUE.equals(configMap.get(CALL_CONFIG_MARKER))) {
-                    Object failOnErrorVal = ((Map<String, Object>) configMap).get(FAIL_ON_ERROR_KEY);
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> callConfigMap = args.get(1, Map.class);
+                if (callConfigMap != null
+                        && Boolean.TRUE.equals(callConfigMap.get(CALL_CONFIG_MARKER))) {
+                    Object failOnErrorVal = callConfigMap.get(FAIL_ON_ERROR_KEY);
                     if (failOnErrorVal instanceof Boolean) {
                         failOnError = (Boolean) failOnErrorVal;
                     }
-                    // Remove the config map from args before passing to the activity function
-                    argsList.remove(argsList.size() - 1);
+                }
+            } catch (Exception e) {
+                // No call config available
+            }
+
+            // Reconstruct positional args by matching named map keys to the
+            // function's parameter names. This ensures that omitted optional
+            // parameters don't cause misalignment (e.g. when only url and auth
+            // are provided but method/headers/payload are skipped).
+            FunctionType funcType = (FunctionType) activityFunction.getType();
+            Parameter[] allParams = funcType.getParameters();
+
+            // Filter out typedesc parameters — they are not serialized in Temporal
+            // workflow history. Capture the param so we can inject a BTypedesc<anydata>
+            // as the last positional argument when calling the activity function.
+            List<Parameter> dataParams = new ArrayList<>();
+            Parameter typedescParam = null;
+            for (Parameter p : allParams) {
+                if (p.type.getTag() == TypeTags.TYPEDESC_TAG) {
+                    typedescParam = p; // capture for later injection
+                } else {
+                    dataParams.add(p);
                 }
             }
 
-            Object[] javaArgs = argsList.toArray();
+            // Find the last parameter that is present in the map so we can
+            // omit trailing absent params (FPValue.call fills defaults for those).
+            int lastProvidedIndex = -1;
+            for (int i = 0; i < dataParams.size(); i++) {
+                if (namedArgs.containsKey(dataParams.get(i).name)) {
+                    lastProvidedIndex = i;
+                }
+            }
 
-            // Convert Java arguments to Ballerina types
-            Object[] ballerinaArgs = new Object[javaArgs.length];
-            for (int i = 0; i < javaArgs.length; i++) {
-                ballerinaArgs[i] = convertJavaToBallerinaType(javaArgs[i]);
+            // Build positional Ballerina args up to the last provided param
+            List<Object> orderedArgs = new ArrayList<>();
+            for (int i = 0; i <= lastProvidedIndex; i++) {
+                String paramName = dataParams.get(i).name;
+                if (namedArgs.containsKey(paramName)) {
+                    orderedArgs.add(convertJavaToBallerinaType(namedArgs.get(paramName)));
+                } else {
+                    // Intermediate parameter missing from the named args map.
+                    // Only optional/defaultable parameters may be absent; required parameters
+                    // must always be supplied by the caller.
+                    Parameter param = dataParams.get(i);
+                    if (!param.isDefault) {
+                        throw new RuntimeException(
+                                "Required activity parameter '" + paramName
+                                        + "' is missing from the activity arguments map");
+                    }
+                    orderedArgs.add(null); // optional/defaultable param absent → Ballerina default
+                }
+            }
+
+            Object[] ballerinaArgs = orderedArgs.toArray();
+
+            // If the activity declares a typedesc parameter, inject BTypedesc<anydata>
+            // as the last positional arg. WorkflowContextNative.callActivity() applies
+            // cloneWithType on the result to produce the actual target type requested
+            // by the workflow caller.
+            if (typedescParam != null) {
+                Object[] argsWithTypedesc = new Object[ballerinaArgs.length + 1];
+                System.arraycopy(ballerinaArgs, 0, argsWithTypedesc, 0, ballerinaArgs.length);
+                argsWithTypedesc[ballerinaArgs.length] =
+                        ValueCreator.createTypedescValue(PredefinedTypes.TYPE_ANYDATA);
+                ballerinaArgs = argsWithTypedesc;
             }
 
             // Execute the Ballerina activity function
@@ -1336,6 +1485,60 @@ public final class WorkflowWorkerNative {
             info.put("status", status);
             info.put("result", result);
             info.put("errorMessage", errorMessage);
+            return info;
+        }
+
+        private Object executeBuiltInGetInfo(EncodedValues args) {
+            String workflowId = args.get(0, String.class);
+
+            io.temporal.client.WorkflowClient client = WorkflowWorkerNative.getWorkflowClient();
+            if (client == null) {
+                throw new RuntimeException("Workflow client not initialized");
+            }
+
+            io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionRequest request =
+                    io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionRequest.newBuilder()
+                            .setNamespace(client.getOptions().getNamespace())
+                            .setExecution(io.temporal.api.common.v1.WorkflowExecution.newBuilder()
+                                    .setWorkflowId(workflowId)
+                                    .build())
+                            .build();
+
+            io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionResponse response;
+            try {
+                response = client.getWorkflowServiceStubs().blockingStub()
+                        .withDeadlineAfter(GET_INFO_DEADLINE_SECONDS, TimeUnit.SECONDS)
+                        .describeWorkflowExecution(request);
+            } catch (io.grpc.StatusRuntimeException e) {
+                throw new RuntimeException(
+                        "gRPC error describing workflow '" + workflowId +
+                        "' in namespace '" + client.getOptions().getNamespace() +
+                        "': [" + e.getStatus().getCode() + "] " + e.getStatus().getDescription(), e);
+            } catch (Exception e) {
+                throw new RuntimeException(
+                        "Failed to describe workflow '" + workflowId +
+                        "' in namespace '" + client.getOptions().getNamespace() + "'", e);
+            }
+
+            io.temporal.api.workflow.v1.WorkflowExecutionInfo execInfo =
+                    response.getWorkflowExecutionInfo();
+            String workflowType = execInfo.getType().getName();
+            io.temporal.api.enums.v1.WorkflowExecutionStatus status = execInfo.getStatus();
+            String statusStr = switch (status) {
+                case WORKFLOW_EXECUTION_STATUS_RUNNING -> "RUNNING";
+                case WORKFLOW_EXECUTION_STATUS_COMPLETED -> "COMPLETED";
+                case WORKFLOW_EXECUTION_STATUS_FAILED -> "FAILED";
+                case WORKFLOW_EXECUTION_STATUS_CANCELED -> "CANCELED";
+                case WORKFLOW_EXECUTION_STATUS_TERMINATED -> "TERMINATED";
+                case WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW -> "CONTINUED_AS_NEW";
+                case WORKFLOW_EXECUTION_STATUS_TIMED_OUT -> "TIMED_OUT";
+                default -> "UNKNOWN";
+            };
+
+            java.util.Map<String, Object> info = new java.util.HashMap<>();
+            info.put("workflowId", workflowId);
+            info.put("workflowType", workflowType);
+            info.put("status", statusStr);
             return info;
         }
     }

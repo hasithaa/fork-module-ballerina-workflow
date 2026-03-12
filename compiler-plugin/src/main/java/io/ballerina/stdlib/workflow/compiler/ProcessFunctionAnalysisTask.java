@@ -150,10 +150,13 @@ public class ProcessFunctionAnalysisTask implements AnalysisTask<SyntaxNodeAnaly
                     if (firstArg instanceof PositionalArgumentNode posArg) {
                         Node expression = posArg.expression();
                         
-                        // Get the function name from the expression
-                        String activityFunctionName = extractFunctionName(expression);
-                        if (activityFunctionName != null) {
-                            activityMap.put(activityFunctionName, activityFunctionName);
+                        // Get the full function reference (may include module prefix)
+                        String fullRef = extractFunctionName(expression);
+                        if (fullRef != null) {
+                            // Use the full reference as the map key to avoid collisions
+                            // when different modules export functions with the same simple name
+                            // (e.g., payments:send vs notifications:send).
+                            activityMap.put(fullRef, fullRef);
                         }
                     }
                 }
@@ -164,7 +167,8 @@ public class ProcessFunctionAnalysisTask implements AnalysisTask<SyntaxNodeAnaly
         }
 
         /**
-         * Extracts the function name from an expression node (typically a simple name reference).
+         * Extracts the full function reference from an expression node.
+         * For qualified names (e.g., activity:sendHttpRequest), returns the full reference.
          */
         private String extractFunctionName(Node expression) {
             if (expression.kind() == SyntaxKind.SIMPLE_NAME_REFERENCE) {

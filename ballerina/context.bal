@@ -22,7 +22,7 @@ import ballerina/time;
 #
 # This client provides:
 # - Activity execution via `callActivity` remote method
-# - Durable sleep operations
+# - Workflow timing via `sleep` and `currentTime` methods
 # - Workflow state queries (replaying status, workflow ID, workflow type)
 #
 # Use `check ctx->callActivity(myActivity, {"arg1": val1, "arg2": val2})` to execute activities.
@@ -40,12 +40,11 @@ public client class Context {
     # Executes an activity function within the workflow context.
     # 
     # Activities are non-deterministic operations (I/O, database calls, external APIs)
-    # that should only be executed once during workflow execution and not during replay.
-    # The workflow runtime ensures exactly-once execution semantics for activities.
+    # that are executed exactly once during workflow execution. Even if the workflow
+    # replays, a completed activity is not re-executed.
     #
-    # The return type is determined by the `T` typedesc parameter, allowing compile-time
-    # type checking when the expected return type is specified. The compiler plugin
-    # validates that the activity function's return type is compatible with `T`.
+    # The return type is inferred from the calling context, so the result is
+    # automatically converted to the expected type without manual casting.
     #
     # By default, if the activity function returns an error, it is treated as a failure
     # and the engine will retry the activity based on the retry policy. To treat errors
@@ -76,20 +75,59 @@ public client class Context {
         name: "callActivity"
     } external;
 
-    # Durable sleep that survives workflow restarts.
+    # Performs a durable sleep within the workflow.
     #
-    # Unlike regular sleep, this is persisted and will continue counting
-    # even if the workflow is replayed or the worker restarts.
+    # This sleep is **persisted by the workflow engine** and will survive program
+    # restarts and workflow replays. The countdown continues even when the
+    # program is down, and the workflow resumes correctly after the duration has
+    # elapsed upon replay.
     #
-    # + duration - Duration to sleep
-    # + return - Error if sleep fails
+    # **Do not** use runtime:sleep() inside workflows as it is not deterministic
+    # across replays.
+    #
+    # Example:
+    # ```ballerina
+    # @workflow:Workflow
+    # function reminderProcess(workflow:Context ctx, string userId) returns error? {
+    #     // Wait 24 hours (durable - survives restarts)
+    #     check ctx.sleep({hours: 24});
+    # }
+    # ```
+    #
+    # + duration - The duration to sleep
+    # + return - An error if the sleep fails, otherwise nil
     public isolated function sleep(time:Duration duration) returns error? {
-        // Convert Duration to milliseconds
-        decimal totalSeconds = <decimal>duration.hours * 3600 + 
-                               <decimal>duration.minutes * 60 + 
+        decimal totalSeconds = <decimal>duration.hours * 3600 +
+                               <decimal>duration.minutes * 60 +
                                duration.seconds;
         int millis = <int>(totalSeconds * 1000);
-        return sleepNative(self.nativeContext, millis);
+        return sleepContextNative(self.nativeContext, millis);
+    }
+
+    # Returns the current workflow time as a `time:Utc` value.
+    #
+    # The workflow engine does **not** use the real wall-clock time for workflow
+    # executions. Instead it records the timestamp at each workflow task and
+    # surfaces that as "now" during both the original execution *and* every
+    # subsequent replay. This guarantees that calls to this method from the
+    # same point in the workflow always return the **same** value, making the
+    # workflow deterministic regardless of when the program processes it.
+    #
+    # Example:
+    # ```ballerina
+    # @workflow:Workflow
+    # function orderProcess(workflow:Context ctx, Order input) returns OrderResult|error {
+    #     time:Utc startTime = ctx.currentTime();
+    #     // ...
+    # }
+    # ```
+    #
+    # + return - The current workflow time as `time:Utc`
+    public isolated function currentTime() returns time:Utc {
+        int millis = currentTimeMillisContextNative(self.nativeContext);
+        int seconds = millis / 1000;
+        decimal fraction = <decimal>(millis % 1000) / 1000d;
+        return [seconds, fraction];
     }
 
     # Check if the workflow is currently replaying history.
@@ -119,12 +157,14 @@ public client class Context {
 
 // Native function declarations
 
-isolated function sleepNative(
-        handle contextHandle,
-        int millis
-) returns error? = @java:Method {
+isolated function sleepContextNative(handle contextHandle, int millis) returns error? = @java:Method {
     'class: "io.ballerina.stdlib.workflow.context.WorkflowContextNative",
     name: "sleepMillis"
+} external;
+
+isolated function currentTimeMillisContextNative(handle contextHandle) returns int = @java:Method {
+    'class: "io.ballerina.stdlib.workflow.context.WorkflowContextNative",
+    name: "currentTimeMillis"
 } external;
 
 isolated function isReplayingNative(handle contextHandle) returns boolean = @java:Method {
