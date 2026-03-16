@@ -124,7 +124,7 @@ function retryDefaultFailWorkflow(workflow:Context ctx, RetryActivityInput input
 function retryFailOnErrorFalseWorkflow(workflow:Context ctx, RetryActivityInput input) returns string|error {
     // failOnError=false: error is treated as a normal completion value
     string|error result = ctx->callActivity(alwaysFailActivity, {"message": "soft failure"},
-        options = {failOnError: false});
+                    failOnError = false);
     if result is error {
         // Error was returned as a value, not a failure - handle gracefully
         return "Handled error: " + result.message();
@@ -141,14 +141,8 @@ function retryFailOnErrorFalseWorkflow(workflow:Context ctx, RetryActivityInput 
 @workflow:Workflow
 function retryCustomPolicyWorkflow(workflow:Context ctx, RetryActivityInput input) returns string|error {
     // Custom retry policy: max 3 attempts with 1 second initial interval
-    string result = check ctx->callActivity(alwaysFailActivity, {"message": "custom retry"},
-        options = {
-            retryPolicy: {
-                maximumAttempts: 3,
-                initialIntervalInSeconds: 1,
-                backoffCoefficient: 1.5
-            }
-        });
+    string result = check ctx->callActivity(alwaysFailActivity, {"message": "custom retry"}, maximumAttempts = 3,
+                initialIntervalInSeconds = 1, backoffCoefficient = 1.5);
     return result;
 }
 
@@ -189,8 +183,7 @@ function retryFailWithCauseWorkflow(workflow:Context ctx, RetryActivityInput inp
 @workflow:Workflow
 function retryHandleDetailsWorkflow(workflow:Context ctx, RetryActivityInput input) returns string|error {
     string|error result = ctx->callActivity(failWithDetailsActivity,
-        {"orderId": "ORD-99999", "errorCode": 5002},
-        options = {failOnError: false});
+        {"orderId": "ORD-99999", "errorCode": 5002}, failOnError = false);
     if result is error {
         return "Handled: " + result.message();
     }
@@ -206,8 +199,7 @@ function retryHandleDetailsWorkflow(workflow:Context ctx, RetryActivityInput inp
 @workflow:Workflow
 function retryHandleCauseWorkflow(workflow:Context ctx, RetryActivityInput input) returns string|error {
     string|error result = ctx->callActivity(failWithCauseActivity,
-        {"operation": "updateInventory"},
-        options = {failOnError: false});
+        {"operation": "updateInventory"}, failOnError = false);
     if result is error {
         return "Handled: " + result.message();
     }

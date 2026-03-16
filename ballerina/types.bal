@@ -49,14 +49,12 @@ public type ActivityRetryPolicy record {|
 # Options for activity execution via `callActivity`.
 # Allows configuring retry behavior and error handling semantics per activity call.
 #
-# + retryPolicy - Retry policy for the activity (optional, uses the global default
-#                 from the module-level `defaultActivityRetryPolicy` if not set)
 # + failOnError - If `true` (default), an error returned by the activity function is treated
 #                 as a failure, triggering engine retries based on the retry policy.
 #                 If `false`, an error is treated as a normal completion value and no
 #                 retries are attempted.
 public type ActivityOptions record {|
-    ActivityRetryPolicy retryPolicy?;
+    *ActivityRetryPolicy;
     boolean failOnError = true;
 |};
 

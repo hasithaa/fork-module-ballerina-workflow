@@ -69,7 +69,7 @@ public client class Context {
     # + T - The expected return type (inferred from context or explicitly specified)
     # + return - The result of the activity execution cast to type T, or an error if execution fails
     remote isolated function callActivity(function activityFunction, map<anydata> args = {},
-            ActivityOptions? options = (), typedesc<anydata> T = <>) 
+            typedesc<anydata> T = <>, *ActivityOptions options) 
             returns T|error = @java:Method {
         'class: "io.ballerina.stdlib.workflow.context.WorkflowContextNative",
         name: "callActivity"
