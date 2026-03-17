@@ -25,7 +25,10 @@ def examplePackageNames = [
     'error-fallback'     : 'error_fallback',
     'error-compensation' : 'error_compensation',
     'graceful-completion': 'graceful_completion',
-    'human-in-the-loop'  : 'human_in_the_loop'
+    'human-in-the-loop'  : 'human_in_the_loop',
+    'order-processing'   : 'order_processing',
+    'order-with-payment' : 'order_with_payment',
+    'crm-sync'           : 'crm_sync'
 ]
 
 // Helper: generate a Ballerina.toml for an example

@@ -1,17 +1,30 @@
 # Handle Errors
 
-Activities return errors as ordinary Ballerina values. There are no exceptions, no try/catch blocks, and no "unhandled error crashes the workflow" footgun. Every failure is an explicit, visible code choice.
+In Ballerina, errors are first-class values — they are returned, inspected, and acted on like any other value. This is a deliberate design principle: **error handling is part of the business logic, not an afterthought**.
 
-## How Activity Errors Reach the Workflow
+Workflows are long-running business processes, and failures are expected outcomes, not exceptional events. An activity that calls an external API may time out. A payment may be declined. An inventory check may return "out of stock". These are not crashes — they are results that your workflow should reason about explicitly.
 
-When an activity returns an `error`, the `ballerina/workflow` module records an `ActivityTaskFailed` event in the workflow's history (so the failure is always visible in Temporal's UI and audit log), then delivers the error to the workflow as a normal `T|error` return value. The workflow is never interrupted or crashed automatically.
+## Where Errors Are Handled
 
-What happens next is entirely determined by your workflow code:
+An activity failure can be addressed in two places:
+
+- **Inside the activity** — the activity handles the failure internally and returns a success result to the workflow. This is appropriate for low-level infrastructure retries that the workflow does not need to know about.
+- **In the workflow** — the activity returns `T|error`, and the workflow decides what happens next: retry with different parameters, try an alternative path, compensate earlier steps, or wait for a human decision. This is the preferred pattern for business-significant failures, because the decision itself becomes part of the durable workflow history.
+
+## Errors and Workflow State
+
+When an activity returns an `error`, the `ballerina/workflow` module records an `ActivityTaskFailed` event in the workflow's history. This happens regardless of whether the workflow handles the error or propagates it — the failure is always visible in Temporal's event history and audit log before the workflow code sees the return value.
+
+What happens next is determined entirely by the workflow code:
 
 ```ballerina
-// The workflow decides — fail, handle, or recover
+// The workflow receives the error as a plain value — what happens next is your choice
 string|error result = ctx->callActivity(processPayment, {"amount": input.amount});
 ```
+
+If the activity is configured with retries (`retryOnError = true`), Temporal retries the activity transparently. Each attempt is recorded in the history as an `ActivityTaskScheduled` event. Only after all retries are exhausted does the final error reach the workflow as a value.
+
+Because every failure is a recorded event in an append-only log, workflows can recover from process restarts mid-execution and replay to exactly where they left off — giving you durability and full observability without extra instrumentation.
 
 ---
 
@@ -48,40 +61,39 @@ Regardless of whether retries are enabled, the final outcome is the same: the er
 
 ### Propagate — Fail the Workflow
 
-Use `check` to propagate the error. The workflow transitions to **Failed** in Temporal, all subsequent steps are skipped, and the caller of `workflow:getWorkflowResult()` receives the error.
+Use `check` to propagate the error. The workflow transitions to **Failed** in Temporal, all subsequent steps are skipped, and the caller of `workflow:getWorkflowResult()` receives the error. Use this pattern when the failure means the workflow cannot meaningfully continue — the full error, including any detail fields, is visible in the Temporal UI under the workflow's **Event History**.
 
 ```ballerina
 @workflow:Workflow
-function orderProcess(workflow:Context ctx, OrderInput input) returns OrderResult|error {
-    // If checkInventory fails, the error propagates and the workflow is marked Failed
-    InventoryStatus status = check ctx->callActivity(checkInventory, {"item": input.item});
+function processOrder(workflow:Context ctx, OrderInput input) returns OrderResult|error {
+    // If checkInventory returns an error, `check` propagates it immediately.
+    // The workflow is marked Failed. confirmOrder is never called.
+    boolean _ = check ctx->callActivity(checkInventory, {"item": input.item});
+    string _ = check ctx->callActivity(confirmOrder, {"orderId": input.orderId});
     return {orderId: input.orderId, status: "COMPLETED"};
 }
 ```
 
-This is the right pattern when the failure means the workflow cannot meaningfully continue. The full error, including any detail fields, is visible in the Temporal UI under the workflow's **Event History**.
-
-> **Full example:** [examples/error-propagation/](examples/error-propagation.md)
+> **Pattern guide:** [patterns/error-propagation.md](patterns/error-propagation.md)
 
 ---
 
 ### Handle Inline — Inspect the Error Value
 
-Capture the `T|error` return and branch on it. The workflow stays **Running** and continues executing.
+Capture the `T|error` return and branch on it. The workflow stays **Running** and continues executing. Use `result.message()` for the error message and pattern-match on specific error types for fine-grained handling.
 
 ```ballerina
 @workflow:Workflow
-function orderProcess(workflow:Context ctx, OrderInput input) returns OrderResult|error {
-    string|error result = ctx->callActivity(failingActivity, {"reason": "Intentional failure"},
-                    retryOnError = false);
+function processOrder(workflow:Context ctx, OrderInput input) returns string|error {
+    // Capture as T|error — the workflow stays Running regardless of the outcome
+    string|error result = ctx->callActivity(checkStock, {"item": input.item});
     if result is error {
-        return "Activity error caught: " + result.message();
+        // Handle the failure explicitly — workflow continues
+        return "Out of stock: " + result.message();
     }
     return result;
 }
 ```
-
-Use `result.message()` for the error message and pattern-match on specific error types for fine-grained handling.
 
 ---
 
@@ -92,56 +104,53 @@ When the primary activity exhausts its retries, fall back to a secondary path. T
 ```ballerina
 @workflow:Workflow
 function sendNotification(workflow:Context ctx, NotificationInput input) returns string|error {
-    // Try primary channel with 2 retries
+    // Try primary with retries; capture the error rather than propagating
     string|error emailResult = ctx->callActivity(sendEmail,
             {"to": input.email, "message": input.message},
-            retryOnError = true, maxRetries = 2, retryDelay = 1.0);
+            retryOnError = true, maxRetries = 2, retryDelay = 1.0, retryBackoff = 2.0);
 
     if emailResult is error {
-        // Primary exhausted — fall back to SMS
-        string smsResult = check ctx->callActivity(sendSms,
+        // Primary exhausted — fall back to SMS. `check` means: fail if SMS also fails.
+        return check ctx->callActivity(sendSms,
                 {"phone": input.phone, "message": input.message});
-        return "Delivered via SMS: " + smsResult;
     }
 
-    return "Delivered via email: " + emailResult;
+    return emailResult;
 }
 ```
 
-> **Full example:** [examples/error-fallback/](examples/error-fallback.md)
+> **Pattern guide:** [patterns/error-fallback.md](patterns/error-fallback.md)
 
 ---
 
 ### Compensation (Saga Pattern) — Undo Completed Steps
 
-When a later step fails, run compensating activities to reverse earlier committed work. This is the standard pattern for distributed transactions without two-phase commit.
+When a later step fails, run compensating activities to reverse earlier committed work. This is the standard pattern for distributed transactions without two-phase commit. Each compensating activity is itself a durable activity call — if the compensation fails, it can also be retried or escalated.
 
 ```ballerina
 @workflow:Workflow
 function transferFunds(workflow:Context ctx, TransferInput input) returns string|error {
-    // Step 1: debit source account — must succeed before continuing
-    string step1 = check ctx->callActivity(debitAccount,
+    // Step 1: commit the debit. `check` — if this fails there is nothing to compensate.
+    string _ = check ctx->callActivity(debitAccount,
             {"accountId": input.sourceAccount, "amount": input.amount});
 
-    // Step 2: credit destination — retry twice on transient failures
-    string|error step2Result = ctx->callActivity(creditAccount,
+    // Step 2: capture as T|error so we can compensate on failure.
+    string|error creditResult = ctx->callActivity(creditAccount,
             {"accountId": input.destAccount, "amount": input.amount},
             retryOnError = true, maxRetries = 2, retryDelay = 1.0);
 
-    if step2Result is error {
-        // Step 2 failed after retries — compensate by reversing the debit
-        string compensation = check ctx->callActivity(debitAccount,
-                {"accountId": input.sourceAccount, "amount": -input.amount});
-        return "Transfer rolled back: " + compensation;
+    if creditResult is error {
+        // Step 2 exhausted retries — reverse the debit to restore consistency
+        string _ = check ctx->callActivity(reverseDebit,
+                {"accountId": input.sourceAccount, "amount": input.amount});
+        return string `Transfer ${input.transferId} ROLLED_BACK`;
     }
 
-    return "Transfer completed: " + step1 + " -> " + step2Result;
+    return string `Transfer ${input.transferId} COMPLETED`;
 }
 ```
 
-Each compensating activity is itself a durable activity call — if the compensation activity fails, it can also be retried or escalated.
-
-> **Full example:** [examples/error-compensation/](examples/error-compensation.md)
+> **Pattern guide:** [patterns/error-compensation.md](patterns/error-compensation.md)
 
 ---
 
@@ -152,24 +161,23 @@ When the failed activity is not required for the core business outcome (e.g., an
 ```ballerina
 @workflow:Workflow
 function processOrder(workflow:Context ctx, OrderInput input) returns string|error {
-    // Core business step — must succeed
-    string coreResult = check ctx->callActivity(reserveInventory, {"item": input.item});
+    // CRITICAL — must succeed. Propagate failure with `check`.
+    string reservationId = check ctx->callActivity(reserveInventory,
+            {"orderId": input.orderId, "item": input.item});
 
-    // Non-critical notification — retried once, but failure is tolerated
-    string|error notifyResult = ctx->callActivity(sendOrderConfirmation,
-            {"orderId": input.orderId, "email": input.email},
+    // NON-CRITICAL — tolerate failure. Retry once; skip if still failing.
+    string|error emailResult = ctx->callActivity(sendConfirmationEmail,
+            {"email": input.customerEmail, "orderId": input.orderId},
             retryOnError = true, maxRetries = 1, retryDelay = 1.0);
-
-    if notifyResult is error {
-        // Log the skip but still complete the workflow successfully
-        return coreResult + " (notification skipped: " + notifyResult.message() + ")";
+    if emailResult is error {
+        return reservationId + " (email skipped: " + emailResult.message() + ")";
     }
 
-    return coreResult + "; " + notifyResult;
+    return reservationId + "; email: " + emailResult;
 }
 ```
 
-> **Full example:** [examples/graceful-completion/](examples/graceful-completion.md)
+> **Pattern guide:** [patterns/graceful-completion.md](patterns/graceful-completion.md)
 
 ---
 
@@ -258,7 +266,7 @@ service /orders on new http:Listener(9090) {
 
 While the workflow is paused waiting for `events.review`, it is fully durable. If the workflow worker restarts, the workflow replays from its history and returns to the `wait` point exactly.
 
-> **Full example:** [examples/human-in-the-loop/](examples/human-in-the-loop.md)
+> **Pattern guide:** [patterns/human-in-the-loop.md](patterns/human-in-the-loop.md)
 
 ---
 
@@ -311,11 +319,11 @@ This is useful during incidents when the normal signal delivery path is unavaila
 
 ## What's Next
 
-- [Error Propagation example](examples/error-propagation.md) — Full walkthrough of the propagate pattern
-- [Error Fallback example](examples/error-fallback.md) — Full walkthrough of the fallback pattern
-- [Error Compensation example](examples/error-compensation.md) — Full walkthrough of the Saga pattern
-- [Graceful Completion example](examples/graceful-completion.md) — Full walkthrough of tolerating non-critical failures
-- [Human in the Loop example](examples/human-in-the-loop.md) — Full walkthrough of forward recovery with signals
+- [Propagate Pattern](patterns/error-propagation.md) — Fail immediately when a critical activity fails
+- [Fallback Pattern](patterns/error-fallback.md) — Try an alternative when the primary exhausts retries
+- [Compensation Pattern](patterns/error-compensation.md) — Undo committed steps with the Saga pattern
+- [Graceful Completion](patterns/graceful-completion.md) — Tolerate non-critical failures and complete successfully
+- [Human in the Loop](patterns/human-in-the-loop.md) — Pause and wait for a human decision signal
 - [Handle Data Events](handle-events.md) — Signals, human-in-the-loop patterns
 - [Write Workflow Functions](write-workflow-functions.md) — Workflow function details
 - [Write Activity Functions](write-activity-functions.md) — Activity options and retry configuration

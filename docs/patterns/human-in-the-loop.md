@@ -1,0 +1,114 @@
+# Pattern: Human in the Loop (Forward Recovery)
+
+When automated retries cannot resolve a failure — a payment dispute, a fraud alert, a compliance hold — pause the workflow and wait for a human signal before continuing. This is **forward recovery**: instead of rolling back or failing, the workflow holds its durable state and resumes the moment a reviewer sends a decision.
+
+> **Runnable example:** [`examples/human-in-the-loop/`](../../examples/human-in-the-loop/)
+
+## When to Use
+
+- The failure requires a judgement call that code alone cannot make.
+- Rolling back is undesirable (e.g., inventory is already reserved, a physical action has occurred).
+- You want the decision itself to be part of the durable workflow history.
+- The resolution may take minutes, hours, or days — and the workflow must survive process restarts during that time.
+
+## Code Pattern
+
+### Declare the Signal Type and Workflow Signature
+
+```ballerina
+type ReviewDecision record {|
+    string reviewerId;
+    boolean approved;   // true = continue; false = cancel
+    string? note;
+|};
+
+@workflow:Workflow
+function processOrder(
+    workflow:Context ctx,
+    OrderInput input,
+    record {| future<ReviewDecision> review; |} events   // declares the "review" signal
+) returns OrderResult|error {
+```
+
+The third parameter is the events record. Each field name (`review`) is the signal name used when sending data to this workflow.
+
+### Attempt Automation — Escalate on Failure
+
+```ballerina
+    // Attempt automated payment with retries
+    string|error paymentResult = ctx->callActivity(chargeCard, {
+        "cardToken": input.cardToken,
+        "amount": input.amount
+    }, retryOnError = true, maxRetries = 3, retryDelay = 1.0, retryBackoff = 2.0);
+
+    if paymentResult is error {
+        // Notify the review team and pause
+        string _ = check ctx->callActivity(notifyReviewTeam, {
+            "orderId": input.orderId,
+            "reason": paymentResult.message()
+        });
+
+        // Workflow pauses here — fully durable — until a human sends the "review" signal
+        ReviewDecision decision = check wait events.review;
+
+        if !decision.approved {
+            return {orderId: input.orderId, status: "CANCELLED",
+                    message: "Cancelled by " + decision.reviewerId};
+        }
+
+        // Reviewer approved — attempt one final manual retry
+        string _ = check ctx->callActivity(chargeCardManualRetry, {
+            "cardToken": input.cardToken,
+            "amount": input.amount
+        });
+        return {orderId: input.orderId, status: "COMPLETED", message: "Manual retry succeeded"};
+    }
+
+    return {orderId: input.orderId, status: "COMPLETED", message: paymentResult};
+}
+```
+
+### Send the Decision from an HTTP Endpoint
+
+```ballerina
+service /orders on new http:Listener(9090) {
+    resource function post [string orderId]/review(ReviewDecision decision) returns json|error {
+        string workflowId = getWorkflowId(orderId);   // look up from your store
+        check workflow:sendData(processOrder, workflowId, "review", decision);
+        return {status: "decision received"};
+    }
+}
+```
+
+`workflow:sendData` delivers the signal immediately. The workflow resumes from the `wait events.review` point, carrying the `ReviewDecision` value.
+
+## Durability While Paused
+
+While the workflow is waiting at `wait events.review`:
+- Worker process restarts do not lose the paused state — the workflow replays its Event History and returns to the `wait` point.
+- The `notifyReviewTeam` activity is not re-executed on replay — its result is already in the history.
+- The signal can also be sent directly from the Temporal Web UI without going through your application's HTTP API (useful during incidents).
+
+## Timeout: Escalate If No Decision Arrives
+
+To avoid waiting indefinitely, combine `wait` with `workflow:sleep`:
+
+```ballerina
+// Wait up to 48 hours for a review decision
+future<ReviewDecision> reviewFuture = events.review;
+future<()> timeoutFuture = start workflow:sleep(ctx, 172800);   // 48 h in seconds
+
+// whichever resolves first wins
+[ReviewDecision|error, ()|error] results = wait [reviewFuture, timeoutFuture];
+if results[0] is error {
+    // Timeout — auto-cancel the order
+    return {orderId: input.orderId, status: "CANCELLED", message: "Review timed out"};
+}
+ReviewDecision decision = <ReviewDecision>results[0];
+```
+
+## What's Next
+
+- [Handle Errors](../handle-errors.md) — Pattern overview and comparison
+- [Compensation Pattern](error-compensation.md) — Roll back instead of escalating
+- [Handle Data Events](../handle-events.md) — Full reference for the events/signal mechanism
