@@ -5,6 +5,11 @@ The `ballerina/workflow` library provides practical examples illustrating usage 
 | Example | Description |
 |---------|-------------|
 | [get-started](get-started/) | Introductory example: define a workflow, call activities, run with `workflow:run()` |
+| [error-propagation](error-propagation/) | Propagate an activity error to the caller with `check` — workflow transitions to Failed |
+| [error-fallback](error-fallback/) | Fall back to a secondary activity when the primary exhausts its Temporal retries |
+| [error-compensation](error-compensation/) | Saga pattern: run compensating activities to undo committed steps when a later step fails |
+| [graceful-completion](graceful-completion/) | Tolerate failures in non-critical activities and complete the workflow successfully |
+| [human-in-the-loop](human-in-the-loop/) | Forward recovery: pause the workflow after failure and wait for a human decision signal |
 
 ## Prerequisites
 

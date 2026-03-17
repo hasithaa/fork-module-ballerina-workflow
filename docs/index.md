@@ -17,4 +17,19 @@ The Ballerina Workflow module provides durable workflow orchestration for Baller
 | [Get Started](get-started.md) | Write and run your first workflow |
 | [Key Concepts](key-concepts.md) | Workflows, activities, data events, timer events, and triggers |
 | [Set Up Temporal Server](set-up-temporal-server.md) | Install and run the Temporal server for local development |
+| [Write Workflow Functions](write-workflow-functions.md) | Workflow signatures, determinism rules, durable sleep, and metadata |
+| [Write Activity Functions](write-activity-functions.md) | Activity patterns, error handling, and retry options |
+| [Handle Errors](handle-errors.md) | Error propagation, retry, fallback, compensation, and human-in-the-loop patterns |
+| [Handle Data Events](handle-events.md) | Signal events, waiting for human input, and sending data to running workflows |
+
+## Examples
+
+| Example | Description |
+|---------|-------------|
+| [Get Started](../examples/get-started/) | Write and run your first workflow |
+| [Error Propagation](examples/error-propagation.md) | Propagate an activity error to fail the workflow |
+| [Error Fallback](examples/error-fallback.md) | Fall back to a secondary activity when the primary fails |
+| [Error Compensation](examples/error-compensation.md) | Saga pattern: undo committed steps when a later step fails |
+| [Graceful Completion](examples/graceful-completion.md) | Tolerate non-critical activity failures and complete successfully |
+| [Human in the Loop](examples/human-in-the-loop.md) | Pause and wait for a human decision signal (forward recovery) |
 

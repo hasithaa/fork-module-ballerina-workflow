@@ -20,7 +20,12 @@ import org.apache.tools.ant.taskdefs.condition.Os
 
 // Map of example directory names to their Ballerina package names
 def examplePackageNames = [
-    'get-started': 'get_started'
+    'get-started'        : 'get_started',
+    'error-propagation'  : 'error_propagation',
+    'error-fallback'     : 'error_fallback',
+    'error-compensation' : 'error_compensation',
+    'graceful-completion': 'graceful_completion',
+    'human-in-the-loop'  : 'human_in_the_loop'
 ]
 
 // Helper: generate a Ballerina.toml for an example
