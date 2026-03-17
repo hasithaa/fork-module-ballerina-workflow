@@ -84,7 +84,7 @@ public final class WorkflowContextNative {
      */
     @SuppressWarnings("unchecked")
     public static Object callActivity(BObject self, BFunctionPointer activityFunction, 
-            BMap<BString, Object> args, Object options, BTypedesc typedesc) {
+            BMap<BString, Object> args, BTypedesc typedesc, BMap<BString, Object> options) {
         try {
             // Get the activity name from the function pointer
             String simpleActivityName = activityFunction.getType().getName();
@@ -101,26 +101,22 @@ public final class WorkflowContextNative {
             // parameters are omitted from the args map.
             Map<String, Object> namedArgs = TypesUtil.convertBMapToMap(args);
 
-            // Parse ActivityOptions from the Ballerina record
+            // Parse ActivityOptions from the included record param
             boolean failOnError = true;
             io.temporal.common.RetryOptions retryOptions = null;
 
-            if (options != null) {
-                BMap<BString, Object> optionsMap = (BMap<BString, Object>) options;
-                
-                // Extract failOnError flag (default: true)
-                Object failOnErrorVal = optionsMap.get(StringUtils.fromString(FAIL_ON_ERROR_KEY));
-                if (failOnErrorVal instanceof Boolean) {
-                    failOnError = (Boolean) failOnErrorVal;
-                }
-                
-                // Extract per-call retry policy if provided
-                Object retryPolicyVal = optionsMap.get(StringUtils.fromString("retryPolicy"));
-                if (retryPolicyVal instanceof BMap) {
-                    @SuppressWarnings("unchecked")
-                    BMap<BString, Object> retryMap = (BMap<BString, Object>) retryPolicyVal;
-                    retryOptions = WorkflowWorkerNative.parseRetryPolicy(retryMap);
-                }
+            // Extract failOnError flag (default: true)
+            Object failOnErrorVal = options.get(StringUtils.fromString(FAIL_ON_ERROR_KEY));
+            if (failOnErrorVal instanceof Boolean) {
+                failOnError = (Boolean) failOnErrorVal;
+            }
+            
+            // Extract per-call retry policy if provided
+            Object retryPolicyVal = options.get(StringUtils.fromString("retryPolicy"));
+            if (retryPolicyVal instanceof BMap) {
+                @SuppressWarnings("unchecked")
+                BMap<BString, Object> retryMap = (BMap<BString, Object>) retryPolicyVal;
+                retryOptions = WorkflowWorkerNative.parseRetryPolicy(retryMap);
             }
 
             // Fall back to global default retry policy when no per-call policy is specified
