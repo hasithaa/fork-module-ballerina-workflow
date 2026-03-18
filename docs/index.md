@@ -14,7 +14,7 @@ The Ballerina Workflow module provides durable workflow orchestration for Baller
 
 | Guide | Description |
 |-------|-------------|
-| [Get Started](get-started.md) | Write and run your first workflow |
+| [Get Started](get-started.md) | Set up and run your first workflow |
 | [Key Concepts](key-concepts.md) | Workflows, activities, data events, timer events, and triggers |
 | [Set Up Temporal Server](set-up-temporal-server.md) | Install and run the Temporal server for local development |
 | [Configure the Module](configure-the-module.md) | Connection settings, TLS, namespaces, and runtime options |

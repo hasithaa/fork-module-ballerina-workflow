@@ -37,13 +37,13 @@ When the workflow fails via `check`:
 - It records a `WorkflowExecutionFailed` event on the workflow.
 - The full error message, type, and any detail fields are serialized into the failure payload and visible in the Temporal Web UI under **Event History**.
 
-The caller receives the error when it calls `workflow:getWorkflowResult()`:
+The caller sees the failure when it calls `workflow:getWorkflowResult()`:
 
 ```ballerina
-workflow:WorkflowExecutionInfo|error info = workflow:getWorkflowResult(workflowId);
-if info is error {
-    // info.message() contains the activity error message
-    io:println("Workflow failed: " + info.message());
+workflow:WorkflowExecutionInfo info = check workflow:getWorkflowResult(workflowId);
+if info.status == "FAILED" {
+    // info.errorMessage contains the activity error message
+    io:println("Workflow failed: " + (info.errorMessage ?: "unknown error"));
 }
 ```
 

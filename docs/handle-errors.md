@@ -50,10 +50,10 @@ Regardless of whether retries are enabled, the final outcome is the same: the er
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `retryOnError` | `boolean` | `false` | Enable Temporal-level retries |
-| `maxRetries` | `int` | `0` | Maximum number of retry attempts |
-| `retryDelay` | `float` | `1.0` | Initial delay in seconds between retries |
-| `retryBackoff` | `float` | `2.0` | Exponential backoff multiplier |
-| `maxRetryDelay` | `float` | *(none)* | Cap on delay growth |
+| `maxRetries` | `int` | `0` | Maximum number of retry attempts (e.g., `3` means up to 3 retries after the initial attempt, for 4 total attempts) |
+| `retryDelay` | `decimal` | `1.0` | Initial delay in seconds between retries |
+| `retryBackoff` | `decimal` | `2.0` | Exponential backoff multiplier |
+| `maxRetryDelay`| `decimal?`  | *(none)*| Cap on the delay between retries in seconds (optional) |
 
 ---
 

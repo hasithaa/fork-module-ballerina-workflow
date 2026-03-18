@@ -168,5 +168,5 @@ function conditionalProcess(
 
 ## What's Next
 
-- [Handle Errors](handle-errors.md) — Error handling patterns in workflows
+- [Handle Errors](handle-errors.md) — Error handling patterns
 

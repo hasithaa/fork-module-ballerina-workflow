@@ -91,20 +91,26 @@ While the workflow is waiting at `wait events.review`:
 
 ## Timeout: Escalate If No Decision Arrives
 
-To avoid waiting indefinitely, combine `wait` with `workflow:sleep`:
+> **Planned feature:** Racing a signal future against a durable timer (`wait f1|f2`) is not yet supported by the workflow runtime. Until this is available, set an external deadline (e.g., a scheduled job or a separate reminder workflow) that sends a timeout signal to the waiting workflow.
+
+The intended pattern is to race the signal future against a durable timer using Ballerina's **alternate wait** (`wait f1|f2`), which returns the result of whichever future completes first:
 
 ```ballerina
-// Wait up to 48 hours for a review decision
+// Race the review signal against a 48-hour timeout
 future<ReviewDecision> reviewFuture = events.review;
-future<()> timeoutFuture = start workflow:sleep(ctx, 172800);   // 48 h in seconds
+future<error?> timeoutFuture = start ctx.sleep({hours: 48});
 
-// whichever resolves first wins
-[ReviewDecision|error, ()|error] results = wait [reviewFuture, timeoutFuture];
-if results[0] is error {
-    // Timeout — auto-cancel the order
+// Alternate wait: returns whichever future completes first
+ReviewDecision|error? raceResult = wait reviewFuture|timeoutFuture;
+
+if raceResult is ReviewDecision {
+    // Signal arrived before timeout
+    ReviewDecision decision = raceResult;
+    // ... process decision
+} else {
+    // Timeout expired (raceResult is () or error) — auto-cancel the order
     return {orderId: input.orderId, status: "CANCELLED", message: "Review timed out"};
 }
-ReviewDecision decision = <ReviewDecision>results[0];
 ```
 
 ## What's Next

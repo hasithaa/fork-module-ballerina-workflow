@@ -22,19 +22,21 @@ A workflow function follows this signature pattern:
 ```ballerina
 @workflow:Workflow
 function <name>(
-    workflow:Context ctx,        // Optional — required if calling activities
-    <InputType> input,           // Workflow input (anydata subtype)
+    workflow:Context ctx,        // Optional — required for activities, sleep, currentTime, etc.
+    <InputType> input,           // Optional — workflow input (anydata subtype)
     record {| future<T>... |} events  // Optional — for receiving external events
 ) returns <ReturnType>|error { }
 ```
+
+All three parameters are optional. When present, they must appear in this order: Context, Input, Events. A workflow can have at most 3 parameters.
 
 ### Parameters
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
-| `workflow:Context ctx` | Only if calling activities | Provides the `callActivity` remote method and workflow utilities |
-| Input | Yes | Workflow input data. Must be a subtype of `anydata` |
-| Events record | No | Record with `future<T>` fields for receiving external data. See [Handle Events](handle-events.md) |
+| `workflow:Context ctx` | Only if using runtime APIs | Provides `callActivity`, `sleep`, `currentTime`, `isReplaying`, `getWorkflowId`, and `getWorkflowType` |
+| Input | No | Workflow input data. Must be a subtype of `anydata` |
+| Events record | No | Record with `future<T>` fields for receiving external data. See [Handle Data Events](handle-events.md) |
 
 ### Return Type
 
@@ -143,8 +145,27 @@ string workflowId = check workflow:run(processOrder, {
 
 The returned `workflowId` uniquely identifies the running workflow instance.
 
+## Get Workflow Results
+
+Use `workflow:getWorkflowResult()` to wait for a workflow to complete and retrieve its result:
+
+```ballerina
+workflow:WorkflowExecutionInfo result = check workflow:getWorkflowResult(workflowId);
+io:println(result.status);  // "COMPLETED", "FAILED", "RUNNING", etc.
+io:println(result.result);  // The workflow return value (if completed)
+```
+
+Use `workflow:getWorkflowInfo()` to inspect a workflow's current state without waiting for completion:
+
+```ballerina
+workflow:WorkflowExecutionInfo info = check workflow:getWorkflowInfo(workflowId);
+if info.status == "RUNNING" {
+    io:println("Workflow is still running");
+}
+```
+
 ## What's Next
 
 - [Write Activity Functions](write-activity-functions.md) — Implement activities for I/O operations
-- [Handle Events](handle-events.md) — Receive external signals in running workflows
+- [Handle Data Events](handle-events.md) — Receive external signals in running workflows
 - [Handle Errors](handle-errors.md) — Error handling patterns

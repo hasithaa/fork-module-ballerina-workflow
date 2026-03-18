@@ -94,7 +94,7 @@ If the server is running, this returns an empty list (no workflows running yet).
 Create a `Config.toml` in your Ballerina project:
 
 ```toml
-[ballerina.workflow.workflowConfig]
+[ballerina.workflow]
 mode = "LOCAL"
 url = "localhost:7233"
 namespace = "default"

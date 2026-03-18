@@ -90,7 +90,7 @@ check workflow:sendData(orderWithApproval, workflowId, "approval", {
 
 The field name in the events record (`approval`) maps directly to the data event name used in `sendData()`.
 
-Learn more: [Handle Events](handle-events.md)
+Learn more: [Handle Data Events](handle-events.md)
 
 ## Timer Events
 

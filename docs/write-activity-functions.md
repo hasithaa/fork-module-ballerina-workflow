@@ -66,13 +66,36 @@ function reserveStock(string orderId, string item, int quantity) returns error? 
 
 ## Compile-Time Validation
 
-The compiler enforces proper activity usage:
+The compiler enforces proper usage of workflows and activities:
+
+### Workflow function rules
+
+| Error Code | Rule |
+|------------|------|
+| **WORKFLOW_100** | Context parameter must be typed as `workflow:Context` |
+| **WORKFLOW_101** | Input parameter must be a subtype of `anydata` |
+| **WORKFLOW_102** | Events parameter must be a record with only `future<T>` fields |
+| **WORKFLOW_105** | Return type must be a subtype of `anydata` or `error` |
+| **WORKFLOW_106** | Maximum 3 parameters allowed (Context, input, events) |
+| **WORKFLOW_113** | Using `time:utcNow()` inside a `@Workflow` function is non-deterministic; use `ctx.currentTime()` instead |
+
+### Activity function rules
+
+| Error Code | Rule |
+|------------|------|
+| **WORKFLOW_103** | All parameters must be subtypes of `anydata` |
+| **WORKFLOW_104** | Return type must be a subtype of `anydata` or `error` |
+| **WORKFLOW_114** | `typedesc` parameter must use inferred default `<>` with constraint `anydata` |
+
+### callActivity usage rules
 
 | Error Code | Rule |
 |------------|------|
 | **WORKFLOW_107** | `ctx->callActivity()` target must be an `@Activity`-annotated function |
 | **WORKFLOW_108** | Direct calls to `@Activity` functions inside `@Workflow` functions are not allowed |
-| **WORKFLOW_114** | `typedesc` parameter in `@Activity` must use inferred default `<>` with constraint `anydata` |
+| **WORKFLOW_109** | Missing required parameter in `callActivity` args map |
+| **WORKFLOW_110** | Extra parameter in `callActivity` that the activity function does not have |
+| **WORKFLOW_111** | Activity functions with rest parameters are not supported with `callActivity` |
 
 ```ballerina
 @workflow:Workflow
@@ -140,5 +163,5 @@ Activities are the right place for:
 
 ## What's Next
 
-- [Handle Events](handle-events.md) — Receive external data in running workflows
+- [Handle Data Events](handle-events.md) — Receive external data in running workflows
 - [Handle Errors](handle-errors.md) — Error handling patterns
