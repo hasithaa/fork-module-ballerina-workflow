@@ -20,6 +20,8 @@ function processOrder(workflow:Context ctx, OrderRequest request) returns OrderR
 
 Workflows must be **deterministic** — given the same inputs and history, they must produce the same sequence of operations. This is what makes replay and recovery possible. All non-deterministic work (I/O, API calls, random values) belongs in activities.
 
+> **Compiler restriction:** Calling `time:utcNow()` inside a `@Workflow` function is prohibited (WORKFLOW_113). Use `ctx.currentTime()` to obtain the current time deterministically, or call `time:utcNow()` from an activity instead.
+
 Learn more: [Write Workflow Functions](write-workflow-functions.md)
 
 ## Activities

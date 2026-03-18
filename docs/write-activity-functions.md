@@ -25,7 +25,7 @@ function <name>(<params...>) returns <ReturnType>|error { }
 
 ### Parameter and Return Type Rules
 
-- All parameters must be subtypes of `anydata` (e.g., `string`, `int`, `decimal`, `record`, `map`, `array`)
+- All parameters must be subtypes of `anydata` (e.g., `string`, `int`, `decimal`, `record`, `map`, `array`). The compiler also permits the special parameter pattern `typedesc<anydata> t = <>` (see WORKFLOW_114), which is exempt from the strict `anydata`-subtype rule.
 - The return type must be a subtype of `anydata` or `error`
 - Activities can return `error?` for operations that don't produce a value
 

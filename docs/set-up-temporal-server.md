@@ -1,6 +1,8 @@
 # Set Up Temporal Server
 
-The Ballerina Workflow module requires a Temporal server to execute workflows. This page covers different ways to set up a Temporal server for local development.
+When running workflows against a full Temporal server (LOCAL, CLOUD, or SELF_HOSTED mode), you need a running Temporal instance. For quick local development and testing without an external server, use `IN_MEMORY` mode instead — see [Configure the Module](configure-the-module.md#in-memory-mode).
+
+This page covers different ways to set up a Temporal server for local development.
 
 ## Option 1: Temporal CLI (Recommended)
 

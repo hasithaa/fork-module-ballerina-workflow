@@ -41,7 +41,13 @@ To run against a local Temporal server, update `Config.toml`:
 mode = "LOCAL"
 ```
 
-Then start your Temporal dev server and run:
+Then start your Temporal dev server (see [Temporal CLI docs](https://docs.temporal.io/cli)):
+
+```bash
+temporal server start-dev
+```
+
+Then run the example:
 
 ```bash
 bal run

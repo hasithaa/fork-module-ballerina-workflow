@@ -55,7 +55,6 @@ echo "Successfully cleaned the cache directories."
 echo "Updating the central repository..."
 BAL_DESTINATION_DIR="$BAL_CENTRAL_DIR/bala/ballerina/$BAL_PACKAGE_NAME"
 BAL_SOURCE_DIR="$HOME/.ballerina/repositories/local/bala/ballerina/$BAL_PACKAGE_NAME"
-mkdir -p "$BAL_DESTINATION_DIR"
 if [[ -d "$BAL_DESTINATION_DIR" ]]; then
   rm -r "$BAL_DESTINATION_DIR"
 fi
@@ -72,11 +71,7 @@ echo "Destination Directory: $BAL_DESTINATION_DIR"
 # Loop through examples in the examples directory and execute the command
 echo "Processing examples in the examples directory..."
 cd "$BAL_EXAMPLES_DIR"
-for dir in $(find "$BAL_EXAMPLES_DIR" -type d -maxdepth 1 -mindepth 1); do
-  # Skip the build directory
-  if [[ "$(basename "$dir")" == "build" ]]; then
-    continue
-  fi
+find "$BAL_EXAMPLES_DIR" -maxdepth 1 -mindepth 1 -type d -not -name 'build' -print0 | while IFS= read -r -d '' dir; do
   echo "Processing example: $dir"
   (cd "$dir" && bal "$BAL_CMD")
 done

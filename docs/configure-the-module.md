@@ -121,4 +121,3 @@ activityRetryMaximumAttempts = 3
 ## What's Next
 
 - [Get Started](get-started.md) — Set up and run your first workflow
-- [API Reference](api-reference.md) — Complete function and type reference

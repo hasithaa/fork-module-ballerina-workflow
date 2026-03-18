@@ -27,7 +27,20 @@ if "%~1"=="build" (
 for /f "tokens=2 delims== " %%A in ('findstr /r "^name" "%BAL_HOME_DIR%\Ballerina.toml"') do (
     set BAL_PACKAGE_NAME=%%~A
     set BAL_PACKAGE_NAME=!BAL_PACKAGE_NAME:"=!
-    set BAL_PACKAGE_NAME=!BAL_PACKAGE_NAME:~0,-1!
+)
+:: Remove trailing carriage return if present
+set BAL_PACKAGE_NAME=!BAL_PACKAGE_NAME: =!
+for /f "delims=" %%X in ("!BAL_PACKAGE_NAME!") do set BAL_PACKAGE_NAME=%%X
+
+:: Validate the package name before using it in any destructive operations
+if "!BAL_PACKAGE_NAME!"=="" (
+    echo Error: Could not read package name from Ballerina.toml
+    exit /b 1
+)
+echo !BAL_PACKAGE_NAME!| findstr /r "^[a-zA-Z0-9_.\-]*$" >nul 2>&1
+if errorlevel 1 (
+    echo Error: Invalid package name "!BAL_PACKAGE_NAME!" — expected alphanumeric, underscore, dot, or hyphen characters only
+    exit /b 1
 )
 
 :: Push the package to the local repository

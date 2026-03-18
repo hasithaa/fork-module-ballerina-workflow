@@ -167,6 +167,9 @@ function processOrder(
 // ---------------------------------------------------------------------------
 
 public function main(string outcome = "approved") returns error? {
+    if outcome != "approved" && outcome != "cancelled" {
+        return error("Invalid outcome: '" + outcome + "'. Use 'approved' or 'cancelled'.");
+    }
     io:println("=== Human-in-the-Loop (Forward Recovery) Example ===\n");
     io:println(string `Outcome mode: ${outcome}\n`);
 

@@ -2,7 +2,7 @@
 
 This example demonstrates **error propagation**: when an activity fails, use `check` to propagate the error directly to the workflow caller. The workflow transitions to **Failed** in Temporal and all subsequent steps are skipped.
 
-See the full pattern explanation in [Handle Errors — Propagate](../../docs/examples/error-propagation.md).
+See the full pattern explanation in [Handle Errors — Propagate](../../docs/patterns/error-propagation.md).
 
 ## What This Example Shows
 
@@ -25,7 +25,7 @@ bal run
 
 Expected output:
 
-```
+```text
 === Error Propagation Example ===
 
 --- Scenario 1: valid item (workflow succeeds) ---

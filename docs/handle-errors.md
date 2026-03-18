@@ -327,4 +327,3 @@ This is useful during incidents when the normal signal delivery path is unavaila
 - [Handle Data Events](handle-events.md) — Signals, human-in-the-loop patterns
 - [Write Workflow Functions](write-workflow-functions.md) — Workflow function details
 - [Write Activity Functions](write-activity-functions.md) — Activity options and retry configuration
-- [API Reference](api-reference.md) — Complete API reference

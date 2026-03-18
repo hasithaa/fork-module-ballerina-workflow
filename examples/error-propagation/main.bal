@@ -112,9 +112,11 @@ public function main() returns error? {
     // Scenario 2: workflow fails — inventory check returns an error
     io:println("--- Scenario 2: unknown item (workflow fails) ---");
     string wfId2 = check workflow:run(processOrder, {orderId: "ORD-002", item: "unknown-item"});
-    workflow:WorkflowExecutionInfo|error info2 = workflow:getWorkflowResult(wfId2);
-    if info2 is error {
-        io:println("Workflow failed as expected: " + info2.message());
+    // getWorkflowResult returns a WorkflowExecutionInfo with status "FAILED"
+    // and errorMessage populated — it does not return a Ballerina error.
+    workflow:WorkflowExecutionInfo info2 = check workflow:getWorkflowResult(wfId2);
+    if info2.status == "FAILED" {
+        io:println("Workflow failed as expected: " + (info2.errorMessage ?: "unknown error"));
     } else {
         io:println("Result: " + info2.result.toString());
     }

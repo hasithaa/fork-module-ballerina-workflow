@@ -36,9 +36,17 @@ Execute the following commands to build an example from the source:
 
 ## Building the examples with the local module
 
-**Warning**: Because of the absence of support for reading the local repository for Java package dependencies, the Gradle build process cannot be used for the examples. Consequently, the examples directory is not a Gradle subproject.
+### Via Gradle (recommended for CI)
 
-Execute the following commands to build all the examples against the changes you have made to the module locally:
+The examples directory is a Gradle subproject (`:workflow-examples`). To build all examples against the locally built workflow module:
+
+```bash
+./gradlew :workflow-examples:build
+```
+
+### Via shell script
+
+Alternatively, use the shell scripts to build or run all examples:
 
 * To build all the examples:
 

@@ -2,7 +2,7 @@
 
 This example demonstrates the **Saga compensation pattern**: when a later step fails after exhausting its retries, the workflow executes compensating activities to reverse earlier committed work, then completes with a rolled-back status.
 
-See the full pattern explanation in [Handle Errors — Compensation](../../docs/examples/error-compensation.md).
+See the full pattern explanation in [Handle Errors — Compensation](../../docs/patterns/error-compensation.md).
 
 ## What This Example Shows
 
@@ -25,7 +25,7 @@ bal run
 
 Expected output:
 
-```
+```text
 === Error Compensation (Saga Pattern) Example ===
 
 Debiting 500.0 from account ACC-SRC-123

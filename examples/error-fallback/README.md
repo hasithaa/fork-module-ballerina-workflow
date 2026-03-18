@@ -2,7 +2,7 @@
 
 This example demonstrates the **fallback pattern**: when a primary activity exhausts its Temporal retries, the error is captured as a value and a secondary activity is called instead. The workflow completes successfully via the fallback path.
 
-See the full pattern explanation in [Handle Errors — Fallback](../../docs/examples/error-fallback.md).
+See the full pattern explanation in [Handle Errors — Fallback](../../docs/patterns/error-fallback.md).
 
 ## What This Example Shows
 
@@ -25,7 +25,7 @@ bal run
 
 Expected output:
 
-```
+```text
 === Error Fallback Example ===
 
 Attempting email delivery to: user@example.com

@@ -2,7 +2,7 @@
 
 This example demonstrates **graceful completion**: when a non-critical side-effect activity fails (e.g., a notification email or audit log), the workflow catches the error, notes the skipped step, and completes successfully. The core business outcome is preserved regardless of the non-critical failure.
 
-See the full pattern explanation in [Handle Errors — Graceful Completion](../../docs/examples/graceful-completion.md).
+See the full pattern explanation in [Handle Errors — Graceful Completion](../../docs/patterns/graceful-completion.md).
 
 ## What This Example Shows
 
@@ -25,7 +25,7 @@ bal run
 
 Expected output:
 
-```
+```text
 === Graceful Completion Example ===
 
 Reserving 1 unit(s) of "wireless-headphones" for order ORD-001

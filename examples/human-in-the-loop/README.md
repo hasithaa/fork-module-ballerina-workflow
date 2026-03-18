@@ -2,7 +2,7 @@
 
 This example demonstrates **forward recovery**: when an activity fails and automated retries cannot resolve the problem, the workflow pauses and waits for a human decision signal. The reviewer can approve (trigger one final retry) or cancel the order.
 
-See the full pattern explanation in [Handle Errors — Human in the Loop](../../docs/examples/human-in-the-loop.md).
+See the full pattern explanation in [Handle Errors — Human in the Loop](../../docs/patterns/human-in-the-loop.md).
 
 ## What This Example Shows
 
@@ -28,7 +28,7 @@ bal run -- approved
 
 Expected output:
 
-```
+```text
 === Human-in-the-Loop (Forward Recovery) Example ===
 
 Outcome mode: approved
@@ -55,7 +55,7 @@ bal run -- cancelled
 
 Expected output:
 
-```
+```text
 === Human-in-the-Loop (Forward Recovery) Example ===
 
 Outcome mode: cancelled
