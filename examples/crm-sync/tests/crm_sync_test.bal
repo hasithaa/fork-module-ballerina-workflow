@@ -14,58 +14,57 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import ballerina/http;
 import ballerina/test;
-import ballerina/workflow;
+
+type StartResponse record {|
+    string status;
+    string workflowId;
+    string contactId;
+    string message;
+|};
+
+type WorkflowResponse record {|
+    string workflowId;
+    string status;
+    SyncResult result;
+|};
+
+final http:Client crmSyncClient = check new ("http://localhost:9091/sync");
 
 @test:Config {}
 function testSyncNewContact() returns error? {
-    resetCrmData();
+    string _ = check crmSyncClient->post("/reset", ());
 
-    SourceContact contact = {
+    StartResponse startResp = check crmSyncClient->post("/contact", {
         id: "CONT-TEST-001",
         email: "test@example.com",
         firstName: "Test",
         lastName: "User",
         phone: "+1234567890",
         company: "Test Corp"
-    };
-    string workflowId = check workflow:run(syncContact, contact);
+    });
+    test:assertNotEquals(startResp.workflowId, "", "Workflow ID should not be empty");
 
-    workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
-
-    test:assertEquals(execInfo.status, "COMPLETED", "Workflow should complete successfully");
-
-    if execInfo.result is map<anydata> {
-        map<anydata> result = <map<anydata>>execInfo.result;
-        test:assertEquals(result["status"], "CREATED", "Contact should be created in target CRM");
-        test:assertTrue(result["targetContactId"] is string, "Should have a target contact ID");
-    } else {
-        test:assertFail("Result should be a map representing SyncResult");
-    }
+    WorkflowResponse result = check crmSyncClient->get(string `/${startResp.workflowId}/result`);
+    test:assertEquals(result.status, "COMPLETED", "Workflow should complete successfully");
+    test:assertEquals(result.result.status, "CREATED", "Contact should be created in target CRM");
 }
 
 @test:Config {}
 function testSyncContactValidationFailure() returns error? {
-    resetCrmData();
+    string _ = check crmSyncClient->post("/reset", ());
 
-    SourceContact contact = {
+    StartResponse startResp = check crmSyncClient->post("/contact", {
         id: "CONT-TEST-002",
         email: "invalid-email",
         firstName: "Test",
         lastName: "User",
         phone: (),
         company: ()
-    };
-    string workflowId = check workflow:run(syncContact, contact);
+    });
 
-    workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
-
-    test:assertEquals(execInfo.status, "COMPLETED", "Workflow should complete even on validation failure");
-
-    if execInfo.result is map<anydata> {
-        map<anydata> result = <map<anydata>>execInfo.result;
-        test:assertEquals(result["status"], "FAILED", "Contact sync should fail validation");
-    } else {
-        test:assertFail("Result should be a map representing SyncResult");
-    }
+    WorkflowResponse result = check crmSyncClient->get(string `/${startResp.workflowId}/result`);
+    test:assertEquals(result.status, "COMPLETED", "Workflow should complete even on validation failure");
+    test:assertEquals(result.result.status, "FAILED", "Contact sync should fail validation");
 }

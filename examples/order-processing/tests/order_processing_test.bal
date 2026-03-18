@@ -14,40 +14,40 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import ballerina/http;
 import ballerina/test;
-import ballerina/workflow;
+
+type StartResponse record {|
+    string status;
+    string workflowId;
+    string orderId;
+    string message;
+|};
+
+type WorkflowResponse record {|
+    string workflowId;
+    string status;
+    OrderResult result;
+|};
+
+final http:Client orderProcessingClient = check new ("http://localhost:9090/orders");
 
 @test:Config {}
 function testProcessOrderCompleted() returns error? {
-    OrderRequest request = {orderId: "TEST-ORD-001", item: "laptop", quantity: 2};
-    string workflowId = check workflow:run(processOrder, request);
+    StartResponse startResp = check orderProcessingClient->post("/", {orderId: "TEST-ORD-001", item: "laptop", quantity: 2});
+    test:assertNotEquals(startResp.workflowId, "", "Workflow ID should not be empty");
 
-    workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
-
-    test:assertEquals(execInfo.status, "COMPLETED", "Workflow should complete successfully");
-
-    if execInfo.result is map<anydata> {
-        map<anydata> result = <map<anydata>>execInfo.result;
-        test:assertEquals(result["status"], "COMPLETED", "Order should be completed");
-        test:assertTrue(result["reservationId"] is string, "Should have a reservation ID");
-    } else {
-        test:assertFail("Result should be a map representing OrderResult");
-    }
+    WorkflowResponse result = check orderProcessingClient->get(string `/${startResp.workflowId}/result`);
+    test:assertEquals(result.status, "COMPLETED", "Workflow should complete successfully");
+    test:assertEquals(result.result.status, "COMPLETED", "Order should be completed");
+    test:assertNotEquals(result.result.reservationId, (), "Should have a reservation ID");
 }
 
 @test:Config {}
 function testProcessOrderOutOfStock() returns error? {
-    OrderRequest request = {orderId: "TEST-ORD-002", item: "laptop", quantity: 1000};
-    string workflowId = check workflow:run(processOrder, request);
+    StartResponse startResp = check orderProcessingClient->post("/", {orderId: "TEST-ORD-002", item: "laptop", quantity: 1000});
 
-    workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
-
-    test:assertEquals(execInfo.status, "COMPLETED", "Workflow should complete even for out-of-stock");
-
-    if execInfo.result is map<anydata> {
-        map<anydata> result = <map<anydata>>execInfo.result;
-        test:assertEquals(result["status"], "OUT_OF_STOCK", "Order should be out of stock");
-    } else {
-        test:assertFail("Result should be a map representing OrderResult");
-    }
+    WorkflowResponse result = check orderProcessingClient->get(string `/${startResp.workflowId}/result`);
+    test:assertEquals(result.status, "COMPLETED", "Workflow should complete even for out-of-stock");
+    test:assertEquals(result.result.status, "OUT_OF_STOCK", "Order should be out of stock");
 }

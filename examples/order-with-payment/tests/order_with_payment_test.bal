@@ -14,57 +14,57 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import ballerina/http;
 import ballerina/lang.runtime;
 import ballerina/test;
-import ballerina/workflow;
+
+type StartResponse record {|
+    string status;
+    string workflowId;
+    string orderId;
+    string message;
+|};
+
+type PaymentResponse record {|
+    string status;
+    string message;
+|};
+
+type WorkflowResponse record {|
+    string workflowId;
+    string status;
+    OrderResult result;
+|};
+
+final http:Client orderPaymentClient = check new ("http://localhost:9094/orders");
 
 @test:Config {}
 function testOrderWithPaymentCompleted() returns error? {
-    OrderRequest request = {orderId: "TEST-PAY-001", item: "laptop"};
-    string workflowId = check workflow:run(processOrderWithPayment, request);
+    StartResponse startResp = check orderPaymentClient->post("/", {orderId: "TEST-PAY-001", item: "laptop"});
+    test:assertNotEquals(startResp.workflowId, "", "Workflow ID should not be empty");
 
     // Give the workflow time to start and begin waiting for the payment signal
     runtime:sleep(2);
 
-    // Send payment signal using the workflowId
-    PaymentConfirmation payment = {amount: 1999.99d};
-    check workflow:sendData(processOrderWithPayment, workflowId, "paymentReceived", payment);
+    // Send payment signal via HTTP
+    PaymentResponse _ = check orderPaymentClient->post("/TEST-PAY-001/payment", {amount: 1999.99});
 
-    workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
-
-    test:assertEquals(execInfo.status, "COMPLETED", "Workflow should complete successfully");
-
-    if execInfo.result is map<anydata> {
-        map<anydata> result = <map<anydata>>execInfo.result;
-        test:assertEquals(result["status"], "COMPLETED", "Order should be completed after payment");
-        test:assertEquals(result["orderId"], "TEST-PAY-001", "Order ID should match");
-    } else {
-        test:assertFail("Result should be a map representing OrderResult");
-    }
+    WorkflowResponse result = check orderPaymentClient->get(string `/${startResp.workflowId}/result`);
+    test:assertEquals(result.status, "COMPLETED", "Workflow should complete successfully");
+    test:assertEquals(result.result.status, "COMPLETED", "Order should be completed after payment");
+    test:assertEquals(result.result.orderId, "TEST-PAY-001", "Order ID should match");
 }
 
 @test:Config {}
 function testOrderOutOfStockNoPaymentNeeded() returns error? {
-    // The mock checkInventory always returns 10, so use a modified test that
-    // verifies the happy path always gets stock. This test simply confirms
-    // the workflow starts and the inventory check succeeds.
-    OrderRequest request = {orderId: "TEST-PAY-002", item: "keyboard"};
-    string workflowId = check workflow:run(processOrderWithPayment, request);
+    StartResponse startResp = check orderPaymentClient->post("/", {orderId: "TEST-PAY-002", item: "keyboard"});
 
     // Wait and send payment
     runtime:sleep(2);
 
-    PaymentConfirmation payment = {amount: 49.99d};
-    check workflow:sendData(processOrderWithPayment, workflowId, "paymentReceived", payment);
+    PaymentResponse _ = check orderPaymentClient->post("/TEST-PAY-002/payment", {amount: 49.99});
 
-    workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
-
-    test:assertEquals(execInfo.status, "COMPLETED", "Workflow should complete");
-
-    if execInfo.result is map<anydata> {
-        map<anydata> result = <map<anydata>>execInfo.result;
-        test:assertEquals(result["status"], "COMPLETED", "Order should complete");
-    } else {
-        test:assertFail("Result should be a map representing OrderResult");
-    }
+    WorkflowResponse result = check orderPaymentClient->get(string `/${startResp.workflowId}/result`);
+    test:assertEquals(result.status, "COMPLETED", "Workflow should complete");
+    test:assertEquals(result.result.status, "COMPLETED", "Order should complete");
 }

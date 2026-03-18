@@ -1,6 +1,8 @@
 # Human-in-the-Loop (Forward Recovery) Example
 
-This example demonstrates **forward recovery**: when an activity fails and automated retries cannot resolve the problem, the workflow pauses and waits for a human decision signal. The reviewer can approve (trigger one final retry) or cancel the order.
+This example demonstrates **forward recovery**: when an activity fails and automated retries cannot resolve the problem, the workflow pauses and waits for a human decision signal. A reviewer can approve (trigger one final retry) or cancel the order.
+
+An HTTP service exposes the workflow, allowing external systems (dashboards, Slack bots, etc.) to start orders and submit review decisions via REST.
 
 See the full pattern explanation in [Handle Errors — Human in the Loop](../../docs/patterns/human-in-the-loop.md).
 
@@ -8,8 +10,8 @@ See the full pattern explanation in [Handle Errors — Human in the Loop](../../
 
 - Exhausting Temporal retries with `retryOnError = true, maxRetries = 3`
 - Pausing the workflow at a `wait events.review` after failure
+- Exposing the workflow via an HTTP service (`POST /api/orders`, `POST /api/orders/{id}/review`)
 - Workflow durability: state is preserved across worker restarts while paused
-- Sending a decision signal with `workflow:sendData()`
 - Two outcomes: reviewer approves (retry) or cancels
 
 ## Running the Example
@@ -18,51 +20,74 @@ See the full pattern explanation in [Handle Errors — Human in the Loop](../../
 
 - [Ballerina](https://ballerina.io/downloads/) 2201.13.0 or later
 
-### Using IN_MEMORY mode (no server required)
-
-Run with reviewer approving the retry:
+### Start the service (IN_MEMORY mode — no server required)
 
 ```bash
-bal run -- approved
+bal run
 ```
 
-Expected output:
+The HTTP service starts on port **8090**.
 
-```text
-=== Human-in-the-Loop (Forward Recovery) Example ===
-
-Outcome mode: approved
-
-Workflow started: <uuid>
-
-Simulating reviewer decision...
-Charging card tok_visa_4242 for amount 799.0
-...
-Payment failed after retries: Payment gateway timeout: no response from acquirer
-[REVIEW NEEDED] Order ORD-001 payment failed: Payment gateway timeout: no response from acquirer
-Review team notified. Waiting for decision signal...
-Review decision received from reviewer-ops-1: approved=true
-Manual retry: charging card tok_visa_4242 for amount 799.0
-
-Workflow completed. Result: {"orderId":"ORD-001","status":"COMPLETED","message":"TXN-MANUAL-tok_visa_4242"}
-```
-
-Run with reviewer cancelling the order:
+### Start a new order
 
 ```bash
-bal run -- cancelled
+curl -s -X POST http://localhost:8090/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "orderId": "ORD-001",
+    "item": "standing-desk",
+    "amount": 799.00,
+    "cardToken": "tok_visa_4242"
+  }'
 ```
 
-Expected output:
+Response:
 
-```text
-=== Human-in-the-Loop (Forward Recovery) Example ===
+```json
+{"workflowId":"<uuid>"}
+```
 
-Outcome mode: cancelled
-...
-Review decision received from reviewer-ops-1: approved=false
+The workflow starts, the `chargeCard` activity fails after 3 retries, the review team is notified, and the workflow pauses waiting for a decision.
 
-Workflow completed. Result: {"orderId":"ORD-001","status":"CANCELLED","message":"Cancelled by reviewer-ops-1: Fraud risk — do not retry"}
+### Send the reviewer's decision (approve)
+
+Replace `<workflow-id>` with the ID from the previous response:
+
+```bash
+curl -s -X POST http://localhost:8090/api/orders/<workflow-id>/review \
+  -H "Content-Type: application/json" \
+  -d '{
+    "reviewerId": "reviewer-ops-1",
+    "approved": true,
+    "note": "Manual gateway check passed"
+  }'
+```
+
+### Get the workflow result
+
+```bash
+curl -s http://localhost:8090/api/orders/<workflow-id>
+```
+
+Response (approved):
+
+```json
+{
+  "status": "COMPLETED",
+  "result": {
+    "orderId": "ORD-001",
+    "status": "COMPLETED",
+    "message": "TXN-MANUAL-tok_visa_4242"
+  }
+}
+```
+
+To cancel instead, send `"approved": false` in the review decision. The result will have `"status": "CANCELLED"`.
+
+### Running tests
+
+```bash
+bal test
 ```
 
 ### Using a local Temporal server
@@ -74,11 +99,7 @@ Update `Config.toml`:
 mode = "LOCAL"
 ```
 
-Start your Temporal dev server, then run the workflow. While it is paused waiting for the review signal you can also send the signal directly from the **Temporal Web UI** (see [Handle Errors — Recovering via Temporal UI](../../docs/handle-errors.md#recovering-workflows-via-temporal-ui)).
-
-```bash
-bal run -- approved
-```
+Start your Temporal dev server, then start the service. While the workflow is paused waiting for the review signal you can also send the signal directly from the **Temporal Web UI** (see [Handle Errors — Recovering via Temporal UI](../../docs/handle-errors.md#recovering-workflows-via-temporal-ui)).
 
 ## Building with the local module
 

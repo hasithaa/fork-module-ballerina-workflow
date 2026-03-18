@@ -20,7 +20,15 @@
 // activity (e.g., a notification or audit log) fails, the workflow catches the
 // error, records that the step was skipped, and completes successfully. The
 // core business outcome is preserved regardless of the non-critical failure.
+//
+// Start the service:
+//   bal run
+//
+// Then use the HTTP API:
+//   POST /api/orders       — start a new order
+//   GET  /api/orders/{id}  — get the workflow result
 
+import ballerina/http;
 import ballerina/io;
 import ballerina/workflow;
 
@@ -129,19 +137,20 @@ function processOrder(workflow:Context ctx, OrderInput input) returns string|err
 }
 
 // ---------------------------------------------------------------------------
-// MAIN
+// HTTP SERVICE
 // ---------------------------------------------------------------------------
 
-public function main() returns error? {
-    io:println("=== Graceful Completion Example ===\n");
+service /api on new http:Listener(8094) {
 
-    string workflowId = check workflow:run(processOrder, {
-        orderId: "ORD-001",
-        item: "wireless-headphones",
-        quantity: 1,
-        customerEmail: "alice@example.com"
-    });
+    # Starts a new order processing workflow.
+    resource function post orders(@http:Payload OrderInput input) returns record {|string workflowId;|}|error {
+        string workflowId = check workflow:run(processOrder, input);
+        io:println(string `Workflow started: ${workflowId}`);
+        return {workflowId};
+    }
 
-    workflow:WorkflowExecutionInfo result = check workflow:getWorkflowResult(workflowId);
-    io:println("\nWorkflow completed. Result: " + result.result.toString());
+    # Retrieves the workflow result. Blocks until complete.
+    resource function get orders/[string workflowId]() returns workflow:WorkflowExecutionInfo|error {
+        return workflow:getWorkflowResult(workflowId);
+    }
 }

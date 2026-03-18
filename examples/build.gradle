@@ -45,7 +45,7 @@ observabilityIncluded = true
 }
 
 task buildExamples {
-    description = 'Builds all example projects using the locally built workflow module'
+    description = 'Builds and tests all example projects using the locally built workflow module'
     group = 'build'
     dependsOn(':workflow-ballerina:build')
 
@@ -75,18 +75,19 @@ task buildExamples {
             def targetDir = new File(exampleDir, "target")
             if (targetDir.exists()) targetDir.deleteDir()
 
+            // Run bal test which both compiles and runs tests
             exec {
                 workingDir exampleDir
                 environment "JAVA_OPTS", "-DBALLERINA_DEV_COMPILE_BALLERINA_ORG=true"
                 if (Os.isFamily(Os.FAMILY_WINDOWS)) {
-                    commandLine 'cmd', '/c', "${distributionBinPath}/bal.bat build"
+                    commandLine 'cmd', '/c', "${distributionBinPath}/bal.bat test"
                 } else {
-                    commandLine 'sh', '-c', "${distributionBinPath}/bal build"
+                    commandLine 'sh', '-c', "${distributionBinPath}/bal test"
                 }
             }
         }
 
-        logger.lifecycle("All examples built successfully")
+        logger.lifecycle("All examples built and tested successfully")
     }
 }
 

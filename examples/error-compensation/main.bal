@@ -20,7 +20,15 @@
 // step has a corresponding compensating activity. When a later step fails
 // after retries, the workflow runs compensating activities in reverse order
 // to undo the committed work, then completes with a rolled-back status.
+//
+// Start the service:
+//   bal run
+//
+// Then use the HTTP API:
+//   POST /api/transfers       — start a fund transfer workflow
+//   GET  /api/transfers/{id}  — get the workflow result
 
+import ballerina/http;
 import ballerina/io;
 import ballerina/workflow;
 
@@ -124,19 +132,20 @@ function transferFunds(workflow:Context ctx, TransferInput input) returns string
 }
 
 // ---------------------------------------------------------------------------
-// MAIN
+// HTTP SERVICE
 // ---------------------------------------------------------------------------
 
-public function main() returns error? {
-    io:println("=== Error Compensation (Saga Pattern) Example ===\n");
+service /api on new http:Listener(8092) {
 
-    string workflowId = check workflow:run(transferFunds, {
-        transferId: "TXN-001",
-        sourceAccount: "ACC-SRC-123",
-        destAccount: "ACC-DST-456",
-        amount: 500.00d
-    });
+    # Starts a new fund transfer workflow.
+    resource function post transfers(@http:Payload TransferInput input) returns record {|string workflowId;|}|error {
+        string workflowId = check workflow:run(transferFunds, input);
+        io:println(string `Workflow started: ${workflowId}`);
+        return {workflowId};
+    }
 
-    workflow:WorkflowExecutionInfo result = check workflow:getWorkflowResult(workflowId);
-    io:println("\nWorkflow completed. Result: " + result.result.toString());
+    # Retrieves the workflow result. Blocks until complete.
+    resource function get transfers/[string workflowId]() returns workflow:WorkflowExecutionInfo|error {
+        return workflow:getWorkflowResult(workflowId);
+    }
 }

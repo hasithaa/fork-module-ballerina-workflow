@@ -101,6 +101,22 @@ service /orders on new http:Listener(9094) {
     resource function get health() returns string {
         return "Order Payment Service is running";
     }
+
+    # Get workflow result
+    # GET /orders/{workflowId}/result
+    #
+    # + workflowId - The workflow execution ID
+    # + return - Workflow execution result or error
+    resource function get [string workflowId]/result() returns json|error {
+        workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 30);
+
+        json result = check execInfo.result.cloneWithType(json);
+        return {
+            workflowId: workflowId,
+            status: execInfo.status.toString(),
+            result: result
+        };
+    }
 }
 
 # Main entry point for the Order with Payment sample application.

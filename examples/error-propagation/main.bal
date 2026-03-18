@@ -18,9 +18,16 @@
 //
 // Demonstrates the simplest error handling strategy: propagate the activity
 // error to the caller by using `check`. When the activity fails the workflow
-// immediately transitions to Failed in Temporal and the error is returned
-// to whoever called workflow:getWorkflowResult().
+// immediately transitions to Failed in Temporal.
+//
+// Start the service:
+//   bal run
+//
+// Then use the HTTP API:
+//   POST /api/orders       — start a new order workflow
+//   GET  /api/orders/{id}  — get the workflow result
 
+import ballerina/http;
 import ballerina/io;
 import ballerina/workflow;
 
@@ -95,29 +102,20 @@ function processOrder(workflow:Context ctx, OrderInput input) returns OrderResul
 }
 
 // ---------------------------------------------------------------------------
-// MAIN
+// HTTP SERVICE
 // ---------------------------------------------------------------------------
 
-public function main() returns error? {
-    io:println("=== Error Propagation Example ===\n");
+service /api on new http:Listener(8091) {
 
-    // Scenario 1: workflow succeeds
-    io:println("--- Scenario 1: valid item (workflow succeeds) ---");
-    string wfId1 = check workflow:run(processOrder, {orderId: "ORD-001", item: "laptop"});
-    workflow:WorkflowExecutionInfo info1 = check workflow:getWorkflowResult(wfId1);
-    io:println("Result: " + info1.result.toString());
+    # Starts a new order processing workflow.
+    resource function post orders(@http:Payload OrderInput input) returns record {|string workflowId;|}|error {
+        string workflowId = check workflow:run(processOrder, input);
+        io:println(string `Workflow started: ${workflowId}`);
+        return {workflowId};
+    }
 
-    io:println("");
-
-    // Scenario 2: workflow fails — inventory check returns an error
-    io:println("--- Scenario 2: unknown item (workflow fails) ---");
-    string wfId2 = check workflow:run(processOrder, {orderId: "ORD-002", item: "unknown-item"});
-    // getWorkflowResult returns a WorkflowExecutionInfo with status "FAILED"
-    // and errorMessage populated — it does not return a Ballerina error.
-    workflow:WorkflowExecutionInfo info2 = check workflow:getWorkflowResult(wfId2);
-    if info2.status == "FAILED" {
-        io:println("Workflow failed as expected: " + (info2.errorMessage ?: "unknown error"));
-    } else {
-        io:println("Result: " + info2.result.toString());
+    # Retrieves the workflow result. Blocks until complete.
+    resource function get orders/[string workflowId]() returns workflow:WorkflowExecutionInfo|error {
+        return workflow:getWorkflowResult(workflowId);
     }
 }

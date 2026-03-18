@@ -19,7 +19,15 @@
 // Demonstrates the fallback pattern: when a primary activity exhausts its
 // Temporal retries, the workflow catches the error and executes a secondary
 // activity instead. The workflow completes successfully via the fallback path.
+//
+// Start the service:
+//   bal run
+//
+// Then use the HTTP API:
+//   POST /api/notifications       — send a notification
+//   GET  /api/notifications/{id}  — get the workflow result
 
+import ballerina/http;
 import ballerina/io;
 import ballerina/workflow;
 
@@ -98,19 +106,20 @@ function sendNotification(workflow:Context ctx, NotificationInput input) returns
 }
 
 // ---------------------------------------------------------------------------
-// MAIN
+// HTTP SERVICE
 // ---------------------------------------------------------------------------
 
-public function main() returns error? {
-    io:println("=== Error Fallback Example ===\n");
+service /api on new http:Listener(8093) {
 
-    string workflowId = check workflow:run(sendNotification, {
-        recipientId: "user-123",
-        message: "Your order has shipped!",
-        email: "user@example.com",
-        phone: "+1-555-0100"
-    });
+    # Sends a notification (email with SMS fallback).
+    resource function post notifications(@http:Payload NotificationInput input) returns record {|string workflowId;|}|error {
+        string workflowId = check workflow:run(sendNotification, input);
+        io:println(string `Workflow started: ${workflowId}`);
+        return {workflowId};
+    }
 
-    workflow:WorkflowExecutionInfo result = check workflow:getWorkflowResult(workflowId);
-    io:println("Workflow completed. Result: " + result.result.toString());
+    # Retrieves the workflow result. Blocks until complete.
+    resource function get notifications/[string workflowId]() returns workflow:WorkflowExecutionInfo|error {
+        return workflow:getWorkflowResult(workflowId);
+    }
 }

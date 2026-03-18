@@ -2,6 +2,8 @@
 
 This example demonstrates the **fallback pattern**: when a primary activity exhausts its Temporal retries, the error is captured as a value and a secondary activity is called instead. The workflow completes successfully via the fallback path.
 
+An HTTP service exposes the workflow so you can send notifications and observe the email→SMS fallback.
+
 See the full pattern explanation in [Handle Errors — Fallback](../../docs/patterns/error-fallback.md).
 
 ## What This Example Shows
@@ -17,24 +19,45 @@ See the full pattern explanation in [Handle Errors — Fallback](../../docs/patt
 
 - [Ballerina](https://ballerina.io/downloads/) 2201.13.0 or later
 
-### Using IN_MEMORY mode (no server required)
+### Start the service (IN_MEMORY mode — no server required)
 
 ```bash
 bal run
 ```
 
-Expected output:
+The HTTP service starts on port **8093**.
 
-```text
-=== Error Fallback Example ===
+### Send a notification
 
-Attempting email delivery to: user@example.com
-Attempting email delivery to: user@example.com
-Attempting email delivery to: user@example.com
-Email failed after retries: SMTP server unavailable: connection refused
-Falling back to SMS...
-Delivering SMS to: +1-555-0100
-Workflow completed. Result: "Delivered via SMS: SMS delivered to +1-555-0100"
+```bash
+curl -s -X POST http://localhost:8093/api/notifications \
+  -H "Content-Type: application/json" \
+  -d '{
+    "recipientId": "user-123",
+    "message": "Your order has shipped!",
+    "email": "user@example.com",
+    "phone": "+1-555-0100"
+  }'
+```
+
+### Get the result
+
+```bash
+curl -s http://localhost:8093/api/notifications/<workflow-id>
+```
+
+Response:
+
+```json
+{"status": "COMPLETED", "result": "Delivered via SMS: SMS delivered to +1-555-0100"}
+```
+
+Email always fails in this demo, so SMS fallback kicks in automatically.
+
+### Running tests
+
+```bash
+bal test
 ```
 
 ### Using a local Temporal server

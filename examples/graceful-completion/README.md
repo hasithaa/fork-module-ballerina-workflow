@@ -2,6 +2,8 @@
 
 This example demonstrates **graceful completion**: when a non-critical side-effect activity fails (e.g., a notification email or audit log), the workflow catches the error, notes the skipped step, and completes successfully. The core business outcome is preserved regardless of the non-critical failure.
 
+An HTTP service exposes the workflow so you can submit orders and observe non-critical failures being tolerated.
+
 See the full pattern explanation in [Handle Errors — Graceful Completion](../../docs/patterns/graceful-completion.md).
 
 ## What This Example Shows
@@ -17,26 +19,45 @@ See the full pattern explanation in [Handle Errors — Graceful Completion](../.
 
 - [Ballerina](https://ballerina.io/downloads/) 2201.13.0 or later
 
-### Using IN_MEMORY mode (no server required)
+### Start the service (IN_MEMORY mode — no server required)
 
 ```bash
 bal run
 ```
 
-Expected output:
+The HTTP service starts on port **8094**.
 
-```text
-=== Graceful Completion Example ===
+### Start an order
 
-Reserving 1 unit(s) of "wireless-headphones" for order ORD-001
-Core step completed: RES-ORD-001
-Sending confirmation email to alice@example.com for order ORD-001
-Sending confirmation email to alice@example.com for order ORD-001
-Email skipped: Email service temporarily unavailable
-Writing audit log for order ORD-001, reservation RES-ORD-001
-Audit logged: ORD-001
+```bash
+curl -s -X POST http://localhost:8094/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "orderId": "ORD-001",
+    "item": "wireless-headphones",
+    "quantity": 1,
+    "customerEmail": "alice@example.com"
+  }'
+```
 
-Workflow completed. Result: "Order ORD-001 COMPLETED — reservation RES-ORD-001 (skipped: email)"
+### Get the result
+
+```bash
+curl -s http://localhost:8094/api/orders/<workflow-id>
+```
+
+Response:
+
+```json
+{"status": "COMPLETED", "result": "Order ORD-001 COMPLETED — reservation RES-ORD-001 (skipped: email)"}
+```
+
+The email activity always fails in this demo. Inventory reservation and audit log succeed, so the order completes with an annotation about the skipped step.
+
+### Running tests
+
+```bash
+bal test
 ```
 
 ### Using a local Temporal server

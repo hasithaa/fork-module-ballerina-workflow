@@ -21,10 +21,15 @@
 // decision signal before continuing. The workflow resumes based on the
 // reviewer's choice — approve (retry once more) or cancel.
 //
-// Run two instances to observe both outcomes:
-//   bal run -- approved    → reviewer approves → order completed
-//   bal run -- cancelled   → reviewer cancels  → order cancelled
+// Start the service:
+//   bal run
+//
+// Then use the HTTP API to drive the workflow:
+//   POST /api/orders              — start a new order
+//   POST /api/orders/{id}/review  — send reviewer decision
+//   GET  /api/orders/{id}         — get the final result
 
+import ballerina/http;
 import ballerina/io;
 import ballerina/workflow;
 
@@ -163,36 +168,34 @@ function processOrder(
 }
 
 // ---------------------------------------------------------------------------
-// MAIN
+// HTTP SERVICE
 // ---------------------------------------------------------------------------
 
-public function main(string outcome = "approved") returns error? {
-    if outcome != "approved" && outcome != "cancelled" {
-        return error("Invalid outcome: '" + outcome + "'. Use 'approved' or 'cancelled'.");
+# HTTP service that exposes the human-in-the-loop workflow over REST.
+#
+# Endpoints:
+#   POST /api/orders              — creates a new order workflow
+#   POST /api/orders/{id}/review  — sends a reviewer decision signal
+#   GET  /api/orders/{id}         — retrieves the workflow result (blocks until complete)
+service /api on new http:Listener(8090) {
+
+    # Starts a new order processing workflow.
+    resource function post orders(@http:Payload OrderInput input) returns record {|string workflowId;|}|error {
+        string workflowId = check workflow:run(processOrder, input);
+        io:println(string `Workflow started: ${workflowId}`);
+        return {workflowId};
     }
-    io:println("=== Human-in-the-Loop (Forward Recovery) Example ===\n");
-    io:println(string `Outcome mode: ${outcome}\n`);
 
-    // Start the workflow
-    string workflowId = check workflow:run(processOrder, {
-        orderId: "ORD-001",
-        item: "standing-desk",
-        amount: 799.00d,
-        cardToken: "tok_visa_4242"
-    });
-    io:println(string `Workflow started: ${workflowId}`);
+    # Sends the reviewer's decision to a paused workflow.
+    resource function post orders/[string workflowId]/review(@http:Payload ReviewDecision decision)
+            returns record {|string status; string message;|}|error {
+        check workflow:sendData(processOrder, workflowId, "review", decision);
+        io:println(string `Review decision sent to workflow ${workflowId}`);
+        return {status: "accepted", message: "Review decision delivered to workflow"};
+    }
 
-    // Simulate a reviewer sending the decision signal from an external system
-    // (e.g., an internal dashboard calling your HTTP endpoint)
-    io:println("\nSimulating reviewer decision...");
-    boolean isApproved = outcome == "approved";
-    check workflow:sendData(processOrder, workflowId, "review", {
-        reviewerId: "reviewer-ops-1",
-        approved: isApproved,
-        note: isApproved ? "Manual gateway check passed" : "Fraud risk — do not retry"
-    });
-
-    // Wait for the workflow to finish and print the outcome
-    workflow:WorkflowExecutionInfo result = check workflow:getWorkflowResult(workflowId);
-    io:println("\nWorkflow completed. Result: " + result.result.toString());
+    # Retrieves the final result of a workflow. Blocks until the workflow completes.
+    resource function get orders/[string workflowId]() returns workflow:WorkflowExecutionInfo|error {
+        return workflow:getWorkflowResult(workflowId);
+    }
 }
