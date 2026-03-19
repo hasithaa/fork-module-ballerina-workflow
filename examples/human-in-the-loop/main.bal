@@ -74,11 +74,12 @@ const decimal APPROVAL_THRESHOLD = 500.00;
 # + amount - Order amount
 # + return - Error if validation fails
 @workflow:Activity
-function validateOrder(string orderId, string item, decimal amount) returns error? {
+function validateOrder(string orderId, string item, decimal amount) returns string|error {
     io:println(string `[Activity] Validating order ${orderId}: ${item}, $${amount}`);
-    if amount <= 0 {
+    if amount <= 0d {
         return error("Invalid amount: must be positive");
     }
+    return "valid";
 }
 
 # Notifies the approval team that a new order needs review.
@@ -130,7 +131,7 @@ function processOrder(
 ) returns OrderResult|error {
 
     // Step 1: Validate the order
-    check ctx->callActivity(validateOrder, {
+    string _ = check ctx->callActivity(validateOrder, {
         "orderId": input.orderId,
         "item": input.item,
         "amount": input.amount
