@@ -118,12 +118,12 @@ function executeTransfer(string transferId, string fromAccount, string toAccount
 #
 # 1. Validates the transfer
 # 2. Notifies both the Operations and Compliance teams
-# 3. Waits for both teams using `workflow:waitNOutOfM` (wait for all)
+# 3. Waits for both teams using `ctx->await` (waits for all futures — default behaviour)
 # 4. If both approve — executes the transfer
 # 5. If either rejects — returns REJECTED
 #
 # Data arrival order does not matter: if Compliance responds before Operations,
-# the data is stored and delivered when waitNOutOfM resolves.
+# the data is stored and delivered when `ctx->await` resolves.
 #
 # + ctx - Workflow context for calling activities
 # + input - Transfer request details
