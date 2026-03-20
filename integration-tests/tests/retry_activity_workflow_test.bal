@@ -219,3 +219,72 @@ function testRetryExhaustGracefulCompletion() returns error? {
     test:assertTrue((<string>execInfo.result).includes("notification skipped"),
         "Result should note that the non-critical step was gracefully skipped");
 }
+
+// ================================================================================
+// ADDITIONAL PATTERN-DOC COVERAGE
+// ================================================================================
+
+@test:Config {
+    groups: ["integration"]
+}
+function testMultiTierFallback() returns error? {
+    // Multi-tier fallback chain: email (fails) → SMS (fails) → support ticket (succeeds).
+    // Matches error-fallback.md "Chaining Multiple Fallbacks" pattern.
+    string testId = uniqueId("multi-tier-fallback");
+    RetryActivityInput input = {id: testId, mode: "multi_tier_fallback"};
+    string workflowId = check workflow:run(multiTierFallbackWorkflow, input);
+
+    workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 60);
+
+    test:assertEquals(execInfo.status, "COMPLETED",
+        "Multi-tier fallback: workflow must COMPLETE via the final fallback tier");
+    test:assertTrue((<string>execInfo.result).startsWith("Fallback:ticket:"),
+        "Result should indicate the support ticket fallback was used");
+    test:assertTrue((<string>execInfo.result).includes("TICKET-001"),
+        "Result should contain the ticket ID from the final fallback");
+}
+
+@test:Config {
+    groups: ["integration"]
+}
+function testMultiStepCompensation() returns error? {
+    // Multi-step compensation: step 1 & 2 commit, step 3 fails.
+    // Compensate in reverse: step 2 first, then step 1.
+    // Matches error-compensation.md "Scaling to More Steps" pattern.
+    string testId = uniqueId("multi-step-compensate");
+    RetryActivityInput input = {id: testId, mode: "multi_step_compensate"};
+    string workflowId = check workflow:run(multiStepCompensationWorkflow, input);
+
+    workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 60);
+
+    test:assertEquals(execInfo.status, "COMPLETED",
+        "Multi-step compensation: workflow must COMPLETE after compensating in reverse order");
+    test:assertTrue((<string>execInfo.result).startsWith("ROLLED_BACK:"),
+        "Result should indicate a rollback occurred");
+    // Verify reverse order: charge-card compensated first, then reserve-inventory
+    string resultStr = <string>execInfo.result;
+    test:assertTrue(resultStr.includes("compensated:charge-card") && resultStr.includes("compensated:reserve-inventory"),
+        "Result should confirm both steps were compensated");
+}
+
+@test:Config {
+    groups: ["integration"]
+}
+function testMultiNonCriticalGraceful() returns error? {
+    // Multiple non-critical steps: critical reservation succeeds,
+    // but email and audit both fail. Workflow completes with skipped list.
+    // Matches graceful-completion.md full code pattern.
+    string testId = uniqueId("multi-graceful");
+    RetryActivityInput input = {id: testId, mode: "multi_graceful"};
+    string workflowId = check workflow:run(multiNonCriticalGracefulWorkflow, input);
+
+    workflow:WorkflowExecutionInfo execInfo = check workflow:getWorkflowResult(workflowId, 60);
+
+    test:assertEquals(execInfo.status, "COMPLETED",
+        "Multi non-critical graceful: workflow must COMPLETE despite both optional steps failing");
+    string resultStr = <string>execInfo.result;
+    test:assertTrue(resultStr.startsWith("RSV-"),
+        "Result should contain the reservation ID from the critical step");
+    test:assertTrue(resultStr.includes("skipped: email, audit"),
+        "Result should list both skipped non-critical steps");
+}

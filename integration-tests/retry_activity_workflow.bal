@@ -324,3 +324,216 @@ function retryExhaustGracefulWorkflow(workflow:Context ctx, RetryActivityInput i
     }
     return coreResult + " + " + notifyResult;
 }
+
+// ================================================================================
+// ADDITIONAL PATTERN COVERAGE
+// ================================================================================
+//
+// The following workflows exercise patterns documented in the pattern guides
+// that are not yet covered by the basic retry-exhaustion scenarios above.
+//
+// Multi-tier fallback — email → SMS → ticket (error-fallback.md "Chaining Multiple Fallbacks")
+// Multi-step compensation — 3 steps, compensate in reverse (error-compensation.md "Scaling to More Steps")
+// Multi non-critical graceful — email + audit both optional (graceful-completion.md)
+
+// --- Activities for multi-tier fallback ---
+
+# First-tier activity that always fails (simulates email sending failure).
+#
+# + to - The email recipient
+# + message - The message body
+# + return - Always returns an error
+@workflow:Activity
+function sendEmailActivity(string to, string message) returns string|error {
+    return error("Email service unavailable for: " + to);
+}
+
+# Second-tier activity that always fails (simulates SMS sending failure).
+#
+# + phone - The phone number
+# + message - The message body
+# + return - Always returns an error
+@workflow:Activity
+function sendSmsActivity(string phone, string message) returns string|error {
+    return error("SMS gateway timeout for: " + phone);
+}
+
+# Third-tier activity that succeeds (simulates creating a support ticket).
+#
+# + subject - The ticket subject
+# + body - The ticket body
+# + return - A ticket ID
+@workflow:Activity
+function createSupportTicketActivity(string subject, string body) returns string|error {
+    return "TICKET-001";
+}
+
+// --- Activities for multi-step compensation ---
+
+# Step activity that always succeeds (simulates a committed operation).
+#
+# + stepName - The name of the step
+# + return - Confirmation string
+@workflow:Activity
+function commitStepActivity(string stepName) returns string|error {
+    return "committed:" + stepName;
+}
+
+# Step activity that always fails (simulates a failure at a later step).
+#
+# + stepName - The name of the failing step
+# + return - Always returns an error
+@workflow:Activity
+function failingStepActivity(string stepName) returns string|error {
+    return error("Step failed: " + stepName);
+}
+
+# Compensating activity that undoes a specific committed step.
+#
+# + stepName - The name of the step to compensate
+# + return - Compensation confirmation
+@workflow:Activity
+function compensateStepActivity(string stepName) returns string|error {
+    return "compensated:" + stepName;
+}
+
+// --- Activities for multi-non-critical graceful ---
+
+# Non-critical email activity that always fails.
+#
+# + orderId - The order ID
+# + return - Always returns an error
+@workflow:Activity
+function sendConfirmationEmailActivity(string orderId) returns string|error {
+    return error("Email service down for order: " + orderId);
+}
+
+# Non-critical audit log activity that always fails.
+#
+# + orderId - The order ID
+# + reservationId - The reservation ID
+# + return - Always returns an error
+@workflow:Activity
+function writeAuditLogActivity(string orderId, string reservationId) returns string|error {
+    return error("Audit service unreachable for order: " + orderId);
+}
+
+# Critical reservation activity that always succeeds.
+#
+# + orderId - The order ID
+# + item - The item to reserve
+# + quantity - The quantity
+# + return - A reservation ID
+@workflow:Activity
+function reserveInventoryActivity(string orderId, string item, int quantity) returns string|error {
+    return "RSV-" + orderId;
+}
+
+// ================================================================================
+// Multi-tier Fallback Workflow (matches error-fallback.md "Chaining Multiple Fallbacks")
+// ================================================================================
+
+# Workflow exercising a 3-tier fallback chain: email → SMS → support ticket.
+# Primary and secondary always fail; the final tier (support ticket) succeeds.
+#
+# + ctx - The workflow context
+# + input - The workflow input
+# + return - Result or error
+@workflow:Workflow
+function multiTierFallbackWorkflow(workflow:Context ctx, RetryActivityInput input) returns string|error {
+    // Tier 1: try email with retries
+    string|error emailResult = ctx->callActivity(sendEmailActivity,
+            {"to": "user@example.com", "message": "Hello"},
+            retryOnError = true, maxRetries = 2, retryDelay = 1.0, retryBackoff = 2.0);
+
+    if emailResult is error {
+        // Tier 2: try SMS with retries
+        string|error smsResult = ctx->callActivity(sendSmsActivity,
+                {"phone": "+1234567890", "message": "Hello"},
+                retryOnError = true, maxRetries = 1, retryDelay = 1.0);
+
+        if smsResult is error {
+            // Tier 3: final fallback — create support ticket
+            // `check` here: if this also fails, the workflow fails
+            string ticketId = check ctx->callActivity(createSupportTicketActivity,
+                    {"subject": "Notification failed", "body": "All channels exhausted"});
+            return "Fallback:ticket:" + ticketId;
+        }
+        return "Fallback:sms:" + smsResult;
+    }
+    return "Primary:email:" + emailResult;
+}
+
+// ================================================================================
+// Multi-step Compensation Workflow (matches error-compensation.md "Scaling to More Steps")
+// ================================================================================
+
+# Workflow exercising 3-step compensation in reverse order.
+# Step 1 and step 2 commit. Step 3 fails after retries.
+# Compensate step 2 first, then step 1 (reverse order).
+#
+# + ctx - The workflow context
+# + input - The workflow input
+# + return - Result or error
+@workflow:Workflow
+function multiStepCompensationWorkflow(workflow:Context ctx, RetryActivityInput input) returns string|error {
+    // Step 1: committed
+    string step1 = check ctx->callActivity(commitStepActivity, {"stepName": "reserve-inventory"});
+
+    // Step 2: committed
+    string step2 = check ctx->callActivity(commitStepActivity, {"stepName": "charge-card"});
+
+    // Step 3: fails after retries — need to compensate step 2, then step 1
+    string|error step3Result = ctx->callActivity(failingStepActivity, {"stepName": "ship-order"},
+            retryOnError = true, maxRetries = 2, retryDelay = 1.0);
+
+    if step3Result is error {
+        // Compensate in reverse order: step 2 first, then step 1
+        string comp2 = check ctx->callActivity(compensateStepActivity, {"stepName": "charge-card"});
+        string comp1 = check ctx->callActivity(compensateStepActivity, {"stepName": "reserve-inventory"});
+        return "ROLLED_BACK:" + comp2 + "," + comp1;
+    }
+    return "COMPLETED:" + step1 + "," + step2 + "," + step3Result;
+}
+
+// ================================================================================
+// Multi Non-Critical Graceful Workflow (matches graceful-completion.md full pattern)
+// ================================================================================
+
+# Workflow exercising graceful completion with multiple non-critical steps.
+# Critical reservation succeeds. Non-critical email and audit both fail.
+# Workflow completes, reporting which steps were skipped.
+#
+# + ctx - The workflow context
+# + input - The workflow input
+# + return - Result or error
+@workflow:Workflow
+function multiNonCriticalGracefulWorkflow(workflow:Context ctx, RetryActivityInput input) returns string|error {
+    // CRITICAL — propagate failure
+    string reservationId = check ctx->callActivity(reserveInventoryActivity,
+            {"orderId": input.id, "item": "widget", "quantity": 1});
+
+    // NON-CRITICAL 1 — tolerate failure
+    string|error emailResult = ctx->callActivity(sendConfirmationEmailActivity,
+            {"orderId": input.id},
+            retryOnError = true, maxRetries = 1, retryDelay = 1.0);
+
+    // NON-CRITICAL 2 — tolerate failure
+    string|error auditResult = ctx->callActivity(writeAuditLogActivity,
+            {"orderId": input.id, "reservationId": reservationId},
+            retryOnError = true, maxRetries = 1, retryDelay = 1.0);
+
+    // Build result, noting any skipped steps
+    string[] skipped = [];
+    if emailResult is error {
+        skipped.push("email");
+    }
+    if auditResult is error {
+        skipped.push("audit");
+    }
+
+    string suffix = skipped.length() > 0
+        ? string ` (skipped: ${string:'join(", ", ...skipped)})`
+        : "";
+    return reservationId + suffix;
+}
