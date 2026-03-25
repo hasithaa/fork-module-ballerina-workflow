@@ -401,6 +401,26 @@ public final class WorkflowNative {
 
             String wfId = workflowId.getValue();
 
+            // Fetch workflowType via DescribeWorkflowExecution (best-effort; non-fatal).
+            // This is done first so the type is available even when the workflow has already
+            // completed and the stub.getResult() call below returns immediately.
+            String workflowType = "";
+            try {
+                DescribeWorkflowExecutionRequest describeRequest =
+                        DescribeWorkflowExecutionRequest.newBuilder()
+                                .setNamespace(client.getOptions().getNamespace())
+                                .setExecution(io.temporal.api.common.v1.WorkflowExecution.newBuilder()
+                                        .setWorkflowId(wfId)
+                                        .build())
+                                .build();
+                DescribeWorkflowExecutionResponse describeResponse = client.getWorkflowServiceStubs()
+                        .blockingStub()
+                        .describeWorkflowExecution(describeRequest);
+                workflowType = describeResponse.getWorkflowExecutionInfo().getType().getName();
+            } catch (Exception e) {
+                // Non-fatal: workflowType stays empty if the describe call fails
+            }
+
             // Create an untyped stub to get the result
             WorkflowStub stub = client.newUntypedWorkflowStub(wfId);
 
@@ -424,7 +444,7 @@ public final class WorkflowNative {
             }
 
             // Build the WorkflowExecutionInfo record
-            return buildWorkflowExecutionInfo(wfId, "", status, result, errorMessage);
+            return buildWorkflowExecutionInfo(wfId, workflowType, status, result, errorMessage);
 
         } catch (Exception e) {
             return ErrorCreator.createError(
@@ -451,8 +471,9 @@ public final class WorkflowNative {
             String status = (String) info.get("status");
             Object result = info.get("result");
             String errorMessage = (String) info.get("errorMessage");
+            String workflowType = (String) info.getOrDefault("workflowType", "");
 
-            return buildWorkflowExecutionInfo(workflowId, "", status, result, errorMessage);
+            return buildWorkflowExecutionInfo(workflowId, workflowType, status, result, errorMessage);
         } catch (Exception e) {
             return handleImplicitActivityError(e, ERR_GET_RESULT);
         }

@@ -1383,8 +1383,13 @@ public final class WorkflowWorkerNative {
      * <p>
      * Supports a call configuration map appended as the last argument by {@code callActivity}.
      * The config map contains a {@code __callConfig__} marker and a {@code retryOnError} flag.
-     * When {@code retryOnError} is {@code true}, a BError result causes the activity
-     * to throw an {@link io.temporal.failure.ApplicationFailure}, triggering Temporal retries.
+     * A BError result from the activity function is <b>always</b> converted to an
+     * {@link io.temporal.failure.ApplicationFailure} and thrown so that Temporal marks the
+     * activity as {@code ActivityFailure} in the UI and history.  When {@code retryOnError}
+     * is {@code false} the failure is also marked non-retryable (combined with
+     * {@code maxAttempts=1} set on the {@link io.temporal.activity.ActivityOptions}).
+     * When {@code retryOnError} is {@code true} the failure is retryable and Temporal will
+     * apply the configured retry policy.
      * When {@code false} (default), the error is serialized and returned as a normal completion value.
      */
     public static class BallerinaActivityAdapter implements DynamicActivity {
@@ -1525,15 +1530,22 @@ public final class WorkflowWorkerNative {
             fpValue.metadata = new StrandMetadata(true, fpValue.metadata.properties());
             Object result = activityFunction.call(ballerinaRuntime, ballerinaArgs);
 
-            // Handle BError results based on retryOnError configuration
+            // Always throw ApplicationFailure when the activity returns a BError so that
+            // Temporal marks the activity as ActivityFailure in the UI and history, rather
+            // than as a completed activity with an error payload.
+            //
+            // When retryOnError=false the failure is marked non-retryable (belt-and-suspenders
+            // alongside the maxAttempts=1 already set on the ActivityOptions).  The catch block
+            // in WorkflowContextNative.callActivity() handles ActivityFailure in both cases and
+            // converts it back to a Ballerina error for the workflow function, so the visible
+            // behaviour of the workflow is unchanged.
             if (result instanceof BError bError) {
-                if (retryOnError) {
-                    // Convert the BError directly into an ApplicationFailure so the
-                    // Temporal UI shows the original Ballerina error message, details,
-                    // and cause chain without any extra wrapping.
-                    throw berrorToApplicationFailure(bError, "ActivityFailed");
+                io.temporal.failure.ApplicationFailure failure =
+                        berrorToApplicationFailure(bError, "ActivityFailed");
+                if (!retryOnError) {
+                    failure.setNonRetryable(true);
                 }
-                // retryOnError is false - serialize error as normal completion value
+                throw failure;
             }
 
             // Convert result back to Java types for Temporal
@@ -1580,6 +1592,25 @@ public final class WorkflowWorkerNative {
                 throw new RuntimeException("Workflow client not initialized");
             }
 
+            // Fetch workflowType via DescribeWorkflowExecution (best-effort; non-fatal).
+            String workflowType = "";
+            try {
+                io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionRequest describeRequest =
+                        io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionRequest.newBuilder()
+                                .setNamespace(client.getOptions().getNamespace())
+                                .setExecution(io.temporal.api.common.v1.WorkflowExecution.newBuilder()
+                                        .setWorkflowId(workflowId)
+                                        .build())
+                                .build();
+                io.temporal.api.workflowservice.v1.DescribeWorkflowExecutionResponse describeResponse =
+                        client.getWorkflowServiceStubs().blockingStub()
+                                .withDeadlineAfter(GET_INFO_DEADLINE_SECONDS, TimeUnit.SECONDS)
+                                .describeWorkflowExecution(describeRequest);
+                workflowType = describeResponse.getWorkflowExecutionInfo().getType().getName();
+            } catch (Exception e) {
+                LOGGER.debug("Failed to retrieve workflowType via DescribeWorkflowExecution: {}", e.getMessage());
+            }
+
             WorkflowStub stub = client.newUntypedWorkflowStub(workflowId);
 
             Object result = null;
@@ -1602,6 +1633,7 @@ public final class WorkflowWorkerNative {
 
             java.util.Map<String, Object> info = new java.util.HashMap<>();
             info.put("workflowId", workflowId);
+            info.put("workflowType", workflowType);
             info.put("status", status);
             info.put("result", result);
             info.put("errorMessage", errorMessage);

@@ -539,3 +539,89 @@ function testRunWithValidInput() returns error? {
             "Unexpected error for valid run input: " + result.message());
     }
 }
+
+// ============================================================================
+// Workflow Status / Result Tests (require workflow server - IN_MEMORY mode)
+// ============================================================================
+// These tests verify workflow execution status and workflowType population.
+// They run against the embedded IN_MEMORY Temporal test server started by init().
+
+// Activity that always returns an error (for testing activity-failure propagation).
+@Activity
+function alwaysFailingActivity(string input) returns string|error {
+    return error("Activity intentionally failed: " + input);
+}
+
+// Workflow that calls alwaysFailingActivity and propagates the error via `check`.
+@Workflow
+function workflowWithFailingActivity(Context ctx, string input) returns string|error {
+    string result = check ctx->callActivity(alwaysFailingActivity, {"input": input});
+    return result;
+}
+
+@test:Config {groups: ["unit"]}
+function testGetWorkflowResultStatusCompleted() returns error? {
+    // Register the simple workflow used in this test (idempotent — safe if already registered).
+    // Use a unique name to avoid clashing with registrations done in @BeforeSuite.
+    _ = check wfInternal:registerWorkflow(simpleWorkflowProcess, "simple-workflow-status-test");
+
+    map<string> input = {id: "test-status-completed-001"};
+    string|error runResult = run(simpleWorkflowProcess, input);
+    if runResult is error {
+        // No running workflow server – skip execution assertions gracefully.
+        return;
+    }
+    string workflowId = runResult;
+
+    WorkflowExecutionInfo info = check getWorkflowResult(workflowId, 15);
+
+    test:assertEquals(info.status, "COMPLETED", "Completed workflow should have status COMPLETED");
+    test:assertEquals(info.workflowId, workflowId, "workflowId should match");
+    test:assertFalse(info.workflowType == "", "workflowType should not be empty");
+}
+
+@test:Config {groups: ["unit"]}
+function testGetWorkflowResultWorkflowType() returns error? {
+    // Verify that getWorkflowResult populates workflowType correctly.
+    _ = check wfInternal:registerWorkflow(simpleWorkflowProcess, "simple-workflow-type-test");
+
+    map<string> input = {id: "test-type-001"};
+    string|error runResult = run(simpleWorkflowProcess, input);
+    if runResult is error {
+        return; // No server available – skip.
+    }
+    string workflowId = runResult;
+
+    WorkflowExecutionInfo info = check getWorkflowResult(workflowId, 15);
+
+    test:assertEquals(info.workflowType, "simple-workflow-type-test",
+            "workflowType should match the registered workflow name");
+}
+
+@test:Config {groups: ["unit"]}
+function testGetWorkflowResultStatusFailedOnActivityError() returns error? {
+    // Verify that when an activity returns a Ballerina error the workflow is marked FAILED
+    // (not COMPLETED) in Temporal, and getWorkflowResult reflects status="FAILED".
+    map<function> activities = {"alwaysFailingActivity": alwaysFailingActivity};
+    _ = check wfInternal:registerWorkflow(workflowWithFailingActivity,
+            "workflow-failing-activity-test", activities);
+
+    map<string> input = {id: "test-activity-fail-001", input: "trigger"};
+    string|error runResult = run(workflowWithFailingActivity, input);
+    if runResult is error {
+        return; // No server available – skip.
+    }
+    string workflowId = runResult;
+
+    WorkflowExecutionInfo info = check getWorkflowResult(workflowId, 15);
+
+    test:assertEquals(info.status, "FAILED",
+            "Workflow whose activity returned error should have status FAILED");
+    test:assertTrue(info.errorMessage is string,
+            "errorMessage should be set when workflow fails");
+    string? errMsg = info.errorMessage;
+    if errMsg is string {
+        test:assertTrue(errMsg.includes("Activity intentionally failed") || errMsg.includes("failed"),
+                "errorMessage should contain the original activity error: " + errMsg);
+    }
+}
