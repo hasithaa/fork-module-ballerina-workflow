@@ -14,20 +14,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-# Marks a function as a workflow.
-#
-# ```ballerina
-# @workflow:Workflow
-# function orderProcess(Order input) returns OrderResult|error {
-# }
-# ```
-public annotation Workflow on function;
+import ballerina/workflow;
 
-# Marks a function as a workflow activity.
-#
-# ```ballerina
-# @workflow:Activity
-# function sendEmail(EmailRequest req) returns EmailResponse|error {
-# }
-# ```
-public annotation Activity on function;
+type Input record {|
+    string id;
+|};
+
+// WORKFLOW_121: string result from future<int> — primitive type mismatch
+@workflow:Workflow
+function stringForIntWorkflow(
+    workflow:Context ctx,
+    Input input,
+    record {|
+        future<int> counter;
+    |} events
+) returns string|error {
+    string result = check ctx->await([events.counter]);
+    return result;
+}

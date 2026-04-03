@@ -14,20 +14,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-# Marks a function as a workflow.
-#
-# ```ballerina
-# @workflow:Workflow
-# function orderProcess(Order input) returns OrderResult|error {
-# }
-# ```
-public annotation Workflow on function;
+import ballerina/workflow;
 
-# Marks a function as a workflow activity.
-#
-# ```ballerina
-# @workflow:Activity
-# function sendEmail(EmailRequest req) returns EmailResponse|error {
-# }
-# ```
-public annotation Activity on function;
+type Input record {|
+    string id;
+|};
+
+type ApprovalDecision record {|
+    boolean approved;
+    string approverId;
+|};
+
+type PaymentInfo record {|
+    decimal amount;
+    string currency;
+|};
+
+// WORKFLOW_121: ApprovalDecision result from future<PaymentInfo> — wrong record type
+@workflow:Workflow
+function wrongRecordTypeWorkflow(
+    workflow:Context ctx,
+    Input input,
+    record {|
+        future<PaymentInfo> payment;
+    |} events
+) returns ApprovalDecision|error {
+    ApprovalDecision result = check ctx->await([events.payment]);
+    return result;
+}

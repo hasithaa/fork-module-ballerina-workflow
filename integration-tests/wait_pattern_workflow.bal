@@ -124,7 +124,8 @@ function waitAllWorkflow(
     return {status: "APPROVED", decidedBy: "both"};
 }
 
-# Workflow that uses ctx->await with minCount=1 (equivalent to alternate wait).
+# Workflow that uses alternate wait to get the first of three approvers.
+# The first signal to arrive wins; the others are discarded.
 #
 # + ctx - Workflow context
 # + input - Request input
@@ -141,11 +142,7 @@ function waitOneOfThreeWorkflow(
     |} events
 ) returns WaitPatternResult|error {
     io:println(string `[waitOneOfThreeWorkflow] Waiting for 1 of 3 approvers for: ${input.id}`);
-    // Return 1 result typed as a single-element tuple
-    [WaitDecision] results = check ctx->await(
-        [events.approverA, events.approverB, events.approverC], 1
-    );
-    WaitDecision decision = results[0];
+    WaitDecision decision = check wait events.approverA | events.approverB | events.approverC;
     io:println(string `[waitOneOfThreeWorkflow] First decision from ${decision.approverId}: approved=${decision.approved}`);
 
     return {
@@ -176,7 +173,7 @@ function awaitOneWithTimeoutWorkflow(
     |} events
 ) returns WaitPatternResult|error {
     io:println(string `[awaitOneWithTimeoutWorkflow] Waiting for 1 of 2 (5 s timeout) for: ${input.id}`);
-    [WaitDecision]|error awaitResult = ctx->await(
+    [WaitDecision?, WaitDecision?]|error awaitResult = ctx->await(
         [events.approverA, events.approverB], 1,
         timeout = {seconds: 5}
     );
@@ -184,7 +181,17 @@ function awaitOneWithTimeoutWorkflow(
         io:println("[awaitOneWithTimeoutWorkflow] Timed out — no signal received within 5 s");
         return {status: "TIMED_OUT", decidedBy: ()};
     }
-    WaitDecision decision = awaitResult[0];
+    // Find the first non-nil result
+    WaitDecision? decision = ();
+    foreach var r in awaitResult {
+        if r is WaitDecision {
+            decision = r;
+            break;
+        }
+    }
+    if decision is () {
+        return error("No decision received");
+    }
     io:println(string `[awaitOneWithTimeoutWorkflow] Signal from ${decision.approverId}: approved=${decision.approved}`);
     return {
         status: decision.approved ? "APPROVED" : "REJECTED",

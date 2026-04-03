@@ -84,39 +84,42 @@ public final class WaitUtils {
     @SuppressWarnings("unchecked")
     public static Object awaitFutures(BObject self, BArray futures, long minCount,
                                       Object timeout, BTypedesc typedesc) {
-        int total = futures.size();
+        int originalTotal = futures.size();
+
+        // Store original futures for positional result alignment.
+        // Each position in the result must correspond to the same position in the input array.
+        FutureValue[] originalFutures = new FutureValue[originalTotal];
+        for (int i = 0; i < originalTotal; i++) {
+            originalFutures[i] = (FutureValue) futures.get(i);
+        }
 
         // Extract unique FutureValue references using identity comparison to prevent
         // duplicate future instances from being counted more than once.
-        java.util.IdentityHashMap<FutureValue, Boolean> seen = new java.util.IdentityHashMap<>(total);
-        FutureValue[] futureValues = new FutureValue[total];
+        java.util.IdentityHashMap<FutureValue, Boolean> seen = new java.util.IdentityHashMap<>(originalTotal);
+        FutureValue[] uniqueFutures = new FutureValue[originalTotal];
         int uniqueCount = 0;
-        for (int i = 0; i < total; i++) {
-            FutureValue fv = (FutureValue) futures.get(i);
-            if (seen.putIfAbsent(fv, Boolean.TRUE) == null) {
-                futureValues[uniqueCount++] = fv;
+        for (int i = 0; i < originalTotal; i++) {
+            if (seen.putIfAbsent(originalFutures[i], Boolean.TRUE) == null) {
+                uniqueFutures[uniqueCount++] = originalFutures[i];
             }
         }
-        if (uniqueCount < total) {
-            futureValues = java.util.Arrays.copyOf(futureValues, uniqueCount);
-            total = uniqueCount;
-        }
+        uniqueFutures = java.util.Arrays.copyOf(uniqueFutures, uniqueCount);
 
         // Validate minCount as long before casting to int to avoid truncation overflow.
-        if (minCount < 1 || minCount > total) {
+        if ((minCount < 1 && uniqueCount > 0) || minCount > uniqueCount) {
             return ErrorCreator.createError(StringUtils.fromString(
-                    "Invalid minCount=" + minCount + " for " + total
-                            + " futures: minCount must be between 1 and " + total));
+                    "Invalid minCount=" + minCount + " for " + uniqueCount
+                            + " futures: minCount must be between 1 and " + uniqueCount));
         }
         int required = (int) minCount;
 
         // Final aliases required for use inside lambda expressions.
-        final FutureValue[] lambdaFutures = futureValues;
+        final FutureValue[] lambdaFutures = uniqueFutures;
         final int lambdaRequired = required;
 
         boolean replaying = Workflow.isReplaying();
         if (!replaying) {
-            LOGGER.debug("[WaitUtils] awaitFutures: waiting for {}/{} futures", required, total);
+            LOGGER.debug("[WaitUtils] awaitFutures: waiting for {}/{} futures", required, originalTotal);
         }
 
         // Cooperatively block until the required number of futures are done (or timeout).
@@ -134,34 +137,38 @@ public final class WaitUtils {
 
         if (!conditionMet) {
             return ErrorCreator.createError(StringUtils.fromString(
-                    "Timeout waiting for futures: only " + countDone(futureValues)
+                    "Timeout waiting for futures: only " + countDone(uniqueFutures)
                             + " of " + required + " completed within the specified duration"));
         }
 
         if (!replaying) {
-            LOGGER.debug("[WaitUtils] awaitFutures: {}/{} futures completed", required, total);
+            LOGGER.debug("[WaitUtils] awaitFutures: {}/{} futures completed",
+                    countDone(uniqueFutures), originalTotal);
         }
 
-        // Collect completed values in input-array order
-        Object[] results = new Object[required];
-        int collected = 0;
-        for (FutureValue fv : futureValues) {
-            if (collected >= required) {
-                break;
-            }
+        // Collect completed values as a positional sparse array aligned to input positions.
+        // For full waits (minCount == total): all positions are populated (no nil).
+        // For partial waits (minCount < total): incomplete positions carry null (→ Ballerina nil).
+        // A separate boolean[] tracks completion state so that a future whose payload is
+        // genuinely null (Ballerina nil) is not confused with an incomplete position.
+        Object[] results = new Object[originalTotal];
+        boolean[] completed = new boolean[originalTotal];
+        for (int i = 0; i < originalTotal; i++) {
+            FutureValue fv = originalFutures[i];
             if (fv.completableFuture.isDone()) {
                 try {
-                    results[collected] = fv.completableFuture.join();
-                    collected++;
+                    results[i] = fv.completableFuture.join();
+                    completed[i] = true;
                 } catch (Exception e) {
                     return ErrorCreator.createError(StringUtils.fromString(
                             "Error retrieving completed future value: " + e.getMessage()));
                 }
             }
+            // else: results[i] remains null, completed[i] remains false
         }
 
         // Convert results to the caller's expected type (dependent-typing via typedesc)
-        return convertResults(results, typedesc.getDescribingType());
+        return convertResults(results, completed, typedesc.getDescribingType());
     }
 
     /**
@@ -194,6 +201,9 @@ public final class WaitUtils {
     /**
      * Converts the raw result array to the target type described by {@code targetType}.
      * <p>
+     * The {@code completed} array distinguishes incomplete positions from completed futures
+     * that carry a null (Ballerina nil) payload.
+     * <p>
      * <ul>
      *   <li>If {@code targetType} is a {@link TupleType}, each element is converted to
      *       its corresponding member type — enabling direct typed access without
@@ -203,12 +213,17 @@ public final class WaitUtils {
      *   <li>Otherwise the results are returned as a plain {@code anydata[]} array.</li>
      * </ul>
      */
-    private static Object convertResults(Object[] results, Type targetType) {
+    private static Object convertResults(Object[] results, boolean[] completed, Type targetType) {
         if (targetType instanceof TupleType tupleType) {
             java.util.List<Type> memberTypes = tupleType.getTupleTypes();
             BArray tupleValue = ValueCreator.createTupleValue(tupleType);
             for (int i = 0; i < results.length; i++) {
                 Type memberType = i < memberTypes.size() ? memberTypes.get(i) : tupleType.getRestType();
+                if (!completed[i]) {
+                    // Incomplete future position → nil ()
+                    tupleValue.add(i, (Object) null);
+                    continue;
+                }
                 Object raw = TypesUtil.convertJavaToBallerinaType(results[i]);
                 Object converted = memberType != null
                         ? TypesUtil.cloneWithType(raw, memberType)

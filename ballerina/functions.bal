@@ -17,100 +17,91 @@
 import ballerina/jballerina.java;
 
 
-# Runs a new workflow instance.
+# Starts a new workflow instance and returns its unique ID.
 #
-# Creates a new instance of the specified workflow and begins execution.
-# Returns a unique workflow ID that can be used to track, query, or send signals
-# to the running workflow.
+# ```ballerina
+# string workflowId = check workflow:run(orderProcess, input = {"orderId": "ORD-123"});
+# ```
 #
-# + processFunction - The process function to execute (must be annotated with @Workflow)
-# + input - Optional workflow input data. If nil, the workflow is created with no input.
-# + return - The unique workflow ID as a string, or an error if the workflow fails to start
+# + processFunction - The workflow function (must have `@Workflow`)
+# + input - Optional input data for the workflow
+# + return - The workflow ID, or an error
 public isolated function run(function processFunction, map<anydata>? input = ()) returns string|error = @java:Method {
     'class: "io.ballerina.lib.workflow.runtime.nativeimpl.WorkflowNative",
     name: "run"
 } external;
 
-# Sends data to a running workflow process.
+# Sends data to a running workflow's events record.
 #
-# Data can be sent to running workflows to trigger state changes.
-# The workflow can wait for and react to this data using future-based event handling.
+# ```ballerina
+# check workflow:sendData(orderProcess, workflowId, "approval", {approved: true});
+# ```
 #
-# + workflow - The workflow function that identifies the workflow type (must be annotated with @Workflow)
-# + workflowId - The unique workflow ID to send the data to (obtained from `run`)
-# + dataName - The name identifying the data. Must match a field name in the workflow's
-#              events record parameter.
-# + data - The data to send to the workflow
-# + return - An error if sending fails, otherwise nil
+# + workflow - The workflow function (must have `@Workflow`)
+# + workflowId - Target workflow ID (from `run`)
+# + dataName - Field name in the workflow's events record
+# + data - The data payload
+# + return - An error if sending fails
 public isolated function sendData(function workflow, string workflowId, string dataName, anydata data) returns error? = @java:Method {
     'class: "io.ballerina.lib.workflow.runtime.nativeimpl.WorkflowNative"
 } external;
 
 // Internal functions
 
-# Starts the workflow runtime after all workflows have been registered.
-# This must be called after all registerWorkflow calls are complete.
-# The workflow runtime will begin polling for workflow and activity tasks.
+# Starts the workflow runtime (called after all workflows are registered).
 #
-# + return - An error if starting fails, otherwise nil
+# + return - An error if starting fails
 isolated function startWorkflowRuntime() returns error? = @java:Method {
     'class: "io.ballerina.lib.workflow.worker.WorkflowWorkerNative",
     name: "startSingletonWorker"
 } external;
 
-# Stops the workflow runtime gracefully.
-# Any in-progress workflows will be allowed to complete their current tasks.
+# Stops the workflow runtime gracefully, draining in-progress tasks.
 #
-# + return - An error if stopping fails, otherwise nil
+# + return - An error if stopping fails
 isolated function stopWorkflowRuntime() returns error? = @java:Method {
     'class: "io.ballerina.lib.workflow.worker.WorkflowWorkerNative",
     name: "stopSingletonWorker"
 } external;
 
-# Stops the workflow runtime immediately (forceful shutdown).
-# In-flight workflow and activity tasks are interrupted rather than drained.
-# Waits for threads to exit before returning.
+# Stops the workflow runtime immediately, interrupting in-flight tasks.
 #
-# + return - An error if stopping fails, otherwise nil
+# + return - An error if stopping fails
 isolated function stopWorkflowRuntimeNow() returns error? = @java:Method {
     'class: "io.ballerina.lib.workflow.worker.WorkflowWorkerNative",
     name: "stopSingletonWorkerNow"
 } external;
 
-# Returns information about all registered workflows and their activities.
+# Returns all registered workflows and their activities.
 #
-# This function is useful for testing and runtime introspection to verify
-# that workflows have been properly registered with their activities.
-#
-# + return - A map of workflow names to their registration information, or an error
+# + return - Registry map, or an error
 isolated function getRegisteredWorkflows() returns WorkflowRegistry|error {
     return getRegisteredWorkflowsNative();
 }
 
-# Native implementation to get registered workflows.
-# + return - A map of workflow names to their registration information, or an error
+# + return - Registry map, or an error
 isolated function getRegisteredWorkflowsNative() returns WorkflowRegistry|error = @java:Method {
     'class: "io.ballerina.lib.workflow.runtime.nativeimpl.WorkflowNative",
     name: "getRegisteredWorkflows"
 } external;
 
-# Gets the execution result of a workflow.
-# This function waits for the workflow to complete and returns its result.
-# Used for testing to verify workflow execution outcomes.
+# Waits for a workflow to complete and returns its result.
 #
-# + workflowId - The ID of the workflow to get the result for
-# + timeoutSeconds - Maximum time to wait for the workflow to complete
-# + return - The workflow execution info including result, or an error
+# ```ballerina
+# workflow:WorkflowExecutionInfo info = check workflow:getWorkflowResult(workflowId);
+# ```
+#
+# + workflowId - The workflow ID
+# + timeoutSeconds - Maximum wait time in seconds
+# + return - Execution info with result, or an error
 public isolated function getWorkflowResult(string workflowId, int timeoutSeconds = 30) returns WorkflowExecutionInfo|error = @java:Method {
     'class: "io.ballerina.lib.workflow.runtime.nativeimpl.WorkflowNative"
 } external;
 
-# Gets information about a workflow execution without waiting for completion.
-# Returns the current state including any activity invocations.
-# Used for testing to inspect workflow state during execution.
+# Gets current workflow execution info without waiting for completion.
 #
-# + workflowId - The ID of the workflow to get info for
-# + return - The workflow execution info, or an error
+# + workflowId - The workflow ID
+# + return - Execution info, or an error
 public isolated function getWorkflowInfo(string workflowId) returns WorkflowExecutionInfo|error = @java:Method {
     'class: "io.ballerina.lib.workflow.runtime.nativeimpl.WorkflowNative"
 } external;

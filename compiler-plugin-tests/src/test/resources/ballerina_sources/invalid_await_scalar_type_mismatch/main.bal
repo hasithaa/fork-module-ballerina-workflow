@@ -14,20 +14,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-# Marks a function as a workflow.
-#
-# ```ballerina
-# @workflow:Workflow
-# function orderProcess(Order input) returns OrderResult|error {
-# }
-# ```
-public annotation Workflow on function;
+import ballerina/workflow;
 
-# Marks a function as a workflow activity.
-#
-# ```ballerina
-# @workflow:Activity
-# function sendEmail(EmailRequest req) returns EmailResponse|error {
-# }
-# ```
-public annotation Activity on function;
+type Input record {|
+    string id;
+|};
+
+type Payment record {|
+    decimal amount;
+    string ref;
+|};
+
+// BUG scenario: LHS type 'string' does not match future<Payment> — should trigger WORKFLOW_121
+@workflow:Workflow
+function scalarMismatchWorkflow(
+    workflow:Context ctx,
+    Input input,
+    record {|
+        future<Payment> paymentData;
+    |} events
+) returns string|error {
+    string paymentData = check ctx->await([events.paymentData]);
+    return paymentData;
+}
