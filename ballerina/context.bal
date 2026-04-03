@@ -17,59 +17,27 @@
 import ballerina/jballerina.java;
 import ballerina/time;
 
-# Workflow execution context providing workflow APIs.
-# This is a client object that provides access to workflow operations.
-#
-# This client provides:
-# - Activity execution via `callActivity` remote method
-# - Workflow timing via `sleep` and `currentTime` methods
-# - Workflow state queries (replaying status, workflow ID, workflow type)
-#
-# Use `check ctx->callActivity(myActivity, {"arg1": val1, "arg2": val2})` to execute activities.
-# Use Ballerina's `wait` action with event futures for signal handling.
+# Workflow execution context providing activity execution, durable sleep,
+# deterministic time, and multi-future await APIs.
 public client class Context {
     private handle nativeContext;
 
-    # Initialize the context with native workflow context handle.
-    #
     # + nativeContext - Native context handle from the workflow engine
     public isolated function init(handle nativeContext) {
         self.nativeContext = nativeContext;
     }
 
-    # Executes an activity function within the workflow context.
-    # 
-    # Activities are non-deterministic operations (I/O, database calls, external APIs)
-    # that are executed exactly once during workflow execution. Even if the workflow
-    # replays, a completed activity is not re-executed.
+    # Executes an activity function. The activity runs exactly once even across replays.
     #
-    # The return type is inferred from the calling context, so the result is
-    # automatically converted to the expected type without manual casting.
-    #
-    # By default (`retryOnError = false`), any error returned by the activity is passed
-    # back to the workflow as a normal return value so that workflow logic can handle it
-    # explicitly. Set `retryOnError = true` to enable the runtime retry policy; when all
-    # retries are exhausted the error propagates and the workflow fails unless it is caught.
-    #
-    # Example:
     # ```ballerina
-    # // Default: error returned as value — workflow handles it
-    # string|error result = ctx->callActivity(chargeCardActivity, {amount: total});
-    # if result is error {
-    #     return handlePaymentFailure(result);
-    # }
-    #
-    # // Opt in to automatic retries (3 retries, 2-second initial delay)
-    # // On exhaustion the error propagates; use `check` to let the workflow fail
-    # string result = check ctx->callActivity(sendEmailActivity, {email: addr},
-    #     retryOnError = true, maxRetries = 3, retryDelay = 2.0);
+    # PaymentResult result = check ctx->callActivity(processPayment, args = {"orderId": orderId});
     # ```
     #
-    # + activityFunction - The activity function to execute (must be annotated with @Activity)
-    # + args - Map containing the arguments to pass to the activity function
-    # + T - The expected return type (inferred from context or explicitly specified)
-    # + options - Activity options (retryOnError, maxRetries, retryDelay, retryBackoff, maxRetryDelay)
-    # + return - The result of the activity execution cast to type T, or an error if execution fails
+    # + activityFunction - The activity function (must have `@Activity`)
+    # + args - Arguments to pass to the activity
+    # + T - Expected return type (inferred from context)
+    # + options - Retry and error-handling options
+    # + return - The activity result as `T`, or an error
     remote isolated function callActivity(function activityFunction, map<anydata> args = {},
             typedesc<anydata> T = <>, *ActivityOptions options) 
             returns T|error = @java:Method {
@@ -77,23 +45,10 @@ public client class Context {
         name: "callActivity"
     } external;
 
-    # Performs a durable sleep within the workflow.
+    # Durable sleep that survives restarts and replays. Do not use `runtime:sleep()` in workflows.
     #
-    # This sleep is **persisted by the workflow engine** and will survive program
-    # restarts and workflow replays. The countdown continues even when the
-    # program is down, and the workflow resumes correctly after the duration has
-    # elapsed upon replay.
-    #
-    # **Do not** use runtime:sleep() inside workflows as it is not deterministic
-    # across replays.
-    #
-    # Example:
     # ```ballerina
-    # @workflow:Workflow
-    # function reminderProcess(workflow:Context ctx, string userId) returns error? {
-    #     // Wait 24 hours (durable - survives restarts)
-    #     check ctx.sleep({hours: 24});
-    # }
+    # check ctx.sleep({seconds: 30});
     # ```
     #
     # + duration - The duration to sleep
@@ -106,22 +61,10 @@ public client class Context {
         return sleepContextNative(self.nativeContext, millis);
     }
 
-    # Returns the current workflow time as a `time:Utc` value.
+    # Returns the deterministic workflow time. Use instead of `time:utcNow()` inside workflows.
     #
-    # The workflow engine does **not** use the real wall-clock time for workflow
-    # executions. Instead it records the timestamp at each workflow task and
-    # surfaces that as "now" during both the original execution *and* every
-    # subsequent replay. This guarantees that calls to this method from the
-    # same point in the workflow always return the **same** value, making the
-    # workflow deterministic regardless of when the program processes it.
-    #
-    # Example:
     # ```ballerina
-    # @workflow:Workflow
-    # function orderProcess(workflow:Context ctx, Order input) returns OrderResult|error {
-    #     time:Utc startTime = ctx.currentTime();
-    #     // ...
-    # }
+    # time:Utc now = ctx.currentTime();
     # ```
     #
     # + return - The current workflow time as `time:Utc`
@@ -132,12 +75,9 @@ public client class Context {
         return [seconds, fraction];
     }
 
-    # Check if the workflow is currently replaying history.
+    # Checks whether the workflow is currently replaying history.
     #
-    # Useful for skipping side effects that should only happen on first execution.
-    # For example, logging or metrics that shouldn't be duplicated during replay.
-    #
-    # + return - True if replaying, false if first execution
+    # + return - `true` if replaying, `false` on first execution
     public isolated function isReplaying() returns boolean {
         return isReplayingNative(self.nativeContext);
     }
@@ -156,56 +96,21 @@ public client class Context {
         return getWorkflowTypeNative(self.nativeContext);
     }
 
-    # Waits for at least `minCount` data futures to complete.
-    #
-    # A replay-aware alternative to Ballerina's built-in `wait { ... }`
-    # syntax for workflow event futures. Uses cooperative scheduling
-    # internally — it yields the workflow thread without blocking
-    # the worker thread pool, and is a no-op during event history replay.
-    #
-    # When `minCount` is omitted the function waits for **all** futures
-    # (equivalent to `minCount = futures.length()`).
-    #
-    # The return type is inferred from the calling context (`T`), so you can
-    # assign results directly to a typed variable without explicit casting:
+    # Waits for at least `minCount` data futures to complete. Results are positional tuples
+    # aligned to input order. Use nullable types (`T?`) for partial waits.
     #
     # ```ballerina
-    # // Tuple — each element is typed to the matching future's inner type
-    # [ApprovalDecision, ComplianceDecision] results =
-    #     check ctx->await([events.ops, events.compliance]);
-    # ApprovalDecision ops = results[0];   // no cloneWithType needed
+    # // Wait for all
+    # [Approval, Payment] result = check ctx->await([events.approval, events.payment]);
+    # // Wait for any (1 of 2)
+    # [Approval?, Payment?] result = check ctx->await([events.approval, events.payment], minCount = 1);
     # ```
     #
-    # When `timeout` is provided and the required number of futures have not
-    # completed within that duration, an error is returned. Omit `timeout`
-    # (or pass `()`) to wait indefinitely.
-    #
-    # Common patterns:
-    # - **Wait for all**: `ctx->await([f1, f2, f3])` — waits for all 3 (default)
-    # - **Wait for any**: `ctx->await([f1, f2], 1)` — returns when 1 completes
-    # - **Quorum**: `ctx->await([f1, f2, f3], 2)` — waits for 2 of 3
-    # - **With timeout**: `ctx->await([f1, f2], timeout = {hours: 48})` — returns error on timeout
-    #
-    # When `minCount < futures.length()` (partial wait), the result is a
-    # **positional sparse tuple** of length `futures.length()` where each
-    # index corresponds to the original future at that position:
-    # - Completed futures carry their inner value.
-    # - Incomplete futures carry `()` (nil).
-    #
-    # ```ballerina
-    # // Partial wait — 2 of 3 must complete
-    # [ApprovalDecision?, ComplianceDecision?, AuditDecision?] result =
-    #     check ctx->await([events.approval, events.compliance, events.audit], 2);
-    # ApprovalDecision? approval = result[0];   // () if not completed
-    # ComplianceDecision? compliance = result[1]; // () if not completed
-    # AuditDecision? audit = result[2];          // () if not completed
-    # ```
-    #
-    # + futures - Array of data futures from the workflow's events record
-    # + minCount - Minimum number of futures that must complete. Defaults to `futures.length()` (wait for all).
-    # + timeout - Optional maximum duration to wait. When exceeded an error is returned.
-    # + T - The expected return type (inferred from context). Use a tuple `[T1, T2, ...]` for full waits, `[T1?, T2?, ...]` for partial waits, or `anydata[]` for untyped access.
-    # + return - Tuple of values aligned to input positions (length = futures.length()), or an error. For partial waits, incomplete positions are `()` (nil).
+    # + futures - Data futures from the workflow's events record
+    # + minCount - Minimum completions required (default: all)
+    # + timeout - Maximum wait duration; returns error on timeout
+    # + T - Expected return type (inferred from context)
+    # + return - Positional tuple of values (or nil for incomplete), or an error
     remote isolated function await(future<anydata>[] futures,
             int:Unsigned32 minCount = <int:Unsigned32>futures.length(),
             time:Duration? timeout = (),

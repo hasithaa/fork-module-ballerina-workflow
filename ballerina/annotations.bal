@@ -14,34 +14,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-# Marks a function as a workflow.
+# Marks a function as a workflow. Workflow functions must be deterministic — use activities for I/O.
 #
-# A workflow function defines the main workflow logic that orchestrates activities
-# and handles workflow state. Workflow functions must be deterministic - they should
-# produce the same results given the same inputs and should not perform I/O directly.
-# Use activities for non-deterministic operations.
-#
-# # Example
 # ```ballerina
 # @workflow:Workflow
 # function orderProcess(Order input) returns OrderResult|error {
-#     // Workflow logic here
 # }
 # ```
 public annotation Workflow on function;
 
-# Marks a function as a workflow activity.
+# Marks a function as a workflow activity. Activities run exactly once, even during replay.
 #
-# An activity function performs non-deterministic operations such as I/O,
-# database calls, external API calls, or any operation with side effects.
-# Activities are executed exactly once by the workflow runtime, even during
-# workflow replay after failures.
-#
-# # Example
 # ```ballerina
 # @workflow:Activity
-# function sendEmail(EmailRequest request) returns EmailResponse|error {
-#     // Send email using external service
+# function sendEmail(EmailRequest req) returns EmailResponse|error {
 # }
 # ```
 public annotation Activity on function;
