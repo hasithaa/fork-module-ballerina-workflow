@@ -351,6 +351,87 @@ public class WorkflowCompilerPluginTest {
         assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_122);
     }
 
+    @Test(groups = "invalid")
+    public void testInvalidAwaitPartialNotNilable() {
+        String packagePath = "invalid_await_partial_not_nilable";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertTrue(diagnosticResult.errorCount() > 0,
+                "Expected validation error for non-nilable tuple members with minCount < future count");
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_123);
+    }
+
+    @Test(groups = "invalid")
+    public void testInvalidAwaitPartialNamedMinCount() {
+        String packagePath = "invalid_await_partial_named_mincount";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertTrue(diagnosticResult.errorCount() > 0,
+                "Expected validation error for non-nilable tuple with named minCount arg");
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_123);
+    }
+
+    @Test(groups = "invalid")
+    public void testInvalidAwaitPartialMixedNilable() {
+        String packagePath = "invalid_await_partial_mixed_nilable";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertTrue(diagnosticResult.errorCount() > 0,
+                "Expected validation error when some tuple members are nilable but others are not");
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_123);
+    }
+
+    @Test(groups = "invalid")
+    public void testInvalidAwaitPartialNoBinding() {
+        String packagePath = "invalid_await_partial_no_binding";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertTrue(diagnosticResult.errorCount() > 0,
+                "Expected validation error for non-nilable tuple without binding pattern");
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_123);
+    }
+
+    @Test(groups = "invalid")
+    public void testInvalidAwaitPartialTwoFutures() {
+        String packagePath = "invalid_await_partial_two_futures";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertTrue(diagnosticResult.errorCount() > 0,
+                "Expected validation error for non-nilable tuple with 2 futures and minCount=1");
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_123);
+    }
+
+    @Test(groups = "valid")
+    public void testValidAwaitPartialNilableNoBinding() {
+        String packagePath = "valid_await_partial_nilable_no_binding";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertEquals(diagnosticResult.errorCount(), 0,
+                "Expected no errors for nilable tuple without binding pattern. Errors: "
+                        + getDiagnosticMessages(diagnosticResult));
+    }
+
+    @Test(groups = "valid")
+    public void testValidAwaitPartialNamedMinCount() {
+        String packagePath = "valid_await_partial_named_mincount";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertEquals(diagnosticResult.errorCount(), 0,
+                "Expected no errors for nilable tuple with named minCount arg. Errors: "
+                        + getDiagnosticMessages(diagnosticResult));
+    }
+
+    @Test(groups = "valid")
+    public void testValidAwaitMinCountEqualsFutures() {
+        String packagePath = "valid_await_mincount_equals_futures";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertEquals(diagnosticResult.errorCount(), 0,
+                "Expected no errors when minCount equals future count (non-nilable is fine). Errors: "
+                        + getDiagnosticMessages(diagnosticResult));
+    }
+
+    @Test(groups = "valid")
+    public void testValidAwaitPartialMixedTypes() {
+        String packagePath = "valid_await_partial_mixed_types";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertEquals(diagnosticResult.errorCount(), 0,
+                "Expected no errors for partial wait with mixed types, all nilable. Errors: "
+                        + getDiagnosticMessages(diagnosticResult));
+    }
+
     /**
      * Get diagnostic result for the given package path.
      * Uses runCodeGenAndModifyPlugins() to run the code modifier.

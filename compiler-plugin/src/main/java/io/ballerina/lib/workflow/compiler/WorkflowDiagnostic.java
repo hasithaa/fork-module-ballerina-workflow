@@ -113,6 +113,11 @@ public enum WorkflowDiagnostic {
     WORKFLOW_122("WORKFLOW_122",
             "Return type of 'ctx->await' with %d futures must be a tuple '[T1, T2, ...]', "
                     + "not scalar type '%s'",
+            DiagnosticSeverity.ERROR),
+    WORKFLOW_123("WORKFLOW_123",
+            "Tuple member at position %d must be nilable (e.g., '%s?') when minCount (%d) "
+                    + "is less than the number of futures (%d). "
+                    + "Not all futures are guaranteed to complete",
             DiagnosticSeverity.ERROR);
 
     private final String code;

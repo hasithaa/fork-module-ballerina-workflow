@@ -42,6 +42,7 @@ import io.ballerina.compiler.syntax.tree.FunctionDefinitionNode;
 import io.ballerina.compiler.syntax.tree.ListConstructorExpressionNode;
 import io.ballerina.compiler.syntax.tree.MappingConstructorExpressionNode;
 import io.ballerina.compiler.syntax.tree.MappingFieldNode;
+import io.ballerina.compiler.syntax.tree.NamedArgumentNode;
 import io.ballerina.compiler.syntax.tree.NamedWorkerDeclarationNode;
 import io.ballerina.compiler.syntax.tree.Node;
 import io.ballerina.compiler.syntax.tree.NodeVisitor;
@@ -61,6 +62,7 @@ import io.ballerina.tools.diagnostics.DiagnosticInfo;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 
 /**
@@ -931,6 +933,10 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
             if (memberTypes.size() != expressions.size()) {
                 return;
             }
+
+            // Extract minCount to determine if partial-wait nilability is required
+            OptionalInt minCountOpt = extractMinCount(callNode);
+
             for (int i = 0; i < memberTypes.size(); i++) {
                 Node element = expressions.get(i);
                 if (!(element instanceof ExpressionNode elemExpr)) {
@@ -950,6 +956,21 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                 }
                 TypeSymbol innerType = WorkflowPluginUtils.resolveTypeReference(innerTypeOpt.get());
                 TypeSymbol expectedType = WorkflowPluginUtils.resolveTypeReference(memberTypes.get(i));
+
+                // When minCount < futureCount, each tuple member must be nilable
+                if (minCountOpt.isPresent() && minCountOpt.getAsInt() < futureCount
+                        && !isNilable(expectedType)) {
+                    DiagnosticInfo info = new DiagnosticInfo(
+                            WorkflowDiagnostic.WORKFLOW_123.getCode(),
+                            WorkflowDiagnostic.WORKFLOW_123.getMessage(
+                                    i, innerType.signature(),
+                                    minCountOpt.getAsInt(), futureCount),
+                            WorkflowDiagnostic.WORKFLOW_123.getSeverity());
+                    context.reportDiagnostic(
+                            DiagnosticFactory.createDiagnostic(info, elemExpr.location()));
+                    continue;
+                }
+
                 // Strip nil from expected type to support partial-wait nullable tuples
                 // (e.g. [T1?, T2?, T3?] where T? = T|())
                 TypeSymbol compareType = stripNil(expectedType);
@@ -1040,6 +1061,56 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                     })
                     .toList();
             return nonNils.size() == 1 ? WorkflowPluginUtils.resolveTypeReference(nonNils.get(0)) : null;
+        }
+
+        /**
+         * Checks whether a type is nilable (includes {@code ()} in a union, or is nil itself).
+         */
+        private static boolean isNilable(TypeSymbol type) {
+            TypeSymbol resolved = WorkflowPluginUtils.resolveTypeReference(type);
+            if (resolved.typeKind() == TypeDescKind.NIL) {
+                return true;
+            }
+            if (resolved.typeKind() == TypeDescKind.UNION) {
+                return ((UnionTypeSymbol) resolved).memberTypeDescriptors().stream()
+                        .anyMatch(m -> WorkflowPluginUtils.resolveTypeReference(m)
+                                .typeKind() == TypeDescKind.NIL);
+            }
+            return false;
+        }
+
+        /**
+         * Extracts the {@code minCount} value from the {@code ctx->await()} call arguments,
+         * if it is a literal integer. Returns empty if not provided or not a literal.
+         */
+        private static OptionalInt extractMinCount(RemoteMethodCallActionNode callNode) {
+            SeparatedNodeList<FunctionArgumentNode> args = callNode.arguments();
+            for (int i = 0; i < args.size(); i++) {
+                FunctionArgumentNode arg = args.get(i);
+                // Named argument: minCount = <value>
+                if (arg instanceof NamedArgumentNode namedArg
+                        && "minCount".equals(namedArg.argumentName().name().text())) {
+                    return extractLiteralInt(namedArg.expression());
+                }
+                // Second positional argument is minCount
+                if (i == 1 && arg instanceof PositionalArgumentNode posArg) {
+                    return extractLiteralInt(posArg.expression());
+                }
+            }
+            return OptionalInt.empty();
+        }
+
+        /**
+         * Attempts to parse an expression node as an integer literal.
+         * Returns empty for non-literal expressions (variables, method calls, etc.).
+         */
+        private static OptionalInt extractLiteralInt(ExpressionNode expr) {
+            String text = expr.toString().trim();
+            try {
+                return OptionalInt.of(Integer.parseInt(text));
+            } catch (NumberFormatException e) {
+                return OptionalInt.empty();
+            }
         }
 
         private void reportFutureNotFromEvents(ExpressionNode expr) {
