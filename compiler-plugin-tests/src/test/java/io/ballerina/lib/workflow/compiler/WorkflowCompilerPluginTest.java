@@ -29,6 +29,8 @@ import org.testng.annotations.Test;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Tests for workflow compiler plugin.
@@ -328,18 +330,27 @@ public class WorkflowCompilerPluginTest {
     public void testInvalidAwaitTupleSwapped() {
         String packagePath = "invalid_await_tuple_swapped";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
-        Assert.assertTrue(diagnosticResult.errorCount() > 0,
-                "Expected validation error for swapped tuple element order in ctx->await");
-        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_117);
+        List<Diagnostic> diags = getDiagnosticsWithCode(diagnosticResult, "WORKFLOW_117");
+        Assert.assertEquals(diags.size(), 2, "Expected 2 WORKFLOW_117 errors (both positions swapped)");
+        // Errors should point at LHS tuple type members on line 43
+        for (Diagnostic d : diags) {
+            assertDiagnosticLine(d, 43);
+            assertMessageContains(d, "Return type mismatch");
+        }
+        assertMessageContains(diags.get(0), "position 0");
+        assertMessageContains(diags.get(1), "position 1");
     }
 
     @Test(groups = "invalid")
     public void testInvalidAwaitTupleWrongMember() {
         String packagePath = "invalid_await_tuple_wrong_member";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
-        Assert.assertTrue(diagnosticResult.errorCount() > 0,
-                "Expected validation error for wrong tuple member type in ctx->await");
-        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_117);
+        List<Diagnostic> diags = getDiagnosticsWithCode(diagnosticResult, "WORKFLOW_117");
+        // Only position 1 is wrong (AuditDecision vs ComplianceDecision)
+        Assert.assertEquals(diags.size(), 1, "Expected 1 WORKFLOW_117 error at position 1");
+        assertDiagnosticLine(diags.get(0), 48);
+        assertMessageContains(diags.get(0), "position 1");
+        assertMessageContains(diags.get(0), "Return type mismatch");
     }
 
     @Test(groups = "invalid")
@@ -355,45 +366,82 @@ public class WorkflowCompilerPluginTest {
     public void testInvalidAwaitPartialNotNilable() {
         String packagePath = "invalid_await_partial_not_nilable";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
-        Assert.assertTrue(diagnosticResult.errorCount() > 0,
-                "Expected validation error for non-nilable tuple members with minCount < future count");
-        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_123);
+        List<Diagnostic> diags = getDiagnosticsWithCode(diagnosticResult, "WORKFLOW_123");
+        Assert.assertEquals(diags.size(), 3, "Expected 3 WORKFLOW_123 errors (one per non-nilable member)");
+        // All errors should point at the LHS tuple type on line 45
+        for (Diagnostic d : diags) {
+            assertDiagnosticLine(d, 45);
+        }
+        // Verify messages contain position index and minCount/futureCount info
+        assertMessageContains(diags.get(0), "position 0");
+        assertMessageContains(diags.get(1), "position 1");
+        assertMessageContains(diags.get(2), "position 2");
+        for (Diagnostic d : diags) {
+            assertMessageContains(d, "minCount (2)");
+            assertMessageContains(d, "futures (3)");
+            assertMessageContains(d, "nilable");
+        }
     }
 
     @Test(groups = "invalid")
     public void testInvalidAwaitPartialNamedMinCount() {
         String packagePath = "invalid_await_partial_named_mincount";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
-        Assert.assertTrue(diagnosticResult.errorCount() > 0,
-                "Expected validation error for non-nilable tuple with named minCount arg");
-        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_123);
+        List<Diagnostic> diags = getDiagnosticsWithCode(diagnosticResult, "WORKFLOW_123");
+        Assert.assertEquals(diags.size(), 2, "Expected 2 WORKFLOW_123 errors");
+        for (Diagnostic d : diags) {
+            assertDiagnosticLine(d, 39);
+            assertMessageContains(d, "minCount (1)");
+            assertMessageContains(d, "futures (2)");
+        }
+        assertMessageContains(diags.get(0), "position 0");
+        assertMessageContains(diags.get(1), "position 1");
     }
 
     @Test(groups = "invalid")
     public void testInvalidAwaitPartialMixedNilable() {
         String packagePath = "invalid_await_partial_mixed_nilable";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
-        Assert.assertTrue(diagnosticResult.errorCount() > 0,
-                "Expected validation error when some tuple members are nilable but others are not");
-        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_123);
+        List<Diagnostic> diags = getDiagnosticsWithCode(diagnosticResult, "WORKFLOW_123");
+        // Position 0 is nilable (ApprovalDecision?), so only positions 1 and 2 should error
+        Assert.assertEquals(diags.size(), 2, "Expected 2 WORKFLOW_123 errors (positions 1 and 2 only)");
+        for (Diagnostic d : diags) {
+            assertDiagnosticLine(d, 46);
+            assertMessageContains(d, "minCount (1)");
+            assertMessageContains(d, "futures (3)");
+        }
+        assertMessageContains(diags.get(0), "position 1");
+        assertMessageContains(diags.get(1), "position 2");
     }
 
     @Test(groups = "invalid")
     public void testInvalidAwaitPartialNoBinding() {
         String packagePath = "invalid_await_partial_no_binding";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
-        Assert.assertTrue(diagnosticResult.errorCount() > 0,
-                "Expected validation error for non-nilable tuple without binding pattern");
-        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_123);
+        List<Diagnostic> diags = getDiagnosticsWithCode(diagnosticResult, "WORKFLOW_123");
+        Assert.assertEquals(diags.size(), 2, "Expected 2 WORKFLOW_123 errors");
+        for (Diagnostic d : diags) {
+            assertDiagnosticLine(d, 44);
+            assertMessageContains(d, "minCount (1)");
+            assertMessageContains(d, "futures (2)");
+        }
+        assertMessageContains(diags.get(0), "position 0");
+        assertMessageContains(diags.get(1), "position 1");
     }
 
     @Test(groups = "invalid")
     public void testInvalidAwaitPartialTwoFutures() {
         String packagePath = "invalid_await_partial_two_futures";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
-        Assert.assertTrue(diagnosticResult.errorCount() > 0,
-                "Expected validation error for non-nilable tuple with 2 futures and minCount=1");
-        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_123);
+        List<Diagnostic> diags = getDiagnosticsWithCode(diagnosticResult, "WORKFLOW_123");
+        Assert.assertEquals(diags.size(), 2, "Expected 2 WORKFLOW_123 errors");
+        for (Diagnostic d : diags) {
+            assertDiagnosticLine(d, 43);
+            assertMessageContains(d, "minCount (1)");
+            assertMessageContains(d, "futures (2)");
+        }
+        assertMessageContains(diags.get(0), "position 0");
+        assertMessageContains(diags.get(1), "position 1");
     }
 
     @Test(groups = "valid")
@@ -512,6 +560,48 @@ public class WorkflowCompilerPluginTest {
         }
         Assert.assertTrue(found, "Expected diagnostic with code " + expectedCode + ". Got: "
                 + getDiagnosticMessages(diagnosticResult));
+    }
+
+    /**
+     * Get all diagnostics with the given code.
+     *
+     * @param diagnosticResult the diagnostic result
+     * @param code the diagnostic code
+     * @return list of matching diagnostics
+     */
+    private List<Diagnostic> getDiagnosticsWithCode(DiagnosticResult diagnosticResult, String code) {
+        List<Diagnostic> matching = new ArrayList<>();
+        for (Diagnostic diagnostic : diagnosticResult.diagnostics()) {
+            if (diagnostic.diagnosticInfo().code().equals(code)) {
+                matching.add(diagnostic);
+            }
+        }
+        return matching;
+    }
+
+    /**
+     * Assert that a diagnostic has the expected line number (1-based).
+     *
+     * @param diagnostic the diagnostic
+     * @param expectedLine the expected 1-based line number
+     */
+    private void assertDiagnosticLine(Diagnostic diagnostic, int expectedLine) {
+        int actualLine = diagnostic.location().lineRange().startLine().line() + 1;
+        Assert.assertEquals(actualLine, expectedLine,
+                "Diagnostic '" + diagnostic.diagnosticInfo().code() + "' expected at line "
+                        + expectedLine + " but found at line " + actualLine
+                        + ". Message: " + diagnostic.message());
+    }
+
+    /**
+     * Assert that a diagnostic message contains the given substring.
+     *
+     * @param diagnostic the diagnostic
+     * @param substring the expected substring
+     */
+    private void assertMessageContains(Diagnostic diagnostic, String substring) {
+        Assert.assertTrue(diagnostic.message().contains(substring),
+                "Expected message to contain '" + substring + "' but got: " + diagnostic.message());
     }
 
     // ===== sendData validation test cases =====

@@ -46,18 +46,25 @@ import io.ballerina.compiler.syntax.tree.NamedArgumentNode;
 import io.ballerina.compiler.syntax.tree.NamedWorkerDeclarationNode;
 import io.ballerina.compiler.syntax.tree.Node;
 import io.ballerina.compiler.syntax.tree.NodeVisitor;
+import io.ballerina.compiler.syntax.tree.NonTerminalNode;
 import io.ballerina.compiler.syntax.tree.ParameterNode;
 import io.ballerina.compiler.syntax.tree.PositionalArgumentNode;
 import io.ballerina.compiler.syntax.tree.RemoteMethodCallActionNode;
 import io.ballerina.compiler.syntax.tree.SeparatedNodeList;
+import io.ballerina.compiler.syntax.tree.SimpleNameReferenceNode;
 import io.ballerina.compiler.syntax.tree.SpecificFieldNode;
 import io.ballerina.compiler.syntax.tree.StartActionNode;
 import io.ballerina.compiler.syntax.tree.SyntaxKind;
+import io.ballerina.compiler.syntax.tree.TupleTypeDescriptorNode;
+import io.ballerina.compiler.syntax.tree.TypeDescriptorNode;
+import io.ballerina.compiler.syntax.tree.TypedBindingPatternNode;
+import io.ballerina.compiler.syntax.tree.VariableDeclarationNode;
 import io.ballerina.compiler.syntax.tree.WaitFieldsListNode;
 import io.ballerina.projects.plugins.AnalysisTask;
 import io.ballerina.projects.plugins.SyntaxNodeAnalysisContext;
 import io.ballerina.tools.diagnostics.DiagnosticFactory;
 import io.ballerina.tools.diagnostics.DiagnosticInfo;
+import io.ballerina.tools.diagnostics.Location;
 
 import java.util.HashSet;
 import java.util.List;
@@ -889,6 +896,10 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
          * future's inner type. When T is a non-tuple scalar, validates it against the
          * futures array: for a single future the scalar must match the future's inner type,
          * and for multiple futures a tuple type is required.
+         * <p>
+         * Errors are reported at the LHS type descriptor location when available:
+         * for inline tuple types, each member's location is used; for named type references,
+         * the reference itself is highlighted.
          */
         private void validateTypeOrder(RemoteMethodCallActionNode callNode,
                                         ListConstructorExpressionNode listNode) {
@@ -937,6 +948,9 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
             // Extract minCount to determine if partial-wait nilability is required
             OptionalInt minCountOpt = extractMinCount(callNode);
 
+            // Resolve LHS type descriptor for precise error locations
+            LhsTypeInfo lhsInfo = resolveLhsTypeInfo(callNode);
+
             for (int i = 0; i < memberTypes.size(); i++) {
                 Node element = expressions.get(i);
                 if (!(element instanceof ExpressionNode elemExpr)) {
@@ -957,6 +971,9 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                 TypeSymbol innerType = WorkflowPluginUtils.resolveTypeReference(innerTypeOpt.get());
                 TypeSymbol expectedType = WorkflowPluginUtils.resolveTypeReference(memberTypes.get(i));
 
+                // Determine the best error location for this position
+                Location errorLocation = lhsInfo.locationForMember(i, elemExpr.location());
+
                 // When minCount < futureCount, each tuple member must be nilable
                 if (minCountOpt.isPresent() && minCountOpt.getAsInt() < futureCount
                         && !isNilable(expectedType)) {
@@ -967,7 +984,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                                     minCountOpt.getAsInt(), futureCount),
                             WorkflowDiagnostic.WORKFLOW_123.getSeverity());
                     context.reportDiagnostic(
-                            DiagnosticFactory.createDiagnostic(info, elemExpr.location()));
+                            DiagnosticFactory.createDiagnostic(info, errorLocation));
                     continue;
                 }
 
@@ -984,7 +1001,8 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                             WorkflowDiagnostic.WORKFLOW_117.getMessage(
                                     i, expectedType.signature(), innerType.signature()),
                             WorkflowDiagnostic.WORKFLOW_117.getSeverity());
-                    context.reportDiagnostic(DiagnosticFactory.createDiagnostic(info, elemExpr.location()));
+                    context.reportDiagnostic(
+                            DiagnosticFactory.createDiagnostic(info, errorLocation));
                 }
             }
         }
@@ -1110,6 +1128,68 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                 return OptionalInt.of(Integer.parseInt(text));
             } catch (NumberFormatException e) {
                 return OptionalInt.empty();
+            }
+        }
+
+        /**
+         * Walks up from the {@code ctx->await()} call node through the parent chain
+         * to find the enclosing variable declaration's type descriptor. Returns an
+         * {@link LhsTypeInfo} that can produce the best error location for each
+         * tuple member position.
+         *
+         * <p>Parent chain example:
+         * {@code RemoteMethodCallActionNode -> CheckExpressionNode -> VariableDeclarationNode}
+         */
+        private static LhsTypeInfo resolveLhsTypeInfo(RemoteMethodCallActionNode callNode) {
+            NonTerminalNode cursor = callNode.parent();
+            // Walk up past expressions (check, parenthesized, etc.) to the statement
+            while (cursor != null
+                    && cursor.kind() != SyntaxKind.LOCAL_VAR_DECL
+                    && cursor.kind() != SyntaxKind.ASSIGNMENT_STATEMENT) {
+                cursor = cursor.parent();
+            }
+            if (cursor instanceof VariableDeclarationNode varDecl) {
+                TypedBindingPatternNode typedBinding = varDecl.typedBindingPattern();
+                TypeDescriptorNode typeDesc = typedBinding.typeDescriptor();
+                if (typeDesc instanceof TupleTypeDescriptorNode tupleDesc) {
+                    return new LhsTypeInfo(tupleDesc.memberTypeDesc(), null);
+                }
+                // Named type reference (e.g. MyTuple results = ...) — point to the reference
+                if (typeDesc instanceof SimpleNameReferenceNode) {
+                    return new LhsTypeInfo(null, typeDesc.location());
+                }
+            }
+            return new LhsTypeInfo(null, null);
+        }
+
+        /**
+         * Holds the resolved LHS type descriptor information for error location reporting.
+         * For inline tuple types, provides per-member locations. For named type references,
+         * provides the reference location.
+         *
+         * @param tupleMemberNodes  member nodes of an inline tuple type descriptor, or null
+         * @param typeRefLocation   location of a named type reference, or null
+         */
+        private record LhsTypeInfo(
+                SeparatedNodeList<Node> tupleMemberNodes,
+                Location typeRefLocation
+        ) {
+            /**
+             * Returns the best error location for the tuple member at {@code index}.
+             * <ol>
+             *   <li>If inline tuple: the member type node at that position</li>
+             *   <li>If named type ref: the type reference name</li>
+             *   <li>Otherwise: the fallback (future expression location)</li>
+             * </ol>
+             */
+            Location locationForMember(int index, Location fallback) {
+                if (tupleMemberNodes != null && index < tupleMemberNodes.size()) {
+                    return tupleMemberNodes.get(index).location();
+                }
+                if (typeRefLocation != null) {
+                    return typeRefLocation;
+                }
+                return fallback;
             }
         }
 
