@@ -19,6 +19,7 @@
 package io.ballerina.lib.workflow.compiler;
 
 import io.ballerina.compiler.api.SemanticModel;
+import io.ballerina.compiler.api.symbols.ConstantSymbol;
 import io.ballerina.compiler.api.symbols.FunctionSymbol;
 import io.ballerina.compiler.api.symbols.FunctionTypeSymbol;
 import io.ballerina.compiler.api.symbols.FutureTypeSymbol;
@@ -42,26 +43,36 @@ import io.ballerina.compiler.syntax.tree.FunctionDefinitionNode;
 import io.ballerina.compiler.syntax.tree.ListConstructorExpressionNode;
 import io.ballerina.compiler.syntax.tree.MappingConstructorExpressionNode;
 import io.ballerina.compiler.syntax.tree.MappingFieldNode;
+import io.ballerina.compiler.syntax.tree.NamedArgumentNode;
 import io.ballerina.compiler.syntax.tree.NamedWorkerDeclarationNode;
 import io.ballerina.compiler.syntax.tree.Node;
 import io.ballerina.compiler.syntax.tree.NodeVisitor;
+import io.ballerina.compiler.syntax.tree.NonTerminalNode;
 import io.ballerina.compiler.syntax.tree.ParameterNode;
 import io.ballerina.compiler.syntax.tree.PositionalArgumentNode;
 import io.ballerina.compiler.syntax.tree.RemoteMethodCallActionNode;
 import io.ballerina.compiler.syntax.tree.SeparatedNodeList;
+import io.ballerina.compiler.syntax.tree.SimpleNameReferenceNode;
 import io.ballerina.compiler.syntax.tree.SpecificFieldNode;
 import io.ballerina.compiler.syntax.tree.StartActionNode;
 import io.ballerina.compiler.syntax.tree.SyntaxKind;
+import io.ballerina.compiler.syntax.tree.TupleTypeDescriptorNode;
+import io.ballerina.compiler.syntax.tree.TypeDescriptorNode;
+import io.ballerina.compiler.syntax.tree.TypedBindingPatternNode;
+import io.ballerina.compiler.syntax.tree.VariableDeclarationNode;
 import io.ballerina.compiler.syntax.tree.WaitFieldsListNode;
 import io.ballerina.projects.plugins.AnalysisTask;
 import io.ballerina.projects.plugins.SyntaxNodeAnalysisContext;
 import io.ballerina.tools.diagnostics.DiagnosticFactory;
 import io.ballerina.tools.diagnostics.DiagnosticInfo;
+import io.ballerina.tools.diagnostics.Location;
 
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * Validation task for workflow @Workflow and @Activity function signatures.
@@ -821,6 +832,10 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
      * Node visitor that validates {@code ctx->await()} calls.
      */
     private static class AwaitValidator extends NodeVisitor {
+        private static final Pattern DECIMAL_INT_LITERAL = Pattern.compile("[+-]?[0-9][0-9_]*");
+        private static final Pattern HEX_INT_LITERAL = Pattern.compile("[+-]?0[xX][0-9a-fA-F][0-9a-fA-F_]*");
+        private static final Pattern BINARY_INT_LITERAL = Pattern.compile("[+-]?0[bB][01][01_]*");
+
         private final SyntaxNodeAnalysisContext context;
         private final SemanticModel semanticModel;
         private final String eventsParamName; // may be null if no events param
@@ -887,6 +902,10 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
          * future's inner type. When T is a non-tuple scalar, validates it against the
          * futures array: for a single future the scalar must match the future's inner type,
          * and for multiple futures a tuple type is required.
+         * <p>
+         * Errors are reported at the LHS type descriptor location when available:
+         * for inline tuple types, each member's location is used; for named type references,
+         * the reference itself is highlighted.
          */
         private void validateTypeOrder(RemoteMethodCallActionNode callNode,
                                         ListConstructorExpressionNode listNode) {
@@ -931,6 +950,13 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
             if (memberTypes.size() != expressions.size()) {
                 return;
             }
+
+            // Extract minCount to determine if partial-wait nilability is required
+            OptionalInt minCountOpt = extractMinCount(callNode);
+
+            // Resolve LHS type descriptor for precise error locations
+            LhsTypeInfo lhsInfo = resolveLhsTypeInfo(callNode);
+
             for (int i = 0; i < memberTypes.size(); i++) {
                 Node element = expressions.get(i);
                 if (!(element instanceof ExpressionNode elemExpr)) {
@@ -950,6 +976,24 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                 }
                 TypeSymbol innerType = WorkflowPluginUtils.resolveTypeReference(innerTypeOpt.get());
                 TypeSymbol expectedType = WorkflowPluginUtils.resolveTypeReference(memberTypes.get(i));
+
+                // Determine the best error location for this position
+                Location errorLocation = lhsInfo.locationForMember(i, elemExpr.location());
+
+                // When minCount < futureCount, each tuple member must be nilable
+                if (minCountOpt.isPresent() && minCountOpt.getAsInt() < futureCount
+                        && !isNilable(expectedType)) {
+                    DiagnosticInfo info = new DiagnosticInfo(
+                            WorkflowDiagnostic.WORKFLOW_123.getCode(),
+                            WorkflowDiagnostic.WORKFLOW_123.getMessage(
+                                    i, innerType.signature(),
+                                    minCountOpt.getAsInt(), futureCount),
+                            WorkflowDiagnostic.WORKFLOW_123.getSeverity());
+                    context.reportDiagnostic(
+                            DiagnosticFactory.createDiagnostic(info, errorLocation));
+                    continue;
+                }
+
                 // Strip nil from expected type to support partial-wait nullable tuples
                 // (e.g. [T1?, T2?, T3?] where T? = T|())
                 TypeSymbol compareType = stripNil(expectedType);
@@ -963,7 +1007,8 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                             WorkflowDiagnostic.WORKFLOW_117.getMessage(
                                     i, expectedType.signature(), innerType.signature()),
                             WorkflowDiagnostic.WORKFLOW_117.getSeverity());
-                    context.reportDiagnostic(DiagnosticFactory.createDiagnostic(info, elemExpr.location()));
+                    context.reportDiagnostic(
+                            DiagnosticFactory.createDiagnostic(info, errorLocation));
                 }
             }
         }
@@ -1040,6 +1085,169 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                     })
                     .toList();
             return nonNils.size() == 1 ? WorkflowPluginUtils.resolveTypeReference(nonNils.get(0)) : null;
+        }
+
+        /**
+         * Checks whether a type is nilable (includes {@code ()} in a union, or is nil itself).
+         */
+        private static boolean isNilable(TypeSymbol type) {
+            TypeSymbol resolved = WorkflowPluginUtils.resolveTypeReference(type);
+            if (resolved.typeKind() == TypeDescKind.NIL) {
+                return true;
+            }
+            if (resolved.typeKind() == TypeDescKind.UNION) {
+                return ((UnionTypeSymbol) resolved).memberTypeDescriptors().stream()
+                        .anyMatch(m -> WorkflowPluginUtils.resolveTypeReference(m)
+                                .typeKind() == TypeDescKind.NIL);
+            }
+            return false;
+        }
+
+        /**
+         * Extracts the {@code minCount} value from the {@code ctx->await()} call arguments,
+         * if it is a literal integer. Returns empty if not provided or not a literal.
+         */
+        private OptionalInt extractMinCount(RemoteMethodCallActionNode callNode) {
+            SeparatedNodeList<FunctionArgumentNode> args = callNode.arguments();
+            for (int i = 0; i < args.size(); i++) {
+                FunctionArgumentNode arg = args.get(i);
+                // Named argument: minCount = <value>
+                if (arg instanceof NamedArgumentNode namedArg
+                        && "minCount".equals(namedArg.argumentName().name().text())) {
+                    return extractLiteralInt(namedArg.expression());
+                }
+                // Second positional argument is minCount
+                if (i == 1 && arg instanceof PositionalArgumentNode posArg) {
+                    return extractLiteralInt(posArg.expression());
+                }
+            }
+            return OptionalInt.empty();
+        }
+
+        /**
+         * Attempts to parse an expression node as an integer literal.
+         * Returns empty for non-literal expressions (variables, method calls, etc.).
+         */
+        private OptionalInt extractLiteralInt(ExpressionNode expr) {
+            OptionalInt constValue = extractConstInt(expr);
+            if (constValue.isPresent()) {
+                return constValue;
+            }
+            String text = expr.toSourceCode().trim();
+            return parseBallerinaIntLiteral(text);
+        }
+
+        private OptionalInt extractConstInt(ExpressionNode expr) {
+            Optional<Symbol> symbolOpt = semanticModel.symbol(expr);
+            if (symbolOpt.isPresent() && symbolOpt.get().kind() == SymbolKind.CONSTANT
+                    && symbolOpt.get() instanceof ConstantSymbol constantSymbol) {
+                Optional<String> constValue = constantSymbol.resolvedValue();
+                if (constValue.isPresent()) {
+                    return parseBallerinaIntLiteral(constValue.get().trim());
+                }
+            }
+            return OptionalInt.empty();
+        }
+
+        private static OptionalInt parseBallerinaIntLiteral(String text) {
+            if (text.isEmpty()) {
+                return OptionalInt.empty();
+            }
+
+            if (!DECIMAL_INT_LITERAL.matcher(text).matches()
+                    && !HEX_INT_LITERAL.matcher(text).matches()
+                    && !BINARY_INT_LITERAL.matcher(text).matches()) {
+                return OptionalInt.empty();
+            }
+
+            boolean negative = text.charAt(0) == '-';
+            boolean hasSign = text.charAt(0) == '-' || text.charAt(0) == '+';
+            String unsignedText = hasSign ? text.substring(1) : text;
+
+            int radix = 10;
+            if (unsignedText.startsWith("0x") || unsignedText.startsWith("0X")) {
+                radix = 16;
+                unsignedText = unsignedText.substring(2);
+            } else if (unsignedText.startsWith("0b") || unsignedText.startsWith("0B")) {
+                radix = 2;
+                unsignedText = unsignedText.substring(2);
+            }
+
+            String normalizedDigits = unsignedText.replace("_", "");
+            try {
+                long value = Long.parseLong(normalizedDigits, radix);
+                if (negative) {
+                    value = -value;
+                }
+                if (value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) {
+                    return OptionalInt.empty();
+                }
+                return OptionalInt.of((int) value);
+            } catch (NumberFormatException e) {
+                return OptionalInt.empty();
+            }
+        }
+
+        /**
+         * Walks up from the {@code ctx->await()} call node through the parent chain
+         * to find the enclosing variable declaration's type descriptor. Returns an
+         * {@link LhsTypeInfo} that can produce the best error location for each
+         * tuple member position.
+         *
+         * <p>Parent chain example:
+         * {@code RemoteMethodCallActionNode -> CheckExpressionNode -> VariableDeclarationNode}
+         */
+        private static LhsTypeInfo resolveLhsTypeInfo(RemoteMethodCallActionNode callNode) {
+            NonTerminalNode cursor = callNode.parent();
+            // Walk up past expressions (check, parenthesized, etc.) to the statement
+            while (cursor != null
+                    && cursor.kind() != SyntaxKind.LOCAL_VAR_DECL
+                    && cursor.kind() != SyntaxKind.ASSIGNMENT_STATEMENT) {
+                cursor = cursor.parent();
+            }
+            if (cursor instanceof VariableDeclarationNode varDecl) {
+                TypedBindingPatternNode typedBinding = varDecl.typedBindingPattern();
+                TypeDescriptorNode typeDesc = typedBinding.typeDescriptor();
+                if (typeDesc instanceof TupleTypeDescriptorNode tupleDesc) {
+                    return new LhsTypeInfo(tupleDesc.memberTypeDesc(), null);
+                }
+                // Named type reference (e.g. MyTuple results = ...) — point to the reference
+                if (typeDesc instanceof SimpleNameReferenceNode) {
+                    return new LhsTypeInfo(null, typeDesc.location());
+                }
+            }
+            return new LhsTypeInfo(null, null);
+        }
+
+        /**
+         * Holds the resolved LHS type descriptor information for error location reporting.
+         * For inline tuple types, provides per-member locations. For named type references,
+         * provides the reference location.
+         *
+         * @param tupleMemberNodes  member nodes of an inline tuple type descriptor, or null
+         * @param typeRefLocation   location of a named type reference, or null
+         */
+        private record LhsTypeInfo(
+                SeparatedNodeList<Node> tupleMemberNodes,
+                Location typeRefLocation
+        ) {
+            /**
+             * Returns the best error location for the tuple member at {@code index}.
+             * <ol>
+             *   <li>If inline tuple: the member type node at that position</li>
+             *   <li>If named type ref: the type reference name</li>
+             *   <li>Otherwise: the fallback (future expression location)</li>
+             * </ol>
+             */
+            Location locationForMember(int index, Location fallback) {
+                if (tupleMemberNodes != null && index < tupleMemberNodes.size()) {
+                    return tupleMemberNodes.get(index).location();
+                }
+                if (typeRefLocation != null) {
+                    return typeRefLocation;
+                }
+                return fallback;
+            }
         }
 
         private void reportFutureNotFromEvents(ExpressionNode expr) {
