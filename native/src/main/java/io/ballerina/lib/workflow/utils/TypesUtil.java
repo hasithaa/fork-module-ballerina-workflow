@@ -55,6 +55,7 @@ public final class TypesUtil {
     // JSON payload converter, which cannot serialize the `BXml` type graph
     // directly (immutable/intersection wrappers form a cycle).
     public static final String XML_MARKER = "__xml__";
+    public static final String XML_WRAPPER_MARKER = "__workflow_xml_wrapper__";
     public static final String ERROR_TYPE = "errorType";
 
     private TypesUtil() {
@@ -89,8 +90,14 @@ public final class TypesUtil {
                 return ErrorCreator.createError(StringUtils.fromString(message));
             }
             // XML round-trip marker: reconstruct a BXml from its string form.
-            if (map.size() == 1 && map.get(XML_MARKER) instanceof String xmlStr) {
-                return XmlUtils.parse(xmlStr);
+            if (map.size() == 2
+                    && Boolean.TRUE.equals(map.get(XML_WRAPPER_MARKER))
+                    && map.get(XML_MARKER) instanceof String xmlStr) {
+                try {
+                    return XmlUtils.parse(xmlStr);
+                } catch (RuntimeException ignored) {
+                    return convertMapToBMap(map);
+                }
             }
             // Convert regular map to BMap
             return convertMapToBMap(map);
@@ -155,6 +162,7 @@ public final class TypesUtil {
         // marker map so the inverse conversion can reconstruct the BXml.
         if (ballerinaValue instanceof BXml) {
             Map<String, Object> wrapper = new HashMap<>();
+            wrapper.put(XML_WRAPPER_MARKER, true);
             wrapper.put(XML_MARKER, ballerinaValue.toString());
             return wrapper;
         }

@@ -125,17 +125,16 @@ public final class WorkflowWorkerNative {
 
     /**
      * Marker prefix used to ferry module-level client object references through
-     * Temporal's serialization plane. A value like {@code "connection:db"}
-     * means "resolve to the module-level client variable named {@code db}".
+        * Temporal's serialization plane. A value like
+        * {@code "connection:org/pkg.mod:db"} means "resolve to the registered
+        * client identified by that module-qualified connection key".
      */
     public static final String CONNECTION_MARKER_PREFIX = "connection:";
 
-    // Module-level final `client object` variables registered by the compiler-plugin-emitted
-    // `wfInternal:registerConnection("name", name)` calls during module init. The Ballerina
-    // language guarantees a single binding per module-level identifier, so a name uniquely
-    // identifies a client object reference within the worker JVM. The reverse direction
-    // (BObject -> name) is only used at activity dispatch time and is small enough for a
-    // linear scan; no separate identity map is needed.
+    // Module-qualified connection ids registered by the compiler-plugin-emitted
+    // `wfInternal:registerConnection("name", name)` calls during module init.
+    // The registration routine prefixes the variable name with the caller module
+    // identity so names remain globally unique across modules in the same JVM.
     private static final Map<String, BObject> CONNECTION_REGISTRY = new ConcurrentHashMap<>();
 
     // Singleton worker components
@@ -918,12 +917,13 @@ public final class WorkflowWorkerNative {
      * indicate an internal compiler-plugin bug, since module-level identifiers are
      * unique by language rule).
      *
-     * @param name the Ballerina variable name (the lookup key)
+     * @param env the caller environment, used to qualify the module-level name
+     * @param name the Ballerina variable name (qualified with caller module for storage)
      * @param connection the client object reference
      * @return {@code true} on success, or a {@code BError} on a duplicate-name collision
      */
-    public static Object registerConnection(BString name, BObject connection) {
-        String key = name.getValue();
+    public static Object registerConnection(Environment env, BString name, BObject connection) {
+        String key = buildConnectionKey(env.getCurrentModule(), name.getValue());
         BObject existing = CONNECTION_REGISTRY.putIfAbsent(key, connection);
         if (existing != null && existing != connection) {
             return ErrorCreator.createError(StringUtils.fromString(
@@ -945,6 +945,13 @@ public final class WorkflowWorkerNative {
             }
         }
         return null;
+    }
+
+    private static String buildConnectionKey(Module module, String name) {
+        if (module == null) {
+            return name;
+        }
+        return module.getOrg() + "/" + module.getName() + ":" + name;
     }
 
     /**

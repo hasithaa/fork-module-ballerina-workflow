@@ -122,7 +122,7 @@ public enum WorkflowDiagnostic {
     WORKFLOW_124("WORKFLOW_124",
             "@Activity function parameter '%s' is a 'client object'. "
                     + "Activity arguments of client-object types must be passed as a simple "
-                    + "reference to a module-level 'final' variable, not '%s'",
+                    + "reference to a module-level 'final' or 'configurable' client variable, not '%s'",
             DiagnosticSeverity.ERROR),
     WORKFLOW_125("WORKFLOW_125",
             "Activity argument '%s' references '%s' which is not a module-level "
@@ -133,6 +133,10 @@ public enum WorkflowDiagnostic {
             "Activity argument '%s' has type '%s' which is neither a subtype of 'anydata' "
                     + "nor a 'client object'. Only 'anydata' and 'client object' arguments are "
                     + "supported",
+            DiagnosticSeverity.ERROR),
+    WORKFLOW_127("WORKFLOW_127",
+            "Activity simple name collision: '%s' resolves to both '%s' and '%s'. "
+                    + "Use unique activity function names or avoid ambiguous qualified references",
             DiagnosticSeverity.ERROR);
 
     private final String code;

@@ -11,9 +11,9 @@ version = "@toml.version@"
 [build-options]
 observabilityIncluded = true
 
-# GreenMail (in-process SMTP server) for the builtin sendEmail integration test.
-# Bundled as a transitive dep of `ballerina/email`; explicitly declared here so
-# its classes are visible on the test compile classpath.
+# GreenMail SMTP fixture jars for the builtin sendEmail integration test.
+# The `integration-tests:prepareIntegrationTestLibs` Gradle task downloads these
+# artifacts from Maven Central into integration-tests/libs/ before `bal test`.
 [[platform.java21.dependency]]
 path = "./libs/greenmail-1.5.11.jar"
 

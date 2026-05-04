@@ -41,6 +41,7 @@ function testSendEmail() returns error? {
     if gm is () {
         return error("SMTP fixture not started");
     }
+    int beforeCount = gmReceivedCount(gm);
 
     string testId = uniqueId("smtp");
     EmailInput input = {
@@ -57,8 +58,9 @@ function testSendEmail() returns error? {
             "sendEmailWorkflow should complete. Error: "
                     + (execInfo.errorMessage ?: "none"));
 
-    int received = gmReceivedCount(gm);
-    test:assertTrue(received >= 1,
-            "GreenMail should have received at least one message; got: "
-                    + received.toString());
+        int afterCount = gmReceivedCount(gm);
+        int delivered = afterCount - beforeCount;
+        test:assertEquals(delivered, 1,
+            "GreenMail should receive exactly one new message from the workflow; got delta: "
+                + delivered.toString());
 }

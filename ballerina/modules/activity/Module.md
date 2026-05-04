@@ -13,6 +13,6 @@ wiring needed to make them available on the activity worker side.
 
 | Function       | Connector             | Returns      |
 |----------------|-----------------------|--------------|
-| `callRestAPI`  | `http:Client`         | `json|error` |
-| `callSoapAPI`  | `soap11:Client \| soap12:Client` | `xml|error` |
+| `callRestAPI`  | `http:Client`         | `t\|error` |
+| `callSoapAPI`  | `soap11:Client \| soap12:Client` | `xml\|error` |
 | `sendEmail`    | `email:SmtpClient`    | `error?`     |

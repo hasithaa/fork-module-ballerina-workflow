@@ -240,8 +240,8 @@ public class WorkflowCompilerPluginTest {
     public void testInvalidCallActivityClientArgNonReference() {
         String packagePath = "invalid_call_activity_client_non_reference";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
-        Assert.assertTrue(diagnosticResult.errorCount() > 0,
-                "Expected validation error for non-reference client argument");
+        Assert.assertEquals(diagnosticResult.errorCount(), 3,
+                "Expected exactly 3 validation errors for non-reference client argument");
         assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_124);
     }
 
@@ -249,8 +249,8 @@ public class WorkflowCompilerPluginTest {
     public void testInvalidCallActivityClientArgNotModuleFinal() {
         String packagePath = "invalid_call_activity_client_not_module_final";
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
-        Assert.assertTrue(diagnosticResult.errorCount() > 0,
-                "Expected validation error for client argument that is not module-level final/configurable");
+        Assert.assertEquals(diagnosticResult.errorCount(), 1,
+            "Expected exactly 1 validation error for client argument that is not module-level final/configurable");
         assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_125);
     }
 

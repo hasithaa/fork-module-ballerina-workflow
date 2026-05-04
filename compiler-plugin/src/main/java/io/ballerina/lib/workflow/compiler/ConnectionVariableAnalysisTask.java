@@ -28,6 +28,7 @@ import io.ballerina.compiler.syntax.tree.TypedBindingPatternNode;
 import io.ballerina.projects.plugins.AnalysisTask;
 import io.ballerina.projects.plugins.SyntaxNodeAnalysisContext;
 
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Optional;
@@ -37,9 +38,10 @@ import java.util.Set;
  * Analysis task that detects module-level {@code final} (or {@code configurable})
  * variables whose declared type is a {@code client object}. Their identifiers are
  * collected into the package-level user data under {@link
- * WorkflowConstants#CONNECTION_VAR_NAMES} so that {@link WorkflowSourceModifier}
- * can emit corresponding {@code wfInternal:registerConnection(...)} calls during
- * the boot sequence.
+ * WorkflowConstants#CONNECTION_VAR_NAMES}, keyed by module id, so that
+ * {@link WorkflowSourceModifier} can emit corresponding
+ * {@code wfInternal:registerConnection(...)} calls only in modules where the
+ * variables are actually visible.
  *
  * @since 0.2.0
  */
@@ -68,7 +70,7 @@ public class ConnectionVariableAnalysisTask implements AnalysisTask<SyntaxNodeAn
         if (name == null || name.isEmpty() || "_".equals(name)) {
             return;
         }
-        addConnectionName(name);
+        addConnectionName(context.documentId().moduleId().toString(), name);
     }
 
     private String extractVariableName(ModuleVariableDeclarationNode varDecl) {
@@ -82,9 +84,12 @@ public class ConnectionVariableAnalysisTask implements AnalysisTask<SyntaxNodeAn
     }
 
     @SuppressWarnings("unchecked")
-    private void addConnectionName(String name) {
-        Set<String> names = (Set<String>) userData.computeIfAbsent(
-                WorkflowConstants.CONNECTION_VAR_NAMES, k -> new LinkedHashSet<>());
+    private void addConnectionName(String moduleKey, String name) {
+        Map<String, Set<String>> namesByModule =
+                (Map<String, Set<String>>) userData.computeIfAbsent(
+                        WorkflowConstants.CONNECTION_VAR_NAMES,
+                        k -> new LinkedHashMap<String, Set<String>>());
+        Set<String> names = namesByModule.computeIfAbsent(moduleKey, k -> new LinkedHashSet<>());
         names.add(name);
     }
 }

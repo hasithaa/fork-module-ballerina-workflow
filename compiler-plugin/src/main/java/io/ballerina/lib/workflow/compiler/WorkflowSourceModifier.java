@@ -128,7 +128,9 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
 
             ModulePartNode updatedRootNode = transformDocument(
                     rootNode, workflowContext, isLastDocument ? allProcessInfos : null,
-                    isLastDocument ? collectConnectionNames() : Collections.emptyList());
+                    isLastDocument
+                        ? collectConnectionNames(documentId.moduleId().toString())
+                        : Collections.emptyList());
 
             // Only add the import for the document that contains the generated
             // __registerWorkflowsAndStart() function to avoid unused-import errors.
@@ -174,12 +176,16 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
         return modifiedRoot.modify(modifiedRoot.imports(), updatedMembers, modifiedRoot.eofToken());
     }
 
-    private List<String> collectConnectionNames() {
+    private List<String> collectConnectionNames(String moduleKey) {
         if (this.userData == null) {
             return Collections.emptyList();
         }
         Object raw = this.userData.get(WorkflowConstants.CONNECTION_VAR_NAMES);
-        if (!(raw instanceof Set<?> set)) {
+        if (!(raw instanceof Map<?, ?> rawMap)) {
+            return Collections.emptyList();
+        }
+        Object moduleNames = rawMap.get(moduleKey);
+        if (!(moduleNames instanceof Set<?> set)) {
             return Collections.emptyList();
         }
         List<String> result = new ArrayList<>(set.size());

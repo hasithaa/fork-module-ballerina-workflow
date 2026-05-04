@@ -65,8 +65,9 @@ isolated function startWorkflowRuntimeNative() returns error? = @java:Method {
 #
 # + name - The Ballerina variable name of the client (used as the lookup key)
 # + connection - The client object reference to register
-# + return - `true` on success, or an error if a different client is already
-#            registered under the same name
+# + return - `true` on success. Re-registering the same client object under the
+#            same name is idempotent and also returns `true`; an error is
+#            returned only if a different client is already registered there.
 public isolated function registerConnection(string name, object {} connection)
         returns boolean|error = @java:Method {
     'class: "io.ballerina.lib.workflow.worker.WorkflowWorkerNative",
