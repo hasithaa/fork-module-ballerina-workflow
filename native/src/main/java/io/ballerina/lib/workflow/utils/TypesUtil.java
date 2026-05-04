@@ -89,7 +89,7 @@ public final class TypesUtil {
                 return ErrorCreator.createError(StringUtils.fromString(message));
             }
             // XML round-trip marker: reconstruct a BXml from its string form.
-            if (map.containsKey(XML_MARKER) && map.get(XML_MARKER) instanceof String xmlStr) {
+            if (map.size() == 1 && map.get(XML_MARKER) instanceof String xmlStr) {
                 return XmlUtils.parse(xmlStr);
             }
             // Convert regular map to BMap

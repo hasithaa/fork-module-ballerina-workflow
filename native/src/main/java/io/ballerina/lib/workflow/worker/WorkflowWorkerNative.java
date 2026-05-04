@@ -873,6 +873,41 @@ public final class WorkflowWorkerNative {
     }
 
     /**
+     * Returns {@code true} when the given runtime type can include {@code nil}.
+     */
+    private static boolean isNilableType(io.ballerina.runtime.api.types.Type t, int depth) {
+        if (t == null || depth > 16) {
+            return false;
+        }
+        if (t instanceof io.ballerina.runtime.api.types.ReferenceType ref) {
+            io.ballerina.runtime.api.types.Type next = ref.getReferredType();
+            if (next != t) {
+                return isNilableType(next, depth + 1);
+            }
+        }
+        int tag = t.getTag();
+        if (tag == TypeTags.NULL_TAG) {
+            return true;
+        }
+        if (tag == TypeTags.UNION_TAG && t instanceof io.ballerina.runtime.api.types.UnionType ut) {
+            for (io.ballerina.runtime.api.types.Type member : ut.getMemberTypes()) {
+                if (isNilableType(member, depth + 1)) {
+                    return true;
+                }
+            }
+        }
+        if (tag == TypeTags.INTERSECTION_TAG
+                && t instanceof io.ballerina.runtime.api.types.IntersectionType it) {
+            for (io.ballerina.runtime.api.types.Type member : it.getConstituentTypes()) {
+                if (isNilableType(member, depth + 1)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
      * Registers a module-level {@code final} {@code client object} variable so it can
      * be referenced from inside activities via the {@code "connection:<name>"} wire
      * marker. Called from generated module-init code emitted by the workflow compiler
@@ -1642,6 +1677,17 @@ public final class WorkflowWorkerNative {
                         throw new RuntimeException(
                                 "Required activity parameter '" + paramName
                                         + "' is missing from the activity arguments map");
+                    }
+                    // For typedesc-dependent activities we inject a synthetic
+                    // typedesc at the end and therefore materialize omitted
+                    // parameters as null in the positional arg array. This is
+                    // only safe for nilable parameter types.
+                    if (typedescParam != null && !isNilableType(param.type, 0)) {
+                        throw new RuntimeException(
+                                "Activity '" + activityName + "' omits defaultable parameter '"
+                                        + paramName + "' with non-nilable type in a "
+                                        + "typedesc-dependent signature. Pass this argument "
+                                        + "explicitly to preserve default semantics.");
                     }
                     orderedArgs.add(null); // optional/defaultable param absent → Ballerina default
                 }

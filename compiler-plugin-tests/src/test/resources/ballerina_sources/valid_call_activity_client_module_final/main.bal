@@ -1,7 +1,7 @@
 import ballerina/http;
 import ballerina/workflow;
 
-final http:Client customerApi = check new ("http://localhost:9090");
+final http:Client connection = check new ("http://localhost:9090");
 
 @workflow:Activity
 function fetchCustomer(http:Client connection, string path) returns json|error {
@@ -11,7 +11,7 @@ function fetchCustomer(http:Client connection, string path) returns json|error {
 @workflow:Workflow
 function customerWorkflow(workflow:Context ctx) returns json|error {
     return ctx->callActivity(fetchCustomer, {
-        connection: customerApi,
+        connection,
         path: "/customers/1"
     });
 }

@@ -534,7 +534,20 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                     continue;
                 }
                 if (specific.valueExpr().isEmpty()) {
-                    continue; // shorthand `{x}` is itself a name reference handled below
+                    // Shorthand mapping field: `{connection}`.
+                    // Resolve the shorthand identifier symbol and enforce the
+                    // same module-level final client constraint.
+                    Optional<Symbol> symbolOpt = semanticModel.symbol(specific.fieldName());
+                    if (symbolOpt.isEmpty()
+                            || !WorkflowPluginUtils.isModuleLevelFinalClient(symbolOpt.get())) {
+                        DiagnosticInfo info = new DiagnosticInfo(
+                                WorkflowDiagnostic.WORKFLOW_125.getCode(),
+                                WorkflowDiagnostic.WORKFLOW_125.getMessage(fieldName, fieldName),
+                                WorkflowDiagnostic.WORKFLOW_125.getSeverity());
+                        context.reportDiagnostic(DiagnosticFactory.createDiagnostic(
+                                info, specific.fieldName().location()));
+                    }
+                    continue;
                 }
                 ExpressionNode valueExpr = specific.valueExpr().get();
                 if (!(valueExpr instanceof SimpleNameReferenceNode nameRef)) {
