@@ -471,7 +471,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                 }
                 Optional<String> nameOpt = param.getName();
                 if (nameOpt.isPresent()) {
-                    String pName = nameOpt.get();
+                    String pName = normalizeIdentifier(nameOpt.get());
                     expectedParamNames.add(pName);
                     // Required if not default-able
                     if (param.paramKind() == ParameterKind.REQUIRED) {
@@ -605,8 +605,20 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         }
 
         /**
+         * Normalizes an identifier by removing the leading quote from escaped identifiers.
+         * For example, 'from -> from, 'type -> type, etc.
+         */
+        private String normalizeIdentifier(String identifier) {
+            if (identifier != null && identifier.startsWith("'")) {
+                return identifier.substring(1);
+            }
+            return identifier;
+        }
+
+        /**
          * Extracts the field name from a SpecificFieldNode.
          * Handles both string literal keys ("fieldName") and identifier keys (fieldName).
+         * Also normalizes escaped identifiers (e.g., 'from -> from).
          */
         private String extractFieldName(SpecificFieldNode field) {
             var fieldName = field.fieldName();
@@ -617,7 +629,9 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                     return text.substring(1, text.length() - 1);
                 }
             } else if (fieldName.kind() == SyntaxKind.IDENTIFIER_TOKEN) {
-                return fieldName.toString().trim();
+                String text = fieldName.toString().trim();
+                // Normalize escaped identifiers (e.g., 'from -> from)
+                return normalizeIdentifier(text);
             }
             return null;
         }

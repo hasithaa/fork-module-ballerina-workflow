@@ -322,6 +322,8 @@ public final class WorkflowWorkerNative {
                         }
                         LOGGER.debug("Custom CA certificate configured: {}", caCertPath);
                     }
+                    // Configure ALPN for gRPC/HTTP2 support
+                    io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts.configure(sslBuilder);
                     stubsBuilder.setSslContext(sslBuilder.build());
                     stubsBuilder.setEnableHttps(true);
                 } catch (IOException e) {
