@@ -1366,6 +1366,9 @@ public final class WorkflowWorkerNative {
         // agent; read by the dynamic update handler (also on the workflow thread) to reject
         // updateAgent calls targeting non-agent workflows.
         private boolean agentWorkflow = false;
+        // The agent's native context state; set when the AgentContext is created. Used by the
+        // update handler's closing fast-path and the failure backstop that settles updates.
+        private AgentContextNative.AgentContextInfo agentContextInfo = null;
         // Per-workflow-instance service object (created fresh for each workflow execution including replays)
         // This ensures isolation between workflow instances and proper state management
         private BObject serviceObject;
@@ -1460,6 +1463,18 @@ public final class WorkflowWorkerNative {
                         String eventName = encodedArgs.get(0, String.class);
                         Object payload = encodedArgs.get(1, Object.class);
                         LOGGER.debug("[JWorkflowAdapter] Agent update received for event '{}'", eventName);
+
+                        // Closing fast-path: the agent is finishing, so nobody would consume
+                        // an enqueued message — answer immediately from the final state.
+                        AgentContextNative.AgentContextInfo info = this.agentContextInfo;
+                        if (info != null && info.isClosing()) {
+                            String failure = info.closingFailure();
+                            if (failure != null) {
+                                throw io.temporal.failure.ApplicationFailure.newNonRetryableFailure(
+                                        "The agent finished without consuming this update: " + failure, "error");
+                            }
+                            return info.finalResponse();
+                        }
 
                         io.temporal.workflow.CompletablePromise<Object> responder = Workflow.newPromise();
                         signalWrapper.recordUpdate(eventName, payload, responder);
@@ -1689,12 +1704,26 @@ public final class WorkflowWorkerNative {
                                      err.getMessage());
                     }
 
+                    // Backstop for durable agents: settle outstanding updateAgent requests
+                    // (and yield until their handlers finish) before failing the workflow, so
+                    // accepted updates fail with the agent's error instead of
+                    // "workflow completed before the update completed". Covers agent-body
+                    // failures outside runDurableAgent's own settle path.
+                    if (this.agentContextInfo != null) {
+                        AgentContextNative.settleUpdates(this.agentContextInfo, err.getMessage());
+                    }
+
                     // Convert the full BError chain into an ApplicationFailure chain
                     // so the Temporal UI shows a structured cause/details hierarchy.
                     io.temporal.failure.ApplicationFailure failure = berrorToApplicationFailure(err);
                     failure.setNonRetryable(true);
 
                     throw failure;
+                }
+
+                // Backstop for durable agents completing normally outside the loop's settle path.
+                if (this.agentContextInfo != null) {
+                    AgentContextNative.settleUpdates(this.agentContextInfo, null);
                 }
 
                 // Convert Ballerina result to Java type for Temporal serialization
@@ -1875,6 +1904,7 @@ public final class WorkflowWorkerNative {
                     new AgentContextNative.AgentContextInfo(
                             temporalInfo.getWorkflowId(), temporalInfo.getWorkflowType(),
                             signalWrapper, eventNames);
+            this.agentContextInfo = agentInfo;
             Object nativeContextHandle = ValueCreator.createHandleValue(agentInfo);
             return ValueCreator.createObjectValue(workflowModule, "AgentContext", nativeContextHandle);
         }

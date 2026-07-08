@@ -104,6 +104,10 @@ public final class AgentContextNative {
         // The responder of the updateAgent request whose message the agent most recently
         // consumed; completed with the next recorded response (the turn's answer).
         private CompletablePromise<Object> pendingResponder = null;
+        // Set when the agent is finishing: new updates are answered immediately from
+        // finalResponse / closingFailure instead of being enqueued (nobody would consume them).
+        private boolean closing = false;
+        private String closingFailure = null;
 
         public AgentContextInfo(String workflowId, String workflowType, SignalAwaitWrapper signalWrapper,
                                 Set<String> eventNames) {
@@ -115,6 +119,14 @@ public final class AgentContextNative {
 
         public String finalResponse() {
             return finalResponse;
+        }
+
+        public boolean isClosing() {
+            return closing;
+        }
+
+        public String closingFailure() {
+            return closingFailure;
         }
     }
 
@@ -373,7 +385,24 @@ public final class AgentContextNative {
      * @param failureMessage the agent's failure message, or null when the agent completed normally
      */
     public static void finishAgentUpdates(BHandle handle, Object failureMessage) {
-        AgentContextInfo info = (AgentContextInfo) handle.getValue();
+        settleUpdates((AgentContextInfo) handle.getValue(),
+                failureMessage instanceof BString failure ? failure.getValue() : null);
+    }
+
+    /**
+     * Settles all outstanding updateAgent responders and yields until every update handler has finished, so update
+     * results are delivered before the workflow method returns — on the failure path the workflow would otherwise
+     * complete without ever scheduling the unblocked handler threads. Marks the context as closing so updates that
+     * arrive during the yield are answered immediately instead of being enqueued. Idempotent; also called from the
+     * workflow adapter as a backstop for failures outside the agent loop.
+     *
+     * @param info           the agent context state
+     * @param failureMessage the agent's failure message, or null when the agent completed normally
+     */
+    public static void settleUpdates(AgentContextInfo info, String failureMessage) {
+        info.closing = true;
+        info.closingFailure = failureMessage;
+
         List<CompletablePromise<Object>> responders = new ArrayList<>();
         if (info.pendingResponder != null) {
             responders.add(info.pendingResponder);
@@ -384,13 +413,17 @@ public final class AgentContextNative {
             if (responder.isCompleted()) {
                 continue;
             }
-            if (failureMessage instanceof BString failure) {
+            if (failureMessage != null) {
                 responder.completeExceptionally(ApplicationFailure.newNonRetryableFailure(
-                        "The agent finished without consuming this update: " + failure.getValue(), "error"));
+                        "The agent finished without consuming this update: " + failureMessage, "error"));
             } else {
                 responder.complete(info.finalResponse);
             }
         }
+        // Yield so the unblocked handler threads run and deliver their update results
+        // before the workflow method returns (critical on the failure path, where the
+        // workflow would otherwise fail without scheduling them again).
+        Workflow.await(Workflow::isEveryHandlerFinished);
     }
 
     /**
