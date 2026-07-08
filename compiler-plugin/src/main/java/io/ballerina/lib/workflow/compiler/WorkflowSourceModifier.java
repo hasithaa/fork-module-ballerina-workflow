@@ -18,7 +18,6 @@
 
 package io.ballerina.lib.workflow.compiler;
 
-import io.ballerina.compiler.syntax.tree.FunctionDefinitionNode;
 import io.ballerina.compiler.syntax.tree.IdentifierToken;
 import io.ballerina.compiler.syntax.tree.ImportDeclarationNode;
 import io.ballerina.compiler.syntax.tree.ImportOrgNameNode;
@@ -33,7 +32,6 @@ import io.ballerina.compiler.syntax.tree.SeparatedNodeList;
 import io.ballerina.compiler.syntax.tree.SyntaxKind;
 import io.ballerina.compiler.syntax.tree.SyntaxTree;
 import io.ballerina.compiler.syntax.tree.Token;
-import io.ballerina.compiler.syntax.tree.TreeModifier;
 import io.ballerina.projects.DocumentId;
 import io.ballerina.projects.Module;
 import io.ballerina.projects.plugins.ModifierTask;
@@ -82,12 +80,29 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
         // a single registerWorkflowsAndStart() call that covers every workflow.
         List<Map.Entry<DocumentId, WorkflowModifierContext>> entries = new ArrayList<>();
         List<ProcessFunctionInfo> allProcessInfos = new ArrayList<>();
+        List<AgentFunctionInfo> allAgentInfos = new ArrayList<>();
 
         for (Map.Entry<DocumentId, WorkflowModifierContext> entry : this.modifierContextMap.entrySet()) {
-            if (!entry.getValue().getProcessInfoMap().isEmpty()) {
+            if (!entry.getValue().getProcessInfoMap().isEmpty()
+                    || !entry.getValue().getAgentInfoMap().isEmpty()) {
                 entries.add(entry);
                 allProcessInfos.addAll(entry.getValue().getProcessInfoMap().values());
+                allAgentInfos.addAll(entry.getValue().getAgentInfoMap().values());
             }
+        }
+
+        // An agent registers as an ordinary workflow whose activities are its
+        // tools plus the built-in LLM chat activity. Modeling agents as
+        // ProcessFunctionInfo entries reuses the registerWorkflow emission and
+        // the qualified-import copying below (workflow:llmChat needs the
+        // ballerina/workflow import in the generated-code document).
+        for (AgentFunctionInfo agent : allAgentInfos) {
+            Map<String, String> activityMap = new java.util.LinkedHashMap<>(agent.toolRefs());
+            activityMap.put(WorkflowConstants.LLM_CHAT_ACTIVITY,
+                    agent.workflowPrefix() + ":" + WorkflowConstants.LLM_CHAT_ACTIVITY);
+            activityMap.put(WorkflowConstants.GENERATE_ACTIVITY,
+                    agent.workflowPrefix() + ":" + WorkflowConstants.GENERATE_ACTIVITY);
+            allProcessInfos.add(new ProcessFunctionInfo(agent.functionName(), activityMap, Set.of()));
         }
 
         // Collect import declarations across every document in the module(s) being
@@ -163,11 +178,7 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
     private ModulePartNode transformDocument(ModulePartNode rootNode, WorkflowModifierContext workflowContext,
                                              List<ProcessFunctionInfo> allProcessInfos,
                                              List<String> connectionNames) {
-        // Transform function bodies (replace activity calls)
-        WorkflowTreeModifier treeModifier = new WorkflowTreeModifier(workflowContext);
-        ModulePartNode modifiedRoot = (ModulePartNode) rootNode.apply(treeModifier);
-
-        NodeList<ModuleMemberDeclarationNode> members = modifiedRoot.members();
+        NodeList<ModuleMemberDeclarationNode> members = rootNode.members();
         List<ModuleMemberDeclarationNode> newMembers = new ArrayList<>();
         for (ModuleMemberDeclarationNode member : members) {
             newMembers.add(member);
@@ -182,7 +193,7 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
         }
 
         NodeList<ModuleMemberDeclarationNode> updatedMembers = NodeFactory.createNodeList(newMembers);
-        return modifiedRoot.modify(modifiedRoot.imports(), updatedMembers, modifiedRoot.eofToken());
+        return rootNode.modify(rootNode.imports(), updatedMembers, rootNode.eofToken());
     }
 
     private List<String> collectConnectionNames(String moduleKey, boolean isTestDocument) {
@@ -481,35 +492,6 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
 
         return NodeFactory.createImportDeclarationNode(importKeyword, importOrgNameToken, moduleName,
                 importPrefix, semicolonToken);
-    }
-
-    /**
-     * Tree modifier that handles process functions.
-     * Note: Direct activity call transformation has been removed.
-     * Users must explicitly use ctx->callActivity(activityFunc, args...) pattern.
-     */
-    private static class WorkflowTreeModifier extends TreeModifier {
-        private final WorkflowModifierContext workflowContext;
-
-        WorkflowTreeModifier(WorkflowModifierContext workflowContext) {
-            this.workflowContext = workflowContext;
-        }
-
-        @Override
-        public FunctionDefinitionNode transform(FunctionDefinitionNode functionNode) {
-            String functionName = functionNode.functionName().text();
-
-            // Check if this is a process function - just apply standard transformation
-            if (workflowContext.getProcessInfoMap().containsKey(functionName)) {
-                return super.transform(functionNode);
-            }
-
-            return functionNode;
-        }
-
-        // Note: FunctionCallExpressionNode transformation removed.
-        // Direct activity calls are now disallowed and validated by WorkflowValidatorTask.
-        // Users must use ctx->callActivity(activityFunc, args...) pattern.
     }
 
     private static String escapeBallerinaStringLiteral(String value) {

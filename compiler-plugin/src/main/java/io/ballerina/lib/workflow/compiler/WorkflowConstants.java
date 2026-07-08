@@ -40,6 +40,24 @@ public final class WorkflowConstants {
     // Annotation names
     public static final String PROCESS_ANNOTATION = "Workflow";
     public static final String ACTIVITY_ANNOTATION = "Activity";
+    public static final String AGENT_ANNOTATION = "DurableAgent";
+
+    // Agent support
+    /** Name of the built-in LLM chat activity in ballerina/workflow; reserved as an agent activity key. */
+    public static final String LLM_CHAT_ACTIVITY = "llmChat";
+    /** Name of the built-in structured-generation activity in ballerina/workflow. */
+    public static final String GENERATE_ACTIVITY = "generate";
+    /** AgentContext type name (first parameter of a @DurableAgent function). */
+    public static final String AGENT_CONTEXT_TYPE = "AgentContext";
+    /** AgentContext methods that register tools; scanned to discover activities for init registration. */
+    public static final String REGISTER_ACTIVITIES_METHOD = "registerActivities";
+    public static final String REGISTER_AGENT_TOOLS_METHOD = "registerAgentTools";
+    /** Name of the agent loop function in ballerina/workflow called from generated agent bodies. */
+    public static final String RUN_AGENT_FUNCTION = "runAgent";
+    /** The ai module providing the ModelProvider type used by agents. */
+    public static final String AI_PACKAGE_ORG = "ballerina";
+    public static final String AI_PACKAGE_NAME = "ai";
+    public static final String MODEL_PROVIDER_TYPE = "ModelProvider";
 
     // Function names
     public static final String CALL_ACTIVITY_FUNCTION = "callActivity";

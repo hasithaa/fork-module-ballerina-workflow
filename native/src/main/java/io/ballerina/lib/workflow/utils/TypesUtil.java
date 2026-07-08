@@ -370,6 +370,20 @@ public final class TypesUtil {
      * @return JSON schema string for an object with parameter-named fields
      */
     public static String toJsonSchemaForParameters(Parameter[] parameters, int startIndex, int endExclusive) {
+        return toJsonString(toParameterSchemaMap(parameters, startIndex, endExclusive));
+    }
+
+    /**
+     * Builds a JSON Schema object (as a map) for a list of function parameters. Same shape as
+     * {@link #toJsonSchemaForParameters} but returns the underlying map so callers can embed it into larger
+     * structures (e.g. an agent tool definition) without a string round-trip.
+     *
+     * @param parameters   function parameters
+     * @param startIndex   first parameter index to include
+     * @param endExclusive exclusive upper bound
+     * @return a map representing the JSON schema object
+     */
+    public static Map<String, Object> toParameterSchemaMap(Parameter[] parameters, int startIndex, int endExclusive) {
         Map<String, Object> root = new LinkedHashMap<>();
         root.put("type", "object");
 
@@ -393,7 +407,7 @@ public final class TypesUtil {
         if (!required.isEmpty()) {
             root.put("required", required);
         }
-        return toJsonString(root);
+        return root;
     }
 
     private static Object toJsonSchemaObject(Type rawType, int depth) {
@@ -573,7 +587,13 @@ public final class TypesUtil {
         return map;
     }
 
-    private static String toJsonString(Object value) {
+    /**
+     * Serializes a plain Java value (maps, lists, strings, numbers, booleans, null) to a JSON string.
+     *
+     * @param value the value to serialize
+     * @return the JSON string
+     */
+    public static String toJsonString(Object value) {
         if (value == null) {
             return "null";
         }

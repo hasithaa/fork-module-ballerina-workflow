@@ -165,6 +165,10 @@ public final class WorkflowWorkerNative {
     // The registration routine prefixes the variable name with the caller module
     // identity so names remain globally unique across modules in the same JVM.
     private static final Map<String, BObject> CONNECTION_REGISTRY = new ConcurrentHashMap<>();
+    // Maps an agent's workflow type (e.g. {@code workflow-processOrderAgent}) to the
+    // ai:ModelProvider client used by its LLM activity. Populated by the
+    // compiler-plugin-emitted `wfInternal:registerAgentModel(...)` calls at module init.
+    private static final Map<String, BObject> AGENT_MODEL_REGISTRY = new ConcurrentHashMap<>();
     // Flags for singleton state
     private static final AtomicBoolean initialized = new AtomicBoolean(false);
     private static final AtomicBoolean started = new AtomicBoolean(false);
@@ -1056,6 +1060,36 @@ public final class WorkflowWorkerNative {
     }
 
     /**
+     * Registers the {@code ai:ModelProvider} client used by an agent workflow's built-in LLM activities. Called at
+     * runtime from {@code AgentContext.runDurableAgent} (via {@code AgentContextNative.registerModel}) with the agent's
+     * full workflow type as the key.
+     *
+     * @param workflowType the agent's full workflow type (already {@code workflow-}-prefixed)
+     * @param model        the model provider client object
+     */
+    public static void putAgentModel(String workflowType, BObject model) {
+        AGENT_MODEL_REGISTRY.put(workflowType, model);
+        LOGGER.debug("Registered agent model provider for: {}", workflowType);
+    }
+
+    /**
+     * Returns the model provider registered for the given agent workflow type. Called from the built-in
+     * {@code llmChat} activity, which receives the full workflow type (already {@code workflow-}-prefixed).
+     *
+     * @param agentWorkflowType the agent's full workflow type
+     * @return the registered model provider, or a {@code BError} when none is registered
+     */
+    public static Object getAgentModel(BString agentWorkflowType) {
+        BObject model = AGENT_MODEL_REGISTRY.get(agentWorkflowType.getValue());
+        if (model == null) {
+            return ErrorCreator.createError(StringUtils.fromString(
+                    "No model provider is registered for agent '" + agentWorkflowType.getValue()
+                            + "'. Define a module-level final ai:ModelProvider variable in the agent's module."));
+        }
+        return model;
+    }
+
+    /**
      * Gets error details from a Ballerina error as a serializable map.
      *
      * @param error the Ballerina error
@@ -1455,8 +1489,10 @@ public final class WorkflowWorkerNative {
                 // Extract workflow arguments from EncodedValues
                 Object[] workflowArgs = extractWorkflowArguments(args);
 
-                // Check if the process function expects a Context parameter
+                // Check if the process function expects a Context / AgentContext parameter
                 boolean hasContext = EventExtractor.hasContextParameter(processFunction);
+                boolean hasAgentContext = EventExtractor.hasAgentContextParameter(processFunction);
+                boolean hasFirstCtxParam = hasContext || hasAgentContext;
 
                 // Convert workflow arguments to match expected parameter types.
                 // After Temporal JSON round-trip, record inputs arrive as map<anydata>
@@ -1464,7 +1500,7 @@ public final class WorkflowWorkerNative {
                 if (processFunction != null && workflowArgs.length > 0) {
                     FunctionType funcType = (FunctionType) processFunction.getType();
                     Parameter[] params = funcType.getParameters();
-                    int startIdx = hasContext ? 1 : 0;
+                    int startIdx = hasFirstCtxParam ? 1 : 0;
                     for (int i = 0; i < workflowArgs.length; i++) {
                         int paramIdx = startIdx + i;
                         if (paramIdx < params.length && workflowArgs[i] != null) {
@@ -1488,8 +1524,10 @@ public final class WorkflowWorkerNative {
                 // Build arguments array with Context and Events as needed
                 List<Object> argsList = new ArrayList<>();
 
-                // Add Context as first argument if needed
-                if (hasContext) {
+                // Add Context / AgentContext as first argument if needed
+                if (hasAgentContext) {
+                    argsList.add(createAgentContext(processFunction));
+                } else if (hasContext) {
                     BObject contextObj = createWorkflowContext();
                     argsList.add(contextObj);
                 }
@@ -1714,6 +1752,34 @@ public final class WorkflowWorkerNative {
                     "Context",
                     nativeContextHandle
                                                  );
+        }
+
+        /**
+         * Creates a Ballerina {@code AgentContext} object for a durable agent workflow. The native handle carries the
+         * workflow identity, this instance's signal wrapper, and the declared event names so the agent loop can
+         * register tools, wait for events, and run durably.
+         *
+         * @param processFunction the agent function pointer (used to extract declared event names)
+         * @return the AgentContext BObject
+         */
+        private BObject createAgentContext(BFunctionPointer processFunction) {
+            if (workflowModule == null) {
+                io.temporal.failure.ApplicationFailure failure =
+                        io.temporal.failure.ApplicationFailure.newFailure(
+                                "Ballerina workflow module is not properly initialized.", "error");
+                failure.setNonRetryable(true);
+                failure.setStackTrace(new StackTraceElement[0]);
+                throw failure;
+            }
+            io.temporal.workflow.WorkflowInfo temporalInfo = Workflow.getInfo();
+            Set<String> eventNames = new java.util.HashSet<>(
+                    EventExtractor.extractEventNames(processFunction));
+            io.ballerina.lib.workflow.context.AgentContextNative.AgentContextInfo agentInfo =
+                    new io.ballerina.lib.workflow.context.AgentContextNative.AgentContextInfo(
+                            temporalInfo.getWorkflowId(), temporalInfo.getWorkflowType(),
+                            signalWrapper, eventNames);
+            Object nativeContextHandle = ValueCreator.createHandleValue(agentInfo);
+            return ValueCreator.createObjectValue(workflowModule, "AgentContext", nativeContextHandle);
         }
 
         /**

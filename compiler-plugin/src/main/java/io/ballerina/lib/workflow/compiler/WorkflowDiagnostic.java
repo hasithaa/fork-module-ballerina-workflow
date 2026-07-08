@@ -145,6 +145,37 @@ public enum WorkflowDiagnostic {
     WORKFLOW_129("WORKFLOW_129",
             "@Workflow function's events record field '%s' has type 'future<%s>', but '%s' is not a "
                     + "subtype of 'anydata'",
+            DiagnosticSeverity.ERROR),
+    WORKFLOW_130("WORKFLOW_130",
+            "@DurableAgent function must be declared with an external body ('= external;'). "
+                    + "The workflow compiler plugin generates the durable agent loop",
+            DiagnosticSeverity.ERROR),
+    WORKFLOW_131("WORKFLOW_131",
+            "@DurableAgent function signature must be an input record parameter, "
+                    + "optionally followed by an events record with a single 'future<string> chat' field. "
+                    + "The input must be a subtype of 'anydata' and a 'workflow:Context' parameter is not allowed",
+            DiagnosticSeverity.ERROR),
+    WORKFLOW_132("WORKFLOW_132",
+            "@DurableAgent function's events parameter must be a record with a single "
+                    + "'future<string> chat' field",
+            DiagnosticSeverity.ERROR),
+    WORKFLOW_133("WORKFLOW_133",
+            "@DurableAgent function return type must be 'string|error'",
+            DiagnosticSeverity.ERROR),
+    WORKFLOW_134("WORKFLOW_134",
+            "Agent tool '%s' must be a module-level function annotated with @workflow:Activity",
+            DiagnosticSeverity.ERROR),
+    WORKFLOW_135("WORKFLOW_135",
+            "Agent tool name '%s' collides with another tool or the reserved built-in activity 'llmChat'. "
+                    + "Tool function names must be unique within an agent",
+            DiagnosticSeverity.ERROR),
+    WORKFLOW_136("WORKFLOW_136",
+            "Cannot resolve a model provider for @DurableAgent function '%s': %s. "
+                    + "Define exactly one module-level 'final' 'ai:ModelProvider' variable in this module, "
+                    + "or select one by name via the 'model' field of the @DurableAgent annotation",
+            DiagnosticSeverity.ERROR),
+    WORKFLOW_137("WORKFLOW_137",
+            "@DurableAgent cannot be combined with @Workflow or @Activity on the same function",
             DiagnosticSeverity.ERROR);
 
     private final String code;

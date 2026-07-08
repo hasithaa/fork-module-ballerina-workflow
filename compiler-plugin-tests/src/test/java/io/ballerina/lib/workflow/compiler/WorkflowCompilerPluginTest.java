@@ -732,6 +732,55 @@ public class WorkflowCompilerPluginTest {
                 "Expected message to contain '" + substring + "' but got: " + diagnostic.message());
     }
 
+    // ===== @DurableAgent (imperative) test cases =====
+    //
+    // These fixtures deliberately do NOT import ballerina/ai: the ai compiler
+    // plugin needs swagger-core, which is not on the BuildProject test harness
+    // classpath (it works under a real `bal build`). Validation of the workflow
+    // diagnostics and the tool-registration codegen needs only ballerina/workflow.
+    // End-to-end runs with a real ai:ModelProvider are covered by the package unit
+    // tests and the integration test / example.
+
+    @Test(groups = "valid")
+    public void testValidAgentBasic() {
+        // Codegen must scan ctx.registerActivities([...]) and register the agent as a
+        // workflow with its tools + built-in llmChat/generate activities, compiling cleanly.
+        DiagnosticResult diagnosticResult = getDiagnosticResult("valid_agent_basic");
+        Assert.assertEquals(diagnosticResult.errorCount(), 0,
+                "Expected no errors for a valid @DurableAgent. Errors: "
+                        + getDiagnosticMessages(diagnosticResult));
+    }
+
+    @Test(groups = "invalid")
+    public void testInvalidAgentExternalBody() {
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult("invalid_agent_external_body");
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_130);
+    }
+
+    @Test(groups = "invalid")
+    public void testInvalidAgentNoContext() {
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult("invalid_agent_no_context");
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_131);
+    }
+
+    @Test(groups = "invalid")
+    public void testInvalidAgentEventsShape() {
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult("invalid_agent_events_shape");
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_132);
+    }
+
+    @Test(groups = "invalid")
+    public void testInvalidAgentReturnType() {
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult("invalid_agent_return_type");
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_133);
+    }
+
+    @Test(groups = "invalid")
+    public void testInvalidAgentWithWorkflowAnnotation() {
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult("invalid_agent_with_workflow_annotation");
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_137);
+    }
+
     // ===== sendData validation test cases =====
 
     @Test(groups = "valid")

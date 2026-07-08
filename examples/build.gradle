@@ -31,7 +31,8 @@ def examplePackageNames = [
     'forward-recovery'   : 'forward_recovery',
     'order-processing'   : 'order_processing',
     'order-with-payment' : 'order_with_payment',
-    'management-api'     : 'management_api'
+    'management-api'     : 'management_api',
+    'agent-order-processing': 'agent_order_processing'
 ]
 
 def ballerinaDistributionVersion = project.rootProject.findProperty("ballerinaLangVersion") ?: "2201.13.2"

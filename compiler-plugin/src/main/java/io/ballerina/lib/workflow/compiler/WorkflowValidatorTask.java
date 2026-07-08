@@ -116,6 +116,15 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         if (hasAnnotation(functionNode, semanticModel, WorkflowConstants.ACTIVITY_ANNOTATION)) {
             validateActivityFunction(functionNode, context);
         }
+
+        // Check if function has @DurableAgent annotation
+        if (hasAnnotation(functionNode, semanticModel, WorkflowConstants.AGENT_ANNOTATION)) {
+            if (hasAnnotation(functionNode, semanticModel, WorkflowConstants.PROCESS_ANNOTATION)
+                    || hasAnnotation(functionNode, semanticModel, WorkflowConstants.ACTIVITY_ANNOTATION)) {
+                reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_137);
+            }
+            validateAgentFunction(functionNode, context);
+        }
     }
 
     private boolean hasAnnotation(FunctionDefinitionNode functionNode, SemanticModel semanticModel,
@@ -914,6 +923,84 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                 diagnostic.getCode(), diagnostic.getMessage(), diagnostic.getSeverity());
         context.reportDiagnostic(DiagnosticFactory.createDiagnostic(diagnosticInfo,
                 functionNode.functionName().location()));
+    }
+
+    // =========================================================================
+    // @DurableAgent function validation
+    // =========================================================================
+
+    /**
+     * Validates a {@code @workflow:DurableAgent} function.
+     * <ul>
+     *   <li>WORKFLOW_130 — must have a body (not {@code = external})</li>
+     *   <li>WORKFLOW_131 — signature must be {@code (workflow:AgentContext ctx, InputRecord input,
+     *       EventsRecord events?)} with input a subtype of anydata</li>
+     *   <li>WORKFLOW_132 — the events parameter, when present, must be an all-{@code future} record</li>
+     *   <li>WORKFLOW_133 — return type must be {@code error?}</li>
+     * </ul>
+     */
+    private void validateAgentFunction(FunctionDefinitionNode functionNode, SyntaxNodeAnalysisContext context) {
+        SemanticModel semanticModel = context.semanticModel();
+
+        // Body must not be external.
+        if (functionNode.functionBody().kind() == SyntaxKind.EXTERNAL_FUNCTION_BODY) {
+            reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_130);
+        }
+
+        Optional<Symbol> symbolOpt = semanticModel.symbol(functionNode);
+        if (symbolOpt.isEmpty() || symbolOpt.get().kind() != SymbolKind.FUNCTION) {
+            return;
+        }
+        FunctionTypeSymbol typeSymbol = ((FunctionSymbol) symbolOpt.get()).typeDescriptor();
+
+        // Signature: (AgentContext ctx, InputRecord input, EventsRecord events?).
+        List<ParameterSymbol> params = typeSymbol.params().orElse(List.of());
+        if (params.size() < 2 || params.size() > 3
+                || !isAgentContextType(params.get(0).typeDescriptor())
+                || !WorkflowPluginUtils.isSubtypeOfAnydata(params.get(1).typeDescriptor(), semanticModel)) {
+            reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_131);
+        } else if (params.size() == 3 && !isValidEventsType(params.get(2).typeDescriptor())) {
+            reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_132);
+        }
+
+        // Return type: error? (no value).
+        Optional<TypeSymbol> returnTypeOpt = typeSymbol.returnTypeDescriptor();
+        if (returnTypeOpt.isPresent() && !isErrorOptional(returnTypeOpt.get(), semanticModel)) {
+            reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_133);
+        }
+    }
+
+    /**
+     * Returns true when the type is the {@code workflow:AgentContext} object type.
+     */
+    private boolean isAgentContextType(TypeSymbol typeSymbol) {
+        TypeSymbol resolved = WorkflowPluginUtils.resolveTypeReference(typeSymbol);
+        Optional<String> nameOpt = resolved.getName();
+        if (nameOpt.isEmpty() || !WorkflowConstants.AGENT_CONTEXT_TYPE.equals(nameOpt.get())) {
+            return false;
+        }
+        Optional<io.ballerina.compiler.api.symbols.ModuleSymbol> moduleOpt = resolved.getModule();
+        return moduleOpt.isPresent() && WorkflowPluginUtils.isWorkflowModule(moduleOpt.get());
+    }
+
+    /**
+     * Returns true when the type is {@code ()} or a subtype of {@code error?} (i.e. only nil and error members).
+     */
+    private boolean isErrorOptional(TypeSymbol typeSymbol, SemanticModel semanticModel) {
+        TypeSymbol resolved = WorkflowPluginUtils.resolveTypeReference(typeSymbol);
+        if (resolved.typeKind() == TypeDescKind.NIL) {
+            return true;
+        }
+        if (resolved.typeKind() == TypeDescKind.UNION) {
+            for (TypeSymbol member : ((UnionTypeSymbol) resolved).memberTypeDescriptors()) {
+                TypeSymbol m = WorkflowPluginUtils.resolveTypeReference(member);
+                if (m.typeKind() != TypeDescKind.NIL && !m.subtypeOf(semanticModel.types().ERROR)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return resolved.subtypeOf(semanticModel.types().ERROR);
     }
 
     // =========================================================================
