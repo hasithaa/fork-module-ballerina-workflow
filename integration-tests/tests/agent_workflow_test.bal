@@ -71,6 +71,24 @@ function testDurableAgentMultiTurnConversation() returns error? {
 }
 
 @test:Config {}
+function testDurableAgentUpdateConversation() returns error? {
+    // updateAgent (Temporal Update) against the real server: each call delivers
+    // the message and returns the answer of the turn that consumed it.
+    string agentId = check workflow:run(conversationalStockAgent,
+            {id: "agent-int-update-001", request: "hello"});
+
+    string reply1 = check workflow:updateAgent(conversationalStockAgent, agentId, "chat", "how are you");
+    test:assertEquals(reply1, "Echo: how are you",
+            "updateAgent should return the turn's answer synchronously");
+
+    string reply2 = check workflow:updateAgent(conversationalStockAgent, agentId, "chat", "ok bye");
+    test:assertEquals(reply2, "Conversation ended",
+            "The final answer should complete the last update");
+
+    _ = check workflow:getWorkflowResult(agentId, 60);
+}
+
+@test:Config {}
 function testDurableAgentChatDriven() returns error? {
     string agentId = check workflow:run(chatDrivenStockAgent,
             {id: "agent-int-002", request: "unused"});

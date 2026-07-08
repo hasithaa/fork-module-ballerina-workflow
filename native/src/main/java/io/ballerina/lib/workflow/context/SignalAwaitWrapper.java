@@ -107,13 +107,29 @@ public final class SignalAwaitWrapper {
      * @param data       the signal data (expected to be a Map with "id" field)
      */
     public void recordSignal(String signalName, Object data) {
-        // Extract the id from the data if it's a Map
-        String id = extractId(data);
-        SignalData signalData = new SignalData(signalName, id, data);
+        recordSignalData(new SignalData(signalName, extractId(data), data, null));
+    }
+
+    /**
+     * Records an update (request-response) delivery: like {@link #recordSignal}, but the stored signal carries a
+     * responder promise that the consumer completes with the response for this request (durable agents complete it
+     * with the answer of the turn that consumed the message).
+     *
+     * @param signalName the event name the update targets
+     * @param data       the update payload
+     * @param responder  the promise the update handler is blocked on
+     */
+    public void recordUpdate(String signalName, Object data, CompletablePromise<Object> responder) {
+        recordSignalData(new SignalData(signalName, extractId(data), data, responder));
+    }
+
+    private void recordSignalData(SignalData signalData) {
+        String signalName = signalData.signalName();
 
         // Store in completed signals (for replay scenarios)
         completedSignals.put(signalName, signalData);
-        LOGGER.debug("[SignalAwaitWrapper] Signal '{}' (id={}) recorded in completed signals", signalName, id);
+        LOGGER.debug("[SignalAwaitWrapper] Signal '{}' (id={}) recorded in completed signals",
+                signalName, signalData.id());
 
         // Complete the promise if one exists
         CompletablePromise<SignalData> promise = signalPromises.get(signalName);
@@ -203,13 +219,26 @@ public final class SignalAwaitWrapper {
      * @param signalName the signal name
      * @param id         the correlation id (from "id" field in data)
      * @param data       the full signal data
+     * @param responder  non-null when this delivery is a request-response update: the promise the update handler is
+     *                   blocked on, to be completed with the response for this request
      */
-    public record SignalData(String signalName, String id, Object data) {
+    public record SignalData(String signalName, String id, Object data, CompletablePromise<Object> responder) {
         /**
          * Creates a new SignalData.
          */
         public SignalData {
             java.util.Objects.requireNonNull(signalName, "signalName must not be null");
+        }
+
+        /**
+         * Creates a plain (one-way) signal data without a responder.
+         *
+         * @param signalName the signal name
+         * @param id         the correlation id
+         * @param data       the full signal data
+         */
+        public SignalData(String signalName, String id, Object data) {
+            this(signalName, id, data, null);
         }
 
         /**
@@ -224,7 +253,8 @@ public final class SignalAwaitWrapper {
 
         @Override
         public String toString() {
-            return "SignalData{signalName='" + signalName + "', id='" + id + "', data=" + data + "}";
+            return "SignalData{signalName='" + signalName + "', id='" + id + "', data=" + data
+                    + "', hasResponder=" + (responder != null) + "}";
         }
     }
 }

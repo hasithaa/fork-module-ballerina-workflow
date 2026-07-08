@@ -17,7 +17,6 @@
 import ballerina/ai;
 import ballerina/io;
 import ballerina/jballerina.java;
-import ballerina/lang.runtime;
 import ballerina/workflow;
 
 type OrderRequest record {|
@@ -103,39 +102,22 @@ isolated client class MockModelProvider {
 final MockModelProvider orderModel = new;
 
 public function main() returns error? {
-    string agentId = check workflow:run(orderAgent,
-            {orderId: "ORD-001", userPrompt: "Is the laptop available?"});
+    // Start the agent with no initial prompt: it suspends durably until the
+    // first chat message arrives.
+    string agentId = check workflow:run(orderAgent, {orderId: "ORD-001", userPrompt: ""});
     io:println("Agent started with ID: " + agentId);
 
-    // Turn 1: the agent checks inventory, answers, and durably waits for chat.
-    io:println("Turn 1: " + waitForResponse(agentId, "Good news"));
+    // Each turn is a synchronous request-response (a Temporal Update under the
+    // hood): the message and the agent's answer for that turn travel together.
+    string reply1 = check workflow:updateAgent(orderAgent, agentId, "chat", "Is the laptop available?");
+    io:println("Turn 1: " + reply1);
 
-    // Turn 2: the user follows up; the agent consumes the next chat message.
-    check workflow:sendData(orderAgent, agentId, "chat", "Please expedite the shipping");
-    io:println("Turn 2: " + waitForResponse(agentId, "You said"));
+    string reply2 = check workflow:updateAgent(orderAgent, agentId, "chat", "Please expedite the shipping");
+    io:println("Turn 2: " + reply2);
 
-    // Final turn: the user says goodbye; the model ends the conversation.
-    check workflow:sendData(orderAgent, agentId, "chat", "great, bye!");
+    // The model ends the conversation when the user says goodbye.
+    string reply3 = check workflow:updateAgent(orderAgent, agentId, "chat", "great, bye!");
+    io:println("Final: " + reply3);
+
     _ = check workflow:getWorkflowResult(agentId);
-    io:println("Final: " + (getAgentResponse(agentId) ?: ""));
 }
-
-function waitForResponse(string agentId, string expectedPrefix) returns string {
-    foreach int i in 0 ..< 40 {
-        string? response = getAgentResponse(agentId);
-        if response is string && response.includes(expectedPrefix) {
-            return response;
-        }
-        runtime:sleep(0.5);
-    }
-    return "<no response>";
-}
-
-// In-process probe for the agent's latest response. In a service deployment,
-// use `management:getAgentResponse(agentId)` instead — importing
-// `ballerina/workflow.management` also hosts the management HTTP API, which
-// keeps the program running (this example is a run-to-completion demo).
-isolated function getAgentResponse(string agentId) returns string? = @java:Method {
-    'class: "io.ballerina.lib.workflow.context.AgentResponseStore",
-    name: "getFinalResponse"
-} external;

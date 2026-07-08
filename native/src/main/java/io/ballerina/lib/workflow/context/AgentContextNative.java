@@ -89,6 +89,9 @@ public final class AgentContextNative {
         private Long eventTimeoutMillis = null;
         private long maxEventWaits = 50;
         private long eventWaitCount = 0;
+        // The responder of the updateAgent request whose message the agent most recently
+        // consumed; completed with the next recorded response (the turn's answer).
+        private io.temporal.workflow.CompletablePromise<Object> pendingResponder = null;
 
         public AgentContextInfo(String workflowId, String workflowType, SignalAwaitWrapper signalWrapper,
                                 Set<String> eventNames) {
@@ -313,6 +316,11 @@ public final class AgentContextNative {
         AgentContextInfo info = (AgentContextInfo) handle.getValue();
         info.finalResponse = response.getValue();
         AgentResponseStore.put(info.workflowId, response.getValue());
+        // Answer the updateAgent request whose message this turn consumed, if any.
+        if (info.pendingResponder != null && !info.pendingResponder.isCompleted()) {
+            info.pendingResponder.complete(response.getValue());
+        }
+        info.pendingResponder = null;
         // Surface the (latest) response cross-process via the workflow memo, so
         // management:getAgentResponse works from any process. Best-effort: some test
         // environments may not support memo upserts; the in-JVM store remains the fallback.
@@ -425,7 +433,19 @@ public final class AgentContextNative {
         } else {
             Workflow.await(future::isCompleted);
         }
-        return future.get().data();
+
+        SignalAwaitWrapper.SignalData signalData = future.get();
+        if (signalData.responder() != null) {
+            // This message came from updateAgent: its responder is completed with the
+            // answer of the turn now starting (the next recorded response).
+            if (info.pendingResponder != null && !info.pendingResponder.isCompleted()) {
+                info.pendingResponder.completeExceptionally(
+                        io.temporal.failure.ApplicationFailure.newNonRetryableFailure(
+                                "The agent consumed another event before answering this update", "error"));
+            }
+            info.pendingResponder = signalData.responder();
+        }
+        return signalData.data();
     }
 
     /**

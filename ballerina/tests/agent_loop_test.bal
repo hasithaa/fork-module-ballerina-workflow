@@ -315,6 +315,14 @@ isolated client class ConversationMockModelProvider {
         if lastChat.includes("bye") {
             return {role: ai:ASSISTANT, content: "Conversation ended"};
         }
+        if lastChat.includes("json") {
+            // Structured answer: updateAgent callers with a record-typed T parse this.
+            return {
+                role: ai:ASSISTANT,
+                content: "{\"status\": \"ok\", \"count\": 2}",
+                toolCalls: [{name: "awaitEvent_chat", arguments: {}}]
+            };
+        }
         return {
             role: ai:ASSISTANT,
             content: "Echo: " + lastChat,
@@ -482,6 +490,15 @@ function humanTaskTimeoutAgent(AgentContext ctx, AgentOrderInput input) returns 
     check ctx->runDurableAgent(slowApprovalAgentModel, {systemPrompt: "Get approval."}, input.request);
 }
 
+// Plain (non-agent) workflow parked on an event — used to verify that
+// updateAgent rejects non-agent workflows.
+@Workflow
+function parkedPlainWorkflow(Context ctx, AgentOrderInput input,
+        record {| future<string> go; |} events) returns string|error {
+    string signal = check wait events.go;
+    return signal;
+}
+
 // ── Setup ────────────────────────────────────────────────────────────────────
 
 @test:BeforeSuite
@@ -512,6 +529,7 @@ function setupAgentTests() returns error? {
     _ = check wfInternal:registerWorkflow(toolkitAgent, "toolkit-agent", agentActivities);
     _ = check wfInternal:registerWorkflow(humanTaskTimeoutAgent, "humantask-timeout-agent",
             agentActivities);
+    _ = check wfInternal:registerWorkflow(parkedPlainWorkflow, "parked-plain-workflow");
 }
 
 // Polls until the agent's latest recorded response equals `expected`.
@@ -766,6 +784,78 @@ function testAgentToolkitTools() returns error? {
     _ = check getWorkflowResult(runResult, 30);
     test:assertEquals(getAgentFinalResponse(runResult), "Price info: laptop costs $999",
             "Toolkit tools should register and execute like other AI tools");
+}
+
+@test:Config {groups: ["unit"]}
+function testAgentUpdateConversation() returns error? {
+    // updateAgent is the request-response counterpart of sendData: each call
+    // delivers the message and returns the answer of the turn that consumed it —
+    // no polling required.
+    map<anydata> input = {id: "agent-update-conv-001", request: "hello"};
+    string|error runResult = run(conversationAgent, input);
+    if runResult is error {
+        return; // No workflow server available — skip.
+    }
+    string agentId = runResult;
+
+    string reply1 = check updateAgent(conversationAgent, agentId, "chat", "how are you");
+    test:assertEquals(reply1, "Echo: how are you",
+            "updateAgent should return the answer of the turn that consumed the request");
+
+    string reply2 = check updateAgent(conversationAgent, agentId, "chat", "ok bye");
+    test:assertEquals(reply2, "Conversation ended",
+            "The final answer should complete the last update");
+
+    _ = check getWorkflowResult(agentId, 30);
+}
+
+type UpdateStatus record {|
+    string status;
+    int count;
+|};
+
+@test:Config {groups: ["unit"]}
+function testAgentUpdateStructuredResponse() returns error? {
+    // With a record-typed T, the agent's textual answer is parsed as JSON and
+    // coerced via updateAgent's dependently-typed return.
+    map<anydata> input = {id: "agent-update-struct-001", request: "hello"};
+    string|error runResult = run(conversationAgent, input);
+    if runResult is error {
+        return; // No workflow server available — skip.
+    }
+    string agentId = runResult;
+
+    UpdateStatus status = check updateAgent(conversationAgent, agentId, "chat", "give me json");
+    test:assertEquals(status, <UpdateStatus>{status: "ok", count: 2},
+            "Structured T should parse the agent's JSON answer");
+
+    string finalReply = check updateAgent(conversationAgent, agentId, "chat", "ok bye");
+    test:assertEquals(finalReply, "Conversation ended");
+    _ = check getWorkflowResult(agentId, 30);
+}
+
+@test:Config {groups: ["unit"]}
+function testUpdateAgentRejectsPlainWorkflow() returns error? {
+    // updateAgent only works for durable agents; plain workflows bind data
+    // imperatively, so there is no framework-owned response to correlate.
+    map<anydata> input = {id: "update-plain-wf-001", request: "unused"};
+    string|error runResult = run(parkedPlainWorkflow, input);
+    if runResult is error {
+        return; // No workflow server available — skip.
+    }
+    string workflowId = runResult;
+    runtime:sleep(1);
+
+    string|error result = updateAgent(parkedPlainWorkflow, workflowId, "go", "ping");
+    test:assertTrue(result is error, "updateAgent on a plain workflow should fail");
+    if result is error {
+        test:assertTrue(result.message().includes("DurableAgent"),
+                "Error should mention agents-only support: " + result.message());
+    }
+
+    // Release the parked workflow.
+    check sendData(parkedPlainWorkflow, workflowId, "go", "done");
+    _ = check getWorkflowResult(workflowId, 30);
 }
 
 @test:Config {groups: ["unit"]}

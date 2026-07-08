@@ -103,6 +103,11 @@ public final class WorkflowWorkerNative {
      */
     public static final String WORKFLOW_TYPE_PREFIX = "workflow-";
     /**
+     * Temporal update name used by {@code workflow:updateAgent} for request-response interactions with durable
+     * agents. Args layout: eventName (String), payload (Object); the update result is the agent's turn response.
+     */
+    public static final String AGENT_UPDATE_NAME = "agentUpdate";
+    /**
      * Temporal workflow type used for all built-in manual retry task child workflows. Prefixed with {@code retrytask-}
      * so internal workflows are clearly separated from user-defined ones and can be identified via a simple STARTS_WITH
      * check.
@@ -1355,6 +1360,10 @@ public final class WorkflowWorkerNative {
         // Per-workflow signal wrapper for managing signal futures
         // This handles signal recording and replay scenarios
         private final SignalAwaitWrapper signalWrapper = new SignalAwaitWrapper();
+        // Set on the workflow thread by execute() when the registered function is a durable
+        // agent; read by the dynamic update handler (also on the workflow thread) to reject
+        // updateAgent calls targeting non-agent workflows.
+        private boolean agentWorkflow = false;
         // Per-workflow-instance service object (created fresh for each workflow execution including replays)
         // This ensures isolation between workflow instances and proper state management
         private BObject serviceObject;
@@ -1427,6 +1436,36 @@ public final class WorkflowWorkerNative {
                     }
                                      );
             LOGGER.debug("[JWorkflowAdapter] Dynamic signal handler registered");
+
+            // Register a dynamic update handler backing `workflow:updateAgent` — the
+            // request-response counterpart of sendData for durable agents. The payload is
+            // enqueued into the agent's event channel carrying a responder promise; the
+            // agent loop completes the responder with the answer of the turn that consumed
+            // the message, which becomes the update result. Only meaningful for durable
+            // agents: normal workflows bind incoming data imperatively, so there is no
+            // framework-owned response to correlate.
+            Workflow.registerListener(
+                    (io.temporal.workflow.DynamicUpdateHandler) (updateName, encodedArgs) -> {
+                        if (!AGENT_UPDATE_NAME.equals(updateName)) {
+                            throw io.temporal.failure.ApplicationFailure.newNonRetryableFailure(
+                                    "Unknown update '" + updateName + "'", "error");
+                        }
+                        if (!this.agentWorkflow) {
+                            throw io.temporal.failure.ApplicationFailure.newNonRetryableFailure(
+                                    "updateAgent is only supported for @workflow:DurableAgent workflows",
+                                    "error");
+                        }
+                        String eventName = encodedArgs.get(0, String.class);
+                        Object payload = encodedArgs.get(1, Object.class);
+                        LOGGER.debug("[JWorkflowAdapter] Agent update received for event '{}'", eventName);
+
+                        io.temporal.workflow.CompletablePromise<Object> responder = Workflow.newPromise();
+                        signalWrapper.recordUpdate(eventName, payload, responder);
+                        Workflow.await(responder::isCompleted);
+                        return responder.get();
+                    }
+                                     );
+            LOGGER.debug("[JWorkflowAdapter] Dynamic update handler registered");
 
             // Register a dynamic query handler that routes to service methods
             Workflow.registerListener(
@@ -1547,6 +1586,7 @@ public final class WorkflowWorkerNative {
                 // Check if the process function expects a Context / AgentContext parameter
                 boolean hasContext = EventExtractor.hasContextParameter(processFunction);
                 boolean hasAgentContext = EventExtractor.hasAgentContextParameter(processFunction);
+                this.agentWorkflow = hasAgentContext;
                 boolean hasFirstCtxParam = hasContext || hasAgentContext;
 
                 // Convert workflow arguments to match expected parameter types.

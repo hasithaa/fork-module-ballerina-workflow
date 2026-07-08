@@ -46,6 +46,33 @@ public isolated function sendData(function workflow, string workflowId, string d
     'class: "io.ballerina.lib.workflow.runtime.nativeimpl.WorkflowNative"
 } external;
 
+# Sends a request to a running durable agent and waits for its response — the
+# request-response counterpart of `sendData`, modeled as a Temporal Update.
+# The payload is delivered to the agent's event wait (the message and the
+# agent's answer for that turn travel together); the call blocks until the
+# agent answers and returns that answer coerced to the expected type `T`.
+# For structured `T`, the agent's textual answer is parsed as JSON.
+#
+# Only supported for `@workflow:DurableAgent` workflows: their data intake and
+# turn answers are framework-managed, so the response can be correlated
+# implicitly. For plain workflows use one-way `sendData` instead.
+#
+# ```ballerina
+# string reply = check workflow:updateAgent(orderAgent, agentId, "chat", "Is the laptop available?");
+# ```
+#
+# + agentFunction - The agent function (must have `@workflow:DurableAgent`)
+# + agentId - Target agent (workflow) ID (from `run`)
+# + eventName - The event field name declared in the agent's signature
+# + data - The request payload
+# + T - Expected response type (inferred from context)
+# + return - The agent's answer for the turn that consumed this request, or an error
+public isolated function updateAgent(function agentFunction, string agentId, string eventName, anydata data,
+        typedesc<anydata> T = <>) returns T|error = @java:Method {
+    'class: "io.ballerina.lib.workflow.runtime.nativeimpl.WorkflowNative",
+    name: "updateAgent"
+} external;
+
 # Waits for a workflow to complete and returns its result.
 #
 # ```ballerina

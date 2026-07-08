@@ -28,11 +28,15 @@ import io.ballerina.runtime.api.creators.TypeCreator;
 import io.ballerina.runtime.api.creators.ValueCreator;
 import io.ballerina.runtime.api.types.MapType;
 import io.ballerina.runtime.api.types.RecordType;
+import io.ballerina.runtime.api.types.Type;
+import io.ballerina.runtime.api.utils.JsonUtils;
 import io.ballerina.runtime.api.utils.StringUtils;
 import io.ballerina.runtime.api.values.BArray;
+import io.ballerina.runtime.api.values.BError;
 import io.ballerina.runtime.api.values.BFunctionPointer;
 import io.ballerina.runtime.api.values.BMap;
 import io.ballerina.runtime.api.values.BString;
+import io.ballerina.runtime.api.values.BTypedesc;
 import io.temporal.api.common.v1.WorkflowExecution;
 import io.temporal.api.enums.v1.EventType;
 import io.temporal.api.enums.v1.WorkflowExecutionStatus;
@@ -270,6 +274,81 @@ public final class WorkflowNative {
 
             return getResult(balFuture);
         });
+    }
+
+    /**
+     * Backs {@code workflow:updateAgent} — the request-response counterpart of {@code sendData} for durable
+     * agents, modeled as a Temporal Update. Blocks until the agent consumes the message and answers the turn,
+     * then coerces the response to the caller's dependently-typed {@code T}: directly for string-compatible
+     * targets, or by parsing the response text as JSON for structured targets.
+     *
+     * @param env           the runtime environment
+     * @param agentFunction the agent function (symmetry with sendData; reserved for compile-time validation)
+     * @param agentId       the agent's workflow ID
+     * @param eventName     the event field name declared in the agent's signature
+     * @param data          the request payload
+     * @param typedesc      the expected response type
+     * @return the agent's turn response coerced to {@code T}, or a Ballerina error
+     */
+    public static Object updateAgent(Environment env, BFunctionPointer agentFunction, BString agentId,
+                                     BString eventName, Object data, BTypedesc typedesc) {
+        if (isInsideWorkflow()) {
+            return ErrorCreator.createError(StringUtils.fromString(
+                    "updateAgent cannot be called inside a workflow; use it from services or main"));
+        }
+        Object javaData = TypesUtil.convertBallerinaToJavaType(data);
+        String agentIdStr = agentId.getValue();
+        String eventNameStr = eventName.getValue();
+        Type targetType = typedesc.getDescribingType();
+
+        return env.yieldAndRun(() -> {
+            CompletableFuture<Object> balFuture = new CompletableFuture<>();
+
+            WorkflowRuntime.getInstance().getExecutor().execute(() -> {
+                try {
+                    WorkflowClient client = WorkflowWorkerNative.getWorkflowClient();
+                    if (client == null) {
+                        balFuture.complete(ErrorCreator.createError(StringUtils.fromString(
+                                "Workflow client not initialized. Ensure worker is initialized.")));
+                        return;
+                    }
+                    WorkflowStub stub = client.newUntypedWorkflowStub(agentIdStr);
+                    Object result = stub.update(WorkflowWorkerNative.AGENT_UPDATE_NAME,
+                            Object.class, eventNameStr, javaData);
+                    balFuture.complete(coerceAgentResponse(result, targetType));
+                } catch (Exception e) {
+                    Throwable cause = e.getCause();
+                    String message = cause != null && cause.getMessage() != null
+                            ? cause.getMessage() : e.getMessage();
+                    balFuture.complete(ErrorCreator.createError(StringUtils.fromString(
+                            "Failed to update agent '" + agentIdStr + "': " + message)));
+                }
+            });
+
+            return getResult(balFuture);
+        });
+    }
+
+    /**
+     * Coerces an agent's textual turn response to the caller's expected type. String-compatible targets convert
+     * directly; for structured targets the response text is parsed as JSON first (enabling typed responses when
+     * the model answers with JSON).
+     */
+    private static Object coerceAgentResponse(Object result, Type targetType) {
+        Object ballerinaResult = TypesUtil.convertJavaToBallerinaType(result);
+        Object converted = TypesUtil.validateAndConvert(ballerinaResult, targetType);
+        if (converted instanceof BError && ballerinaResult instanceof BString textResponse) {
+            try {
+                Object parsed = JsonUtils.parse(textResponse.getValue());
+                Object parsedConverted = TypesUtil.validateAndConvert(parsed, targetType);
+                if (!(parsedConverted instanceof BError)) {
+                    return parsedConverted;
+                }
+            } catch (Exception ignore) {
+                // Fall through to the original conversion error.
+            }
+        }
+        return converted;
     }
 
     /**
