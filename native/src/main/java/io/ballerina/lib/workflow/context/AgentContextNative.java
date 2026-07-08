@@ -21,9 +21,11 @@ package io.ballerina.lib.workflow.context;
 import io.ballerina.lib.workflow.utils.TypesUtil;
 import io.ballerina.lib.workflow.worker.WorkflowWorkerNative;
 import io.ballerina.runtime.api.creators.ErrorCreator;
+import io.ballerina.runtime.api.creators.ValueCreator;
 import io.ballerina.runtime.api.types.FunctionType;
 import io.ballerina.runtime.api.types.Parameter;
 import io.ballerina.runtime.api.types.TypeTags;
+import io.ballerina.runtime.api.utils.JsonUtils;
 import io.ballerina.runtime.api.utils.StringUtils;
 import io.ballerina.runtime.api.values.BFunctionPointer;
 import io.ballerina.runtime.api.values.BHandle;
@@ -31,8 +33,16 @@ import io.ballerina.runtime.api.values.BMap;
 import io.ballerina.runtime.api.values.BObject;
 import io.ballerina.runtime.api.values.BString;
 import io.ballerina.runtime.api.values.BTypedesc;
+import io.temporal.activity.ActivityOptions;
+import io.temporal.common.RetryOptions;
+import io.temporal.failure.ActivityFailure;
+import io.temporal.failure.ApplicationFailure;
+import io.temporal.failure.TemporalFailure;
+import io.temporal.worker.NonDeterministicException;
+import io.temporal.workflow.CompletablePromise;
 import io.temporal.workflow.Workflow;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -91,7 +101,7 @@ public final class AgentContextNative {
         private long eventWaitCount = 0;
         // The responder of the updateAgent request whose message the agent most recently
         // consumed; completed with the next recorded response (the turn's answer).
-        private io.temporal.workflow.CompletablePromise<Object> pendingResponder = null;
+        private CompletablePromise<Object> pendingResponder = null;
 
         public AgentContextInfo(String workflowId, String workflowType, SignalAwaitWrapper signalWrapper,
                                 Set<String> eventNames) {
@@ -336,6 +346,36 @@ public final class AgentContextNative {
     }
 
     /**
+     * Settles all outstanding updateAgent requests when the agent finishes, so accepted updates never outlive the
+     * workflow (which would fail them with "workflow completed before the update completed"). The consumed-but-
+     * unanswered responder and every queued-but-unconsumed responder are completed with the agent's final response,
+     * or exceptionally with the agent's failure message.
+     *
+     * @param handle         the agent context handle
+     * @param failureMessage the agent's failure message, or null when the agent completed normally
+     */
+    public static void finishAgentUpdates(BHandle handle, Object failureMessage) {
+        AgentContextInfo info = (AgentContextInfo) handle.getValue();
+        List<CompletablePromise<Object>> responders = new ArrayList<>();
+        if (info.pendingResponder != null) {
+            responders.add(info.pendingResponder);
+            info.pendingResponder = null;
+        }
+        responders.addAll(info.signalWrapper.drainPendingResponders());
+        for (CompletablePromise<Object> responder : responders) {
+            if (responder.isCompleted()) {
+                continue;
+            }
+            if (failureMessage instanceof BString failure) {
+                responder.completeExceptionally(ApplicationFailure.newNonRetryableFailure(
+                        "The agent finished without consuming this update: " + failure.getValue(), "error"));
+            } else {
+                responder.complete(info.finalResponse);
+            }
+        }
+    }
+
+    /**
      * Waits durably for the agent's {@code chat} event, if the agent declared one. Returns the message string, or
      * null when no chat event is declared.
      *
@@ -358,7 +398,7 @@ public final class AgentContextNative {
                 return bStr;
             }
             return StringUtils.fromString(String.valueOf(ballerina));
-        } catch (io.temporal.worker.NonDeterministicException | io.temporal.failure.TemporalFailure e) {
+        } catch (NonDeterministicException | TemporalFailure e) {
             throw e;
         } catch (Exception e) {
             return ErrorCreator.createError(StringUtils.fromString(
@@ -390,7 +430,7 @@ public final class AgentContextNative {
                         "Timed out waiting for event '" + name + "'"));
             }
             return TypesUtil.convertJavaToBallerinaType(data);
-        } catch (io.temporal.worker.NonDeterministicException | io.temporal.failure.TemporalFailure e) {
+        } catch (NonDeterministicException | TemporalFailure e) {
             throw e;
         } catch (Exception e) {
             return ErrorCreator.createError(StringUtils.fromString(
@@ -411,17 +451,17 @@ public final class AgentContextNative {
     private static Object awaitSignal(AgentContextInfo info, String eventName) throws Exception {
         info.eventWaitCount++;
         if (info.eventWaitCount > info.maxEventWaits) {
-            throw io.temporal.failure.ApplicationFailure.newNonRetryableFailure(
+            throw ApplicationFailure.newNonRetryableFailure(
                     "Agent exceeded the maximum number of event waits (" + info.maxEventWaits
                             + "). Configure ctx.setInteraction(...) to raise the limit.", "AGENT_EVENT_WAIT_LIMIT");
         }
 
-        io.temporal.workflow.CompletablePromise<SignalAwaitWrapper.SignalData> future = info.multiEvent
+        CompletablePromise<SignalAwaitWrapper.SignalData> future = info.multiEvent
                 ? info.signalWrapper.takeSignalFuture(eventName)
                 : info.signalWrapper.getSignalFuture(eventName);
 
         if (info.eventTimeoutMillis != null) {
-            boolean arrived = Workflow.await(java.time.Duration.ofMillis(info.eventTimeoutMillis),
+            boolean arrived = Workflow.await(Duration.ofMillis(info.eventTimeoutMillis),
                     future::isCompleted);
             if (!arrived) {
                 // Remove the abandoned FIFO waiter so a later signal is not consumed silently.
@@ -440,7 +480,7 @@ public final class AgentContextNative {
             // answer of the turn now starting (the next recorded response).
             if (info.pendingResponder != null && !info.pendingResponder.isCompleted()) {
                 info.pendingResponder.completeExceptionally(
-                        io.temporal.failure.ApplicationFailure.newNonRetryableFailure(
+                        ApplicationFailure.newNonRetryableFailure(
                                 "The agent consumed another event before answering this update", "error"));
             }
             info.pendingResponder = signalData.responder();
@@ -467,7 +507,7 @@ public final class AgentContextNative {
         }
         BMap<BString, Object> payloadMap = payload instanceof BMap
                 ? (BMap<BString, Object>) payload
-                : io.ballerina.runtime.api.creators.ValueCreator.createMapValue();
+                : ValueCreator.createMapValue();
         return WorkflowContextNative.awaitHumanTask(null, taskName, meta.userRoles(), payloadMap,
                 StringUtils.fromString(meta.title()), StringUtils.fromString(meta.description()),
                 meta.timeout(), meta.resultType());
@@ -498,10 +538,10 @@ public final class AgentContextNative {
             callConfig.put(CALL_CONFIG_MARKER, true);
             callConfig.put(RETRY_ON_ERROR_KEY, false);
 
-            io.temporal.activity.ActivityOptions options =
-                    io.temporal.activity.ActivityOptions.newBuilder()
-                            .setStartToCloseTimeout(java.time.Duration.ofMinutes(5))
-                            .setRetryOptions(io.temporal.common.RetryOptions.newBuilder()
+            ActivityOptions options =
+                    ActivityOptions.newBuilder()
+                            .setStartToCloseTimeout(Duration.ofMinutes(5))
+                            .setRetryOptions(RetryOptions.newBuilder()
                                     .setMaximumAttempts(1).build())
                             .build();
             io.temporal.workflow.ActivityStub stub = Workflow.newUntypedActivityStub(options);
@@ -509,16 +549,16 @@ public final class AgentContextNative {
 
             Object ballerinaResult = TypesUtil.convertJavaToBallerinaType(result);
             return TypesUtil.cloneWithType(ballerinaResult, td.getDescribingType());
-        } catch (io.temporal.failure.ActivityFailure e) {
+        } catch (ActivityFailure e) {
             Throwable cause = e.getCause();
             String errorMsg;
-            if (cause instanceof io.temporal.failure.ApplicationFailure appFailure) {
+            if (cause instanceof ApplicationFailure appFailure) {
                 errorMsg = appFailure.getOriginalMessage();
             } else {
                 errorMsg = cause != null ? cause.getMessage() : e.getMessage();
             }
             return ErrorCreator.createError(StringUtils.fromString(errorMsg));
-        } catch (io.temporal.worker.NonDeterministicException | io.temporal.failure.TemporalFailure e) {
+        } catch (NonDeterministicException | TemporalFailure e) {
             throw e;
         } catch (Exception e) {
             return ErrorCreator.createError(StringUtils.fromString("Agent activity failed: " + e.getMessage()));
@@ -545,7 +585,7 @@ public final class AgentContextNative {
     @SuppressWarnings("unchecked")
     private static Map<String, Object> parseSchema(String schemaJson) {
         Object parsed = TypesUtil.convertBallerinaToJavaType(
-                io.ballerina.runtime.api.utils.JsonUtils.parse(schemaJson));
+                JsonUtils.parse(schemaJson));
         if (parsed instanceof Map<?, ?> map) {
             return (Map<String, Object>) map;
         }

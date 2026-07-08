@@ -48,17 +48,22 @@ function orderAgent(workflow:AgentContext ctx, OrderRequest req,
     check ctx->runDurableAgent(orderModel,
             {
                 systemPrompt: string `You are the assistant for order ${req.orderId}.
-                        Use the checkInventory tool to answer product availability questions.
-                        After each answer, call the awaitEvent_chat tool to wait for the
-                        user's next message. Only when the user says goodbye, respond with
-                        a farewell WITHOUT calling any tool, to end the conversation.`
+                        Follow this conversation protocol STRICTLY:
+                        1. Use the checkInventory tool to answer product availability questions.
+                        2. After EVERY answer you MUST call the awaitEvent_chat tool to wait
+                           for the user's next message. Never end your turn without it.
+                        3. ONLY when the user says goodbye (bye, goodbye, that's all), reply
+                           with a short farewell and do NOT call any tool - that ends the
+                           conversation.`
             },
             req.userPrompt);
 }
 
 public function main() returns error? {
     // Start the agent with no initial prompt: it suspends durably until the
-    // first chat message arrives.
+    // first chat message arrives. (An initial prompt would start a one-way
+    // turn whose answer no updateAgent call is waiting for — drive every turn
+    // you want a reply from via updateAgent instead.)
     string agentId = check workflow:run(orderAgent, {orderId: "ORD-001", userPrompt: ""});
     io:println("Agent started with ID: " + agentId);
 

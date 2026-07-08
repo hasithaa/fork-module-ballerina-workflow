@@ -19,6 +19,7 @@
 package io.ballerina.lib.workflow.worker;
 
 import io.ballerina.lib.workflow.ModuleUtils;
+import io.ballerina.lib.workflow.context.AgentContextNative;
 import io.ballerina.lib.workflow.context.SignalAwaitWrapper;
 import io.ballerina.lib.workflow.context.WorkflowContextNative;
 import io.ballerina.lib.workflow.registry.EventInfo;
@@ -75,6 +76,7 @@ import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -1867,10 +1869,10 @@ public final class WorkflowWorkerNative {
                 throw failure;
             }
             io.temporal.workflow.WorkflowInfo temporalInfo = Workflow.getInfo();
-            Set<String> eventNames = new java.util.HashSet<>(
+            Set<String> eventNames = new HashSet<>(
                     EventExtractor.extractEventNames(processFunction));
-            io.ballerina.lib.workflow.context.AgentContextNative.AgentContextInfo agentInfo =
-                    new io.ballerina.lib.workflow.context.AgentContextNative.AgentContextInfo(
+            AgentContextNative.AgentContextInfo agentInfo =
+                    new AgentContextNative.AgentContextInfo(
                             temporalInfo.getWorkflowId(), temporalInfo.getWorkflowType(),
                             signalWrapper, eventNames);
             Object nativeContextHandle = ValueCreator.createHandleValue(agentInfo);

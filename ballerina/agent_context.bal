@@ -169,7 +169,12 @@ public client class AgentContext {
         string toolDefsJson = check getAgentToolDefs(self.nativeContext);
         json toolDefs = check toolDefsJson.fromJsonString();
         AgentToolDef[] defs = check toolDefs.cloneWithType();
-        return runAgentLoop(self.nativeContext, agentName, config, prompt, defs);
+        error? result = runAgentLoop(self.nativeContext, agentName, config, prompt, defs);
+        // Settle any outstanding updateAgent requests before the workflow completes:
+        // unconsumed updates receive the agent's final response (or its failure)
+        // instead of failing with "workflow completed before the update completed".
+        finishAgentUpdates(self.nativeContext, result is error ? result.message() : ());
+        return result;
     }
 }
 
@@ -208,6 +213,11 @@ isolated function setAgentInteraction(handle nativeContext, string pattern, time
         int maxEventWaits) returns error? = @java:Method {
     'class: "io.ballerina.lib.workflow.context.AgentContextNative",
     name: "setInteraction"
+} external;
+
+isolated function finishAgentUpdates(handle nativeContext, string? failureMessage) = @java:Method {
+    'class: "io.ballerina.lib.workflow.context.AgentContextNative",
+    name: "finishAgentUpdates"
 } external;
 
 isolated function getAgentToolDefs(handle nativeContext) returns string|error = @java:Method {

@@ -490,6 +490,36 @@ function humanTaskTimeoutAgent(AgentContext ctx, AgentOrderInput input) returns 
     check ctx->runDurableAgent(slowApprovalAgentModel, {systemPrompt: "Get approval."}, input.request);
 }
 
+// ── Update drain on completion ───────────────────────────────────────────────
+
+// Answers any consumed chat with a final response (no re-arm), slowly — so an
+// update queued mid-turn is never consumed and must be drained at completion.
+isolated client class EndAfterFirstChatMockModelProvider {
+    *ai:ModelProvider;
+
+    isolated remote function chat(ai:ChatMessage[]|ai:ChatUserMessage messages,
+            ai:ChatCompletionFunctions[] tools = [], string? stop = ())
+            returns ai:ChatAssistantMessage|ai:Error {
+        runtime:sleep(3);
+        return {role: ai:ASSISTANT, content: "done"};
+    }
+
+    isolated remote function generate(ai:Prompt prompt, typedesc<anydata> td = <>)
+            returns td|ai:Error = @java:Method {
+        'class: "io.ballerina.lib.workflow.test.TestNatives",
+        name: "mockGenerate"
+    } external;
+}
+
+final EndAfterFirstChatMockModelProvider endAfterFirstChatModel = new;
+
+@DurableAgent
+function endingAgent(AgentContext ctx, AgentOrderInput input,
+        record {| future<string> chat; |} events) returns error? {
+    check ctx.setInteraction(MULTI_EVENT, eventTimeout = {seconds: 60});
+    check ctx->runDurableAgent(endAfterFirstChatModel, {systemPrompt: "End after the first reply."});
+}
+
 // Plain (non-agent) workflow parked on an event — used to verify that
 // updateAgent rejects non-agent workflows.
 @Workflow
@@ -530,6 +560,7 @@ function setupAgentTests() returns error? {
     _ = check wfInternal:registerWorkflow(humanTaskTimeoutAgent, "humantask-timeout-agent",
             agentActivities);
     _ = check wfInternal:registerWorkflow(parkedPlainWorkflow, "parked-plain-workflow");
+    _ = check wfInternal:registerWorkflow(endingAgent, "ending-agent", agentActivities);
 }
 
 // Polls until the agent's latest recorded response equals `expected`.
@@ -831,6 +862,36 @@ function testAgentUpdateStructuredResponse() returns error? {
 
     string finalReply = check updateAgent(conversationAgent, agentId, "chat", "ok bye");
     test:assertEquals(finalReply, "Conversation ended");
+    _ = check getWorkflowResult(agentId, 30);
+}
+
+isolated function updateEndingAgent(string agentId, string message) returns string|error {
+    return updateAgent(endingAgent, agentId, "chat", message);
+}
+
+@test:Config {groups: ["unit"]}
+function testAgentDrainsPendingUpdatesOnCompletion() returns error? {
+    // The agent answers the first update and finishes WITHOUT re-arming the chat
+    // wait, while a second update is still queued. Instead of failing with
+    // "workflow completed before the update completed", the unconsumed update is
+    // drained with the agent's final response.
+    map<anydata> input = {id: "agent-drain-001", request: "unused"};
+    string|error runResult = run(endingAgent, input);
+    if runResult is error {
+        return; // No workflow server available — skip.
+    }
+    string agentId = runResult;
+    runtime:sleep(1);
+
+    future<string|error> first = start updateEndingAgent(agentId, "first message");
+    runtime:sleep(1);
+    future<string|error> second = start updateEndingAgent(agentId, "second message");
+
+    string|error reply1 = wait first;
+    string|error reply2 = wait second;
+    test:assertEquals(check reply1, "done", "The consumed update should get the turn's answer");
+    test:assertEquals(check reply2, "done",
+            "Unconsumed updates should be drained with the agent's final response");
     _ = check getWorkflowResult(agentId, 30);
 }
 

@@ -22,7 +22,13 @@ import io.temporal.workflow.CompletablePromise;
 import io.temporal.workflow.Workflow;
 import org.slf4j.Logger;
 
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -64,8 +70,8 @@ public final class SignalAwaitWrapper {
     // to the legacy one-shot path above, which stays unchanged for events-record futures and
     // the built-in human/retry task waits. Both recording (Temporal event-history order) and
     // taking (workflow-thread program order) are deterministic, so this is replay-safe.
-    private final Map<String, java.util.Deque<SignalData>> pendingSignals = new ConcurrentHashMap<>();
-    private final Map<String, java.util.Deque<CompletablePromise<SignalData>>> signalWaiters =
+    private final Map<String, Deque<SignalData>> pendingSignals = new ConcurrentHashMap<>();
+    private final Map<String, Deque<CompletablePromise<SignalData>>> signalWaiters =
             new ConcurrentHashMap<>();
 
     /**
@@ -140,7 +146,7 @@ public final class SignalAwaitWrapper {
 
         // Feed the FIFO consume-once channel: hand the signal to the oldest live
         // waiter, or queue it until someone takes it.
-        java.util.Deque<CompletablePromise<SignalData>> waiters = signalWaiters.get(signalName);
+        Deque<CompletablePromise<SignalData>> waiters = signalWaiters.get(signalName);
         if (waiters != null) {
             CompletablePromise<SignalData> waiter;
             while ((waiter = waiters.pollFirst()) != null) {
@@ -151,7 +157,7 @@ public final class SignalAwaitWrapper {
                 }
             }
         }
-        pendingSignals.computeIfAbsent(signalName, k -> new java.util.ArrayDeque<>()).addLast(signalData);
+        pendingSignals.computeIfAbsent(signalName, k -> new ArrayDeque<>()).addLast(signalData);
         LOGGER.debug("[SignalAwaitWrapper] Signal '{}' queued for FIFO consumption", signalName);
     }
 
@@ -165,7 +171,7 @@ public final class SignalAwaitWrapper {
      * @return a CompletablePromise that will contain the next signal data
      */
     public CompletablePromise<SignalData> takeSignalFuture(String signalName) {
-        java.util.Deque<SignalData> pending = pendingSignals.get(signalName);
+        Deque<SignalData> pending = pendingSignals.get(signalName);
         if (pending != null) {
             SignalData next = pending.pollFirst();
             if (next != null) {
@@ -176,7 +182,7 @@ public final class SignalAwaitWrapper {
             }
         }
         CompletablePromise<SignalData> waiter = Workflow.newPromise();
-        signalWaiters.computeIfAbsent(signalName, k -> new java.util.ArrayDeque<>()).addLast(waiter);
+        signalWaiters.computeIfAbsent(signalName, k -> new ArrayDeque<>()).addLast(waiter);
         LOGGER.debug("[SignalAwaitWrapper] FIFO waiter registered for signal '{}'", signalName);
         return waiter;
     }
@@ -189,10 +195,32 @@ public final class SignalAwaitWrapper {
      * @param waiter     the waiter promise to remove
      */
     public void cancelWaiter(String signalName, CompletablePromise<SignalData> waiter) {
-        java.util.Deque<CompletablePromise<SignalData>> waiters = signalWaiters.get(signalName);
+        Deque<CompletablePromise<SignalData>> waiters = signalWaiters.get(signalName);
         if (waiters != null) {
             waiters.remove(waiter);
         }
+    }
+
+    /**
+     * Removes and returns the responder promises of all queued update deliveries that were never consumed. Called
+     * when a durable agent finishes, so accepted-but-unconsumed updates are answered (with the agent's final
+     * response, or its failure) instead of failing with "workflow completed before the update completed".
+     *
+     * @return the responders of unconsumed updates, oldest first
+     */
+    public List<CompletablePromise<Object>> drainPendingResponders() {
+        List<CompletablePromise<Object>> responders = new ArrayList<>();
+        for (Deque<SignalData> queue : pendingSignals.values()) {
+            Iterator<SignalData> iterator = queue.iterator();
+            while (iterator.hasNext()) {
+                SignalData signalData = iterator.next();
+                if (signalData.responder() != null) {
+                    responders.add(signalData.responder());
+                    iterator.remove();
+                }
+            }
+        }
+        return responders;
     }
 
     /**
@@ -227,7 +255,7 @@ public final class SignalAwaitWrapper {
          * Creates a new SignalData.
          */
         public SignalData {
-            java.util.Objects.requireNonNull(signalName, "signalName must not be null");
+            Objects.requireNonNull(signalName, "signalName must not be null");
         }
 
         /**
