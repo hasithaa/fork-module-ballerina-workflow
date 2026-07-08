@@ -21,8 +21,8 @@ import ballerina/time;
 # Configuration for a durable agent run.
 #
 # + systemPrompt - Instructions that define the agent's role and behaviour
-# + maxIterations - Maximum number of LLM reasoning iterations before the agent
-#                   fails with an error
+# + maxIterations - Maximum number of LLM reasoning iterations per conversation
+#                   turn before the agent fails with an error
 public type AgentRunConfig record {|
     string systemPrompt;
     int maxIterations = 16;

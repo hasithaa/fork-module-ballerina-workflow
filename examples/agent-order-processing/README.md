@@ -65,8 +65,9 @@ Turn 2: ... (acknowledges expedited shipping) ...
 Final: Goodbye! ...
 ```
 
-The system prompt instructs the model to call the `awaitEvent_chat` wait-tool after each
-answer — suspending the agent durably until the next `updateAgent` call — and to answer
-without waiting when the user says goodbye, which ends the workflow. Safety mechanisms from
-`ctx.setInteraction` (a 30-minute event timeout and the default max-event-waits cap) bound the
-conversation if no message arrives.
+Under the `MULTI_EVENT` interaction pattern the framework owns conversation continuity: after
+each answer the agent automatically suspends until the next chat message — the model does not
+need to do anything to keep the conversation open. Ending is explicit: the model calls the
+built-in `endConversation` tool when the user says goodbye, or the event timeout from
+`ctx.setInteraction` (5 minutes here) ends the conversation gracefully; the max-event-waits cap
+bounds it as a hard backstop.

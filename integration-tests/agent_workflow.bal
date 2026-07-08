@@ -124,7 +124,11 @@ isolated client class ConversationMockModelProvider {
             };
         }
         if lastChat.includes("bye") {
-            return {role: ai:ASSISTANT, content: "Conversation ended"};
+            return {
+                role: ai:ASSISTANT,
+                content: "Conversation ended",
+                toolCalls: [{name: "endConversation", arguments: {}}]
+            };
         }
         return {
             role: ai:ASSISTANT,

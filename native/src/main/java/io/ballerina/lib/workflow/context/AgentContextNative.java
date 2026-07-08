@@ -73,7 +73,9 @@ public final class AgentContextNative {
     private static final String KIND_AI_TOOL = "aitool";
     private static final String KIND_HUMAN_TASK = "humantask";
     private static final String KIND_EVENT_PREFIX = "event:";
+    private static final String KIND_END = "end";
     private static final String EVENT_TOOL_PREFIX = "awaitEvent_";
+    private static final String END_CONVERSATION_TOOL = "endConversation";
 
     // Interaction patterns (mirrors workflow:AgentInteractionPattern).
     private static final String MULTI_EVENT = "MULTI_EVENT";
@@ -278,6 +280,22 @@ public final class AgentContextNative {
                                 + "Use this when you need to wait for '" + eventName + "'.",
                         schema, KIND_EVENT_PREFIX + eventName));
             }
+        }
+        if (info.multiEvent) {
+            // Under MULTI_EVENT the loop keeps the conversation open automatically after
+            // each answer; ending is an explicit act via this tool (or the event timeout).
+            Map<String, Object> schema = new LinkedHashMap<>();
+            schema.put("type", "object");
+            Map<String, Object> properties = new LinkedHashMap<>();
+            Map<String, Object> farewell = new LinkedHashMap<>();
+            farewell.put("type", "string");
+            farewell.put("description", "Optional farewell message shown to the user");
+            properties.put("farewell", farewell);
+            schema.put("properties", properties);
+            defs.add(toolDef(END_CONVERSATION_TOOL,
+                    "Permanently ends this conversation. Call this ONLY when the user says goodbye or asks to "
+                            + "end the conversation.",
+                    schema, KIND_END));
         }
         return StringUtils.fromString(TypesUtil.toJsonString(defs));
     }

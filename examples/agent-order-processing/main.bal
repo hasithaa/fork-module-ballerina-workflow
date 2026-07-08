@@ -43,18 +43,15 @@ function checkInventory(string item) returns string|error {
 @workflow:DurableAgent
 function orderAgent(workflow:AgentContext ctx, OrderRequest req,
         record {| future<string> chat; |} events) returns error? {
-    check ctx.setInteraction(workflow:MULTI_EVENT, eventTimeout = {minutes: 30});
+    check ctx.setInteraction(workflow:MULTI_EVENT, eventTimeout = {minutes: 5});
     check ctx.registerActivities([checkInventory]);
     check ctx->runDurableAgent(orderModel,
             {
                 systemPrompt: string `You are the assistant for order ${req.orderId}.
-                        Follow this conversation protocol STRICTLY:
-                        1. Use the checkInventory tool to answer product availability questions.
-                        2. After EVERY answer you MUST call the awaitEvent_chat tool to wait
-                           for the user's next message. Never end your turn without it.
-                        3. ONLY when the user says goodbye (bye, goodbye, that's all), reply
-                           with a short farewell and do NOT call any tool - that ends the
-                           conversation.`
+                        Use the checkInventory tool to answer product availability questions.
+                        The conversation stays open automatically after each answer.
+                        When the user says goodbye or asks to end the conversation, call the
+                        endConversation tool with a short farewell.`
             },
             req.userPrompt);
 }

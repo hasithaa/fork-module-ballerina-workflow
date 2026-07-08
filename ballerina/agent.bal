@@ -89,6 +89,12 @@ public type AgentChatMessage AgentSystemMessage|AgentUserMessage|AgentAssistantM
 # human-task sub-workflow and suspend the agent until completion, and event
 # tools suspend the agent until the corresponding data event arrives.
 #
+# Under `MULTI_EVENT` interaction with a declared `chat` event, the loop owns
+# conversation continuity: after each final answer it automatically waits for
+# the next chat message. The conversation ends explicitly — the model calls the
+# built-in `endConversation` tool (e.g. when the user says goodbye) — or
+# gracefully when the event timeout elapses with no new message.
+#
 # + ctxHandle - The native agent context handle
 # + agentName - The agent's workflow type (keys the registered model provider)
 # + config - The system prompt and reasoning limits
@@ -99,8 +105,16 @@ isolated function runAgentLoop(handle ctxHandle, string agentName, AgentRunConfi
         AgentToolDef[] toolDefs) returns error? {
     map<string> toolKinds = {};
     ai:ChatCompletionFunctions[] llmToolDefs = [];
+    boolean conversational = false;
+    boolean hasChatEvent = false;
     foreach AgentToolDef def in toolDefs {
         toolKinds[def.name] = def.kind;
+        if def.kind == "end" {
+            conversational = true; // the endConversation tool is advertised under MULTI_EVENT
+        }
+        if def.kind == "event:chat" {
+            hasChatEvent = true;
+        }
         ai:ChatCompletionFunctions llmDef = {name: def.name, description: def.description};
         map<json>? parameters = def.parameters;
         if parameters is map<json> {
@@ -108,6 +122,7 @@ isolated function runAgentLoop(handle ctxHandle, string agentName, AgentRunConfi
         }
         llmToolDefs.push(llmDef);
     }
+    boolean autoContinue = conversational && hasChatEvent;
 
     AgentChatMessage[] history = [<AgentSystemMessage>{content: config.systemPrompt}];
     if prompt != "" {
@@ -122,34 +137,70 @@ isolated function runAgentLoop(handle ctxHandle, string agentName, AgentRunConfi
     }
 
     int maxIterations = int:max(1, config.maxIterations);
-    foreach int _ in 0 ..< maxIterations {
-        AgentAssistantMessage assistant = check callAgentActivity("llmChat",
-                {"agentName": agentName, "messages": history.toJson(), "tools": llmToolDefs.toJson()});
-        history.push(assistant);
+    while true {
+        // One conversation turn: a bounded ReAct loop over LLM + tool calls.
+        boolean turnAnswered = false;
+        foreach int _ in 0 ..< maxIterations {
+            AgentAssistantMessage assistant = check callAgentActivity("llmChat",
+                    {"agentName": agentName, "messages": history.toJson(), "tools": llmToolDefs.toJson()});
+            history.push(assistant);
 
-        // Record every content-bearing reply (not only the final one): in a
-        // multi-turn conversation the memo/response always holds the latest turn.
-        string? content = assistant.content;
-        if content is string && content != "" {
-            check setAgentResponse(ctxHandle, content);
+            // Record every content-bearing reply (not only the final one): in a
+            // multi-turn conversation the memo/response always holds the latest turn.
+            string? content = assistant.content;
+            boolean contentRecorded = false;
+            if content is string && content != "" {
+                check setAgentResponse(ctxHandle, content);
+                contentRecorded = true;
+            }
+
+            AgentFunctionCall[]? toolCalls = assistant.toolCalls;
+            if toolCalls is () || toolCalls.length() == 0 {
+                turnAnswered = true;
+                break;
+            }
+
+            foreach AgentFunctionCall call in toolCalls {
+                if toolKinds[call.name] == "end" {
+                    // Explicit end of the conversation. When the model put its
+                    // farewell in the tool arguments instead of the content,
+                    // record it as the final response.
+                    if !contentRecorded {
+                        map<json>? endArgs = call.arguments;
+                        json farewell = endArgs is map<json> ? endArgs["farewell"] : ();
+                        if farewell is string && farewell != "" {
+                            check setAgentResponse(ctxHandle, farewell);
+                        }
+                    }
+                    return;
+                }
+                string output = check dispatchAgentTool(ctxHandle, agentName, call, toolKinds[call.name]);
+                AgentFunctionMessage functionMessage = {name: call.name, content: output};
+                string? callId = call.id;
+                if callId is string {
+                    functionMessage.id = callId;
+                }
+                history.push(functionMessage);
+            }
         }
-
-        AgentFunctionCall[]? toolCalls = assistant.toolCalls;
-        if toolCalls is () || toolCalls.length() == 0 {
+        if !turnAnswered {
+            return error(string `Agent exceeded the maximum number of iterations per turn (${maxIterations})`);
+        }
+        if !autoContinue {
             return;
         }
-
-        foreach AgentFunctionCall call in toolCalls {
-            string output = check dispatchAgentTool(ctxHandle, agentName, call, toolKinds[call.name]);
-            AgentFunctionMessage functionMessage = {name: call.name, content: output};
-            string? callId = call.id;
-            if callId is string {
-                functionMessage.id = callId;
+        // Conversational agent: keep the conversation open — wait durably for the
+        // next chat message. A wait timeout ends the conversation gracefully; the
+        // max-event-waits safety cap fails it hard.
+        anydata|error next = awaitAgentEvent(ctxHandle, "chat");
+        if next is error {
+            if next.message().includes("Timed out") {
+                return;
             }
-            history.push(functionMessage);
+            return next;
         }
+        history.push(<AgentUserMessage>{content: next is string ? next : next.toJsonString()});
     }
-    return error(string `Agent exceeded the maximum number of iterations (${maxIterations})`);
 }
 
 // Dispatches one tool call by kind and renders the result as text for the model.

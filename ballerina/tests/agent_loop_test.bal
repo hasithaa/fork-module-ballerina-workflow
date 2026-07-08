@@ -313,7 +313,11 @@ isolated client class ConversationMockModelProvider {
             };
         }
         if lastChat.includes("bye") {
-            return {role: ai:ASSISTANT, content: "Conversation ended"};
+            return {
+                role: ai:ASSISTANT,
+                content: "Conversation ended",
+                toolCalls: [{name: "endConversation", arguments: {}}]
+            };
         }
         if lastChat.includes("json") {
             // Structured answer: updateAgent callers with a record-typed T parse this.
@@ -490,10 +494,67 @@ function humanTaskTimeoutAgent(AgentContext ctx, AgentOrderInput input) returns 
     check ctx->runDurableAgent(slowApprovalAgentModel, {systemPrompt: "Get approval."}, input.request);
 }
 
+// ── Framework-owned conversation continuity (auto-continue) ─────────────────
+
+// Answers content-only each turn (never calls the awaitEvent_chat wait-tool):
+// the MULTI_EVENT loop itself must keep the conversation open. Ends explicitly
+// via the built-in endConversation tool when the user says bye.
+isolated client class AutoChatMockModelProvider {
+    *ai:ModelProvider;
+
+    isolated remote function chat(ai:ChatMessage[]|ai:ChatUserMessage messages,
+            ai:ChatCompletionFunctions[] tools = [], string? stop = ())
+            returns ai:ChatAssistantMessage|ai:Error {
+        string lastUser = "";
+        if messages is ai:ChatMessage[] {
+            foreach ai:ChatMessage message in messages {
+                if message is ai:ChatUserMessage {
+                    string|ai:Prompt content = message.content;
+                    if content is string {
+                        lastUser = content;
+                    }
+                }
+            }
+        }
+        if lastUser.includes("bye") {
+            return {
+                role: ai:ASSISTANT,
+                toolCalls: [{name: "endConversation", arguments: {"farewell": "Ended by request"}}]
+            };
+        }
+        return {role: ai:ASSISTANT, content: "Auto: " + lastUser};
+    }
+
+    isolated remote function generate(ai:Prompt prompt, typedesc<anydata> td = <>)
+            returns td|ai:Error = @java:Method {
+        'class: "io.ballerina.lib.workflow.test.TestNatives",
+        name: "mockGenerate"
+    } external;
+}
+
+final AutoChatMockModelProvider autoChatModel = new;
+
+@DurableAgent
+function autoConversationAgent(AgentContext ctx, AgentOrderInput input,
+        record {| future<string> chat; |} events) returns error? {
+    check ctx.setInteraction(MULTI_EVENT, eventTimeout = {seconds: 60});
+    check ctx->runDurableAgent(autoChatModel, {systemPrompt: "Answer briefly."});
+}
+
+// Same behaviour with a short timeout: with no follow-up message the
+// conversation must end gracefully on its own.
+@DurableAgent
+function shortTimeoutConversationAgent(AgentContext ctx, AgentOrderInput input,
+        record {| future<string> chat; |} events) returns error? {
+    check ctx.setInteraction(MULTI_EVENT, eventTimeout = {seconds: 2});
+    check ctx->runDurableAgent(autoChatModel, {systemPrompt: "Answer briefly."});
+}
+
 // ── Update drain on completion ───────────────────────────────────────────────
 
-// Answers any consumed chat with a final response (no re-arm), slowly — so an
-// update queued mid-turn is never consumed and must be drained at completion.
+// Answers the first consumed chat with a final response and explicitly ends the
+// conversation, slowly — so an update queued mid-turn is never consumed and
+// must be drained at completion.
 isolated client class EndAfterFirstChatMockModelProvider {
     *ai:ModelProvider;
 
@@ -501,7 +562,7 @@ isolated client class EndAfterFirstChatMockModelProvider {
             ai:ChatCompletionFunctions[] tools = [], string? stop = ())
             returns ai:ChatAssistantMessage|ai:Error {
         runtime:sleep(3);
-        return {role: ai:ASSISTANT, content: "done"};
+        return {role: ai:ASSISTANT, content: "done", toolCalls: [{name: "endConversation", arguments: {}}]};
     }
 
     isolated remote function generate(ai:Prompt prompt, typedesc<anydata> td = <>)
@@ -561,6 +622,10 @@ function setupAgentTests() returns error? {
             agentActivities);
     _ = check wfInternal:registerWorkflow(parkedPlainWorkflow, "parked-plain-workflow");
     _ = check wfInternal:registerWorkflow(endingAgent, "ending-agent", agentActivities);
+    _ = check wfInternal:registerWorkflow(autoConversationAgent, "auto-conversation-agent",
+            agentActivities);
+    _ = check wfInternal:registerWorkflow(shortTimeoutConversationAgent, "short-timeout-agent",
+            agentActivities);
 }
 
 // Polls until the agent's latest recorded response equals `expected`.
@@ -867,6 +932,53 @@ function testAgentUpdateStructuredResponse() returns error? {
 
 isolated function updateEndingAgent(string agentId, string message) returns string|error {
     return updateAgent(endingAgent, agentId, "chat", message);
+}
+
+@test:Config {groups: ["unit"]}
+function testAgentAutoContinuesConversation() returns error? {
+    // The model never calls the awaitEvent_chat wait-tool — under MULTI_EVENT the
+    // loop itself keeps the conversation open after each answer. Ending happens
+    // explicitly via the built-in endConversation tool.
+    map<anydata> input = {id: "agent-auto-conv-001", request: "unused"};
+    string|error runResult = run(autoConversationAgent, input);
+    if runResult is error {
+        return; // No workflow server available — skip.
+    }
+    string agentId = runResult;
+
+    string reply1 = check updateAgent(autoConversationAgent, agentId, "chat", "first");
+    test:assertEquals(reply1, "Auto: first",
+            "The loop should answer turn 1 without a model wait-tool call");
+
+    string reply2 = check updateAgent(autoConversationAgent, agentId, "chat", "second");
+    test:assertEquals(reply2, "Auto: second",
+            "The loop should auto-continue and answer turn 2");
+
+    string reply3 = check updateAgent(autoConversationAgent, agentId, "chat", "ok bye");
+    test:assertEquals(reply3, "Ended by request",
+            "endConversation's farewell should become the final response");
+
+    _ = check getWorkflowResult(agentId, 30);
+}
+
+@test:Config {groups: ["unit"]}
+function testAgentConversationEndsOnTimeout() returns error? {
+    // No follow-up message after turn 1: the event timeout ends the conversation
+    // gracefully (workflow completes without error, keeping the last answer).
+    map<anydata> input = {id: "agent-timeout-conv-001", request: "unused"};
+    string|error runResult = run(shortTimeoutConversationAgent, input);
+    if runResult is error {
+        return; // No workflow server available — skip.
+    }
+    string agentId = runResult;
+
+    string reply = check updateAgent(shortTimeoutConversationAgent, agentId, "chat", "hello");
+    test:assertEquals(reply, "Auto: hello");
+
+    // The 2s wait for the next message elapses — the agent must complete cleanly.
+    _ = check getWorkflowResult(agentId, 30);
+    test:assertEquals(getAgentFinalResponse(agentId), "Auto: hello",
+            "The last turn's answer remains the final response after a timeout end");
 }
 
 @test:Config {groups: ["unit"]}
