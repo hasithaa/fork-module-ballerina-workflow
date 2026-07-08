@@ -99,3 +99,60 @@ function chatDrivenStockAgent(workflow:AgentContext ctx, AgentStockInput input,
     check ctx->runDurableAgent(agentMockModel,
             {systemPrompt: "You are an inventory assistant. Use agentCheckStock for availability."});
 }
+
+// Scripted conversation: turn 1 answers and re-arms the chat wait; subsequent
+// turns echo the latest chat message and wait again, until the user says "bye".
+isolated client class ConversationMockModelProvider {
+    *ai:ModelProvider;
+
+    isolated remote function chat(ai:ChatMessage[]|ai:ChatUserMessage messages,
+            ai:ChatCompletionFunctions[] tools = [], string? stop = ())
+            returns ai:ChatAssistantMessage|ai:Error {
+        string? lastChat = ();
+        if messages is ai:ChatMessage[] {
+            foreach ai:ChatMessage message in messages {
+                if message is ai:ChatFunctionMessage && message.name == "awaitEvent_chat" {
+                    lastChat = message.content;
+                }
+            }
+        }
+        if lastChat is () {
+            return {
+                role: ai:ASSISTANT,
+                content: "Turn 1 answer",
+                toolCalls: [{name: "awaitEvent_chat", arguments: {}}]
+            };
+        }
+        if lastChat.includes("bye") {
+            return {role: ai:ASSISTANT, content: "Conversation ended"};
+        }
+        return {
+            role: ai:ASSISTANT,
+            content: "Echo: " + lastChat,
+            toolCalls: [{name: "awaitEvent_chat", arguments: {}}]
+        };
+    }
+
+    isolated remote function generate(ai:Prompt prompt, typedesc<anydata> td = <>)
+            returns td|ai:Error = @java:Method {
+        'class: "io.ballerina.lib.workflow.test.TestNatives",
+        name: "mockGenerate"
+    } external;
+}
+
+final ConversationMockModelProvider conversationMockModel = new;
+
+# Multi-turn conversational agent (MULTI_EVENT interaction): the model answers
+# each turn and re-arms the chat wait until the user says bye.
+#
+# + ctx - The agent context
+# + input - The agent input
+# + events - The agent's chat event
+# + return - An error if the agent fails
+@workflow:DurableAgent
+function conversationalStockAgent(workflow:AgentContext ctx, AgentStockInput input,
+        record {| future<string> chat; |} events) returns error? {
+    check ctx.setInteraction(workflow:MULTI_EVENT, eventTimeout = {minutes: 5});
+    check ctx->runDurableAgent(conversationMockModel,
+            {systemPrompt: "Chat with the user until they say bye."}, input.request);
+}

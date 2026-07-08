@@ -16,6 +16,7 @@
 
 import ballerina/ai;
 import ballerina/jballerina.java;
+import ballerina/time;
 
 # Configuration for a durable agent run.
 #
@@ -26,6 +27,16 @@ public type AgentRunConfig record {|
     string systemPrompt;
     int maxIterations = 16;
 |};
+
+# How a durable agent consumes its external data events.
+public enum AgentInteractionPattern {
+    # Each event declared in the agent's signature may be consumed once per run (default)
+    SINGLE_EVENT,
+    # Events are re-armable: the agent may wait repeatedly on the same event, each wait
+    # consuming the next queued payload (conversational agents). Requires an event
+    # timeout as its safety mechanism
+    MULTI_EVENT
+}
 
 # The execution context for a durable AI agent. Injected as the first parameter
 # of a `@workflow:DurableAgent` function.
@@ -54,6 +65,24 @@ public client class AgentContext {
         self.nativeContext = nativeContext;
     }
 
+    # Configures how the agent consumes external events, together with its safety
+    # limits. Termination stays model-driven: the agent ends when the model produces
+    # a final answer without waiting; these settings bound how long and how often it
+    # may wait.
+    #
+    # + pattern - `SINGLE_EVENT` (each event once per run) or `MULTI_EVENT`
+    #             (re-armable events for multi-turn conversations)
+    # + eventTimeout - Maximum wait per event. On timeout the model is told the wait
+    #                  timed out so it can wrap up gracefully. Required for
+    #                  `MULTI_EVENT`; optional otherwise
+    # + maxEventWaits - Hard cap on the total number of event waits per run; exceeding
+    #                   it fails the agent (backstop for open-ended conversations)
+    # + return - An error if the configuration is invalid, otherwise nil
+    public isolated function setInteraction(AgentInteractionPattern pattern,
+            time:Duration? eventTimeout = (), int maxEventWaits = 50) returns error? {
+        return setAgentInteraction(self.nativeContext, pattern, eventTimeout, maxEventWaits);
+    }
+
     # Registers `@workflow:Activity` functions as agent tools. Each tool runs as
     # a durable Temporal activity that the agent may invoke during reasoning.
     #
@@ -65,30 +94,39 @@ public client class AgentContext {
         }
     }
 
-    # Registers AI tools with the agent. Accepts `ai:ToolConfig` values or
-    # functions annotated with `@ai:AgentTool` (normalized via the ai module's
-    # tool plumbing). When the agent invokes one of these tools, the call is
-    # executed durably through the built-in activity wrapper.
+    # Registers AI tools with the agent. Accepts `ai:ToolConfig` values, functions
+    # annotated with `@ai:AgentTool` (normalized via the ai module's tool plumbing),
+    # or `ai:BaseToolKit` implementations (expanded via their `getTools()`). When the
+    # agent invokes one of these tools, the call is executed durably through the
+    # built-in activity wrapper, delegating argument binding and `ai:Context`
+    # injection to `ai:executeTool`.
     #
     # + tools - The tools to register
     # + return - An error if a tool cannot be registered (e.g. a function
     #            missing the `@ai:AgentTool` annotation), otherwise nil
-    public isolated function registerTools((ai:ToolConfig|ai:FunctionTool)[] tools) returns error? {
-        foreach ai:ToolConfig|ai:FunctionTool tool in tools {
-            ai:ToolConfig config;
-            if tool is ai:ToolConfig {
-                config = tool;
+    public isolated function registerTools((ai:BaseToolKit|ai:ToolConfig|ai:FunctionTool)[] tools)
+            returns error? {
+        foreach ai:BaseToolKit|ai:ToolConfig|ai:FunctionTool tool in tools {
+            if tool is ai:BaseToolKit {
+                foreach ai:ToolConfig config in tool.getTools() {
+                    check self.recordToolConfig(config);
+                }
+            } else if tool is ai:ToolConfig {
+                check self.recordToolConfig(tool);
             } else {
                 ai:ToolConfig[] configs = ai:getToolConfigs([tool]);
                 if configs.length() == 0 {
                     return error("Agent tool functions must be annotated with @ai:AgentTool");
                 }
-                config = configs[0];
+                check self.recordToolConfig(configs[0]);
             }
-            map<json>? parameters = config.parameters;
-            check recordAiTool(self.nativeContext, config.caller, config.name, config.description,
-                    parameters is () ? () : parameters.toJsonString());
         }
+    }
+
+    private isolated function recordToolConfig(ai:ToolConfig config) returns error? {
+        map<json>? parameters = config.parameters;
+        return recordAiTool(self.nativeContext, config.caller, config.name, config.description,
+                parameters is () ? () : parameters.toJsonString());
     }
 
     # Registers a human task as an agent tool. This is the durable-agent
@@ -104,11 +142,14 @@ public client class AgentContext {
     # + title - Short summary shown in the inbox. Defaults to `taskName`
     # + description - Additional context shown alongside the form; also used as
     #                 the tool description advertised to the model
+    # + timeout - Maximum time to wait for completion. On timeout the model is told
+    #             the task timed out so it can react. Omit to wait indefinitely
     # + return - An error if the task cannot be registered, otherwise nil
     public isolated function registerHumanTask(string taskName, string|string[] userRoles,
-            typedesc<anydata> resultType = anydata, string? title = (), string? description = ())
-            returns error? {
-        return recordHumanTaskTool(self.nativeContext, taskName, userRoles, resultType, title, description);
+            typedesc<anydata> resultType = anydata, string? title = (), string? description = (),
+            time:Duration? timeout = ()) returns error? {
+        return recordHumanTaskTool(self.nativeContext, taskName, userRoles, resultType, title, description,
+                timeout);
     }
 
     # Runs the durable AI agent loop. Every LLM call and tool call is executed
@@ -157,9 +198,16 @@ isolated function recordAiTool(handle nativeContext, function tool, string name,
 } external;
 
 isolated function recordHumanTaskTool(handle nativeContext, string taskName, string|string[] userRoles,
-        typedesc<anydata> resultType, string? title, string? description) returns error? = @java:Method {
+        typedesc<anydata> resultType, string? title, string? description, time:Duration? timeout)
+        returns error? = @java:Method {
     'class: "io.ballerina.lib.workflow.context.AgentContextNative",
     name: "recordHumanTaskTool"
+} external;
+
+isolated function setAgentInteraction(handle nativeContext, string pattern, time:Duration? eventTimeout,
+        int maxEventWaits) returns error? = @java:Method {
+    'class: "io.ballerina.lib.workflow.context.AgentContextNative",
+    name: "setInteraction"
 } external;
 
 isolated function getAgentToolDefs(handle nativeContext) returns string|error = @java:Method {

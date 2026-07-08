@@ -127,9 +127,15 @@ isolated function runAgentLoop(handle ctxHandle, string agentName, AgentRunConfi
                 {"agentName": agentName, "messages": history.toJson(), "tools": llmToolDefs.toJson()});
         history.push(assistant);
 
+        // Record every content-bearing reply (not only the final one): in a
+        // multi-turn conversation the memo/response always holds the latest turn.
+        string? content = assistant.content;
+        if content is string && content != "" {
+            check setAgentResponse(ctxHandle, content);
+        }
+
         AgentFunctionCall[]? toolCalls = assistant.toolCalls;
         if toolCalls is () || toolCalls.length() == 0 {
-            check setAgentResponse(ctxHandle, assistant.content ?: "");
             return;
         }
 
@@ -189,9 +195,10 @@ isolated function dispatchAgentTool(handle ctxHandle, string agentName, AgentFun
 }
 
 # The built-in activity wrapper that executes a registered AI tool function
-# pointer. AI tools (`ai:ToolConfig` / `@ai:AgentTool` functions) are not
-# `@workflow:Activity` functions, so the ReAct loop invokes them durably
-# through this wrapper instead.
+# pointer. AI tools (`ai:ToolConfig` / `@ai:AgentTool` functions / toolkit
+# tools) are not `@workflow:Activity` functions, so the ReAct loop invokes them
+# durably through this wrapper, delegating typed argument binding and
+# `ai:Context` injection to the ai module's `ai:executeTool`.
 #
 # + agentName - The agent's workflow type; keys the tool registry
 # + toolName - The registered tool name
@@ -199,9 +206,27 @@ isolated function dispatchAgentTool(handle ctxHandle, string agentName, AgentFun
 # + return - The tool result, or an error
 @Activity
 public isolated function executeAgentTool(string agentName, string toolName, json arguments)
-        returns anydata|error = @java:Method {
+        returns anydata|error {
+    ai:FunctionTool fn = check getAgentToolFunction(agentName, toolName);
+    map<json> args = arguments is map<json> ? arguments : {};
+    ai:ToolExecutionResult execution = ai:executeTool(fn, args);
+    any|error result = execution.result;
+    if result is error {
+        return result;
+    }
+    if result is anydata {
+        return result;
+    }
+    // Non-anydata tool results (objects, streams) cannot cross the activity
+    // boundary; surface their textual form to the model instead.
+    return result.toString();
+}
+
+// Looks up a registered AI tool function pointer for the wrapper activity.
+isolated function getAgentToolFunction(string agentName, string toolName)
+        returns ai:FunctionTool|error = @java:Method {
     'class: "io.ballerina.lib.workflow.worker.WorkflowWorkerNative",
-    name: "invokeAgentTool"
+    name: "getAgentToolFunction"
 } external;
 
 # The built-in LLM chat activity. Executes one model call outside the workflow

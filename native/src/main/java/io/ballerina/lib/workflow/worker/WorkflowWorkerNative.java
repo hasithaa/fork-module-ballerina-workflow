@@ -1108,16 +1108,15 @@ public final class WorkflowWorkerNative {
     }
 
     /**
-     * Backs the built-in {@code executeAgentTool} activity: resolves the registered AI tool function pointer and
-     * invokes it with the model-supplied arguments matched to the function's parameters by name.
+     * Resolves the registered AI tool function pointer for the built-in {@code executeAgentTool} activity, whose
+     * Ballerina body delegates execution to {@code ai:executeTool} (typed argument conversion and {@code ai:Context}
+     * injection are handled by the ai module).
      *
      * @param agentName the agent's full workflow type
      * @param toolName  the tool's advertised name
-     * @param arguments the tool arguments as a Ballerina map (may be null)
-     * @return the tool's result, or a {@code BError}
+     * @return the tool function pointer, or a {@code BError} when not registered
      */
-    @SuppressWarnings("unchecked")
-    public static Object invokeAgentTool(BString agentName, BString toolName, Object arguments) {
+    public static Object getAgentToolFunction(BString agentName, BString toolName) {
         String key = agentName.getValue() + "." + toolName.getValue();
         BFunctionPointer tool = AGENT_TOOL_REGISTRY.get(key);
         if (tool == null) {
@@ -1125,67 +1124,7 @@ public final class WorkflowWorkerNative {
                     "Agent tool '" + toolName.getValue() + "' is not registered on this worker for '"
                             + agentName.getValue() + "'."));
         }
-
-        BMap<BString, Object> argsMap = arguments instanceof BMap ? (BMap<BString, Object>) arguments : null;
-        FunctionType funcType = (FunctionType) tool.getType();
-        Parameter[] allParams = funcType.getParameters();
-
-        java.util.List<Parameter> dataParams = new ArrayList<>();
-        if (allParams != null) {
-            for (Parameter p : allParams) {
-                if (p.type.getTag() == TypeTags.TYPEDESC_TAG) {
-                    continue; // injected by dependent typing, never by the model
-                }
-                if ("Context".equals(p.type.getName())) {
-                    return ErrorCreator.createError(StringUtils.fromString(
-                            "Agent tool '" + toolName.getValue()
-                                    + "' declares an ai:Context parameter, which is not supported yet."));
-                }
-                dataParams.add(p);
-            }
-        }
-
-        int lastProvidedIndex = -1;
-        for (int i = 0; i < dataParams.size(); i++) {
-            if (argsMap != null && argsMap.containsKey(StringUtils.fromString(dataParams.get(i).name))) {
-                lastProvidedIndex = i;
-            }
-        }
-
-        java.util.List<Object> orderedArgs = new ArrayList<>();
-        for (int i = 0; i <= lastProvidedIndex; i++) {
-            Parameter param = dataParams.get(i);
-            BString paramKey = StringUtils.fromString(param.name);
-            if (argsMap != null && argsMap.containsKey(paramKey)) {
-                Object converted = TypesUtil.cloneWithType(argsMap.get(paramKey), param.type);
-                if (converted instanceof BError err) {
-                    return ErrorCreator.createError(StringUtils.fromString(
-                            "Invalid value for agent tool parameter '" + param.name + "': " + err.getMessage()));
-                }
-                orderedArgs.add(converted);
-            } else if (param.isDefault) {
-                orderedArgs.add(null); // defaultable param absent → Ballerina default
-            } else {
-                return ErrorCreator.createError(StringUtils.fromString(
-                        "Required agent tool parameter '" + param.name + "' is missing"));
-            }
-        }
-        // Verify no required parameter after the last provided one is missing.
-        for (int i = lastProvidedIndex + 1; i < dataParams.size(); i++) {
-            if (!dataParams.get(i).isDefault) {
-                return ErrorCreator.createError(StringUtils.fromString(
-                        "Required agent tool parameter '" + dataParams.get(i).name + "' is missing"));
-            }
-        }
-
-        try {
-            FPValue fpValue = (FPValue) tool;
-            fpValue.metadata = new StrandMetadata(true, fpValue.metadata.properties());
-            return tool.call(ballerinaRuntime, orderedArgs.toArray());
-        } catch (Exception e) {
-            return ErrorCreator.createError(StringUtils.fromString(
-                    "Agent tool '" + toolName.getValue() + "' invocation failed: " + e.getMessage()));
-        }
+        return tool;
     }
 
     /**

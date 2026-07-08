@@ -287,6 +287,201 @@ function eventWaitingAgent(AgentContext ctx, AgentOrderInput input,
     check ctx->runDurableAgent(eventToolAgentModel, {systemPrompt: "You wait for events."}, input.request);
 }
 
+// ── Multi-turn conversation (MULTI_EVENT interaction) ───────────────────────
+
+// Scripted conversation: turn 1 answers and waits for chat; subsequent turns
+// echo the latest chat message and wait again, until the user says "bye".
+isolated client class ConversationMockModelProvider {
+    *ai:ModelProvider;
+
+    isolated remote function chat(ai:ChatMessage[]|ai:ChatUserMessage messages,
+            ai:ChatCompletionFunctions[] tools = [], string? stop = ())
+            returns ai:ChatAssistantMessage|ai:Error {
+        string? lastChat = ();
+        if messages is ai:ChatMessage[] {
+            foreach ai:ChatMessage message in messages {
+                if message is ai:ChatFunctionMessage && message.name == "awaitEvent_chat" {
+                    lastChat = message.content;
+                }
+            }
+        }
+        if lastChat is () {
+            return {
+                role: ai:ASSISTANT,
+                content: "Turn 1 answer",
+                toolCalls: [{name: "awaitEvent_chat", arguments: {}}]
+            };
+        }
+        if lastChat.includes("bye") {
+            return {role: ai:ASSISTANT, content: "Conversation ended"};
+        }
+        return {
+            role: ai:ASSISTANT,
+            content: "Echo: " + lastChat,
+            toolCalls: [{name: "awaitEvent_chat", arguments: {}}]
+        };
+    }
+
+    isolated remote function generate(ai:Prompt prompt, typedesc<anydata> td = <>)
+            returns td|ai:Error = @java:Method {
+        'class: "io.ballerina.lib.workflow.test.TestNatives",
+        name: "mockGenerate"
+    } external;
+}
+
+final ConversationMockModelProvider conversationAgentModel = new;
+
+@DurableAgent
+function conversationAgent(AgentContext ctx, AgentOrderInput input,
+        record {| future<string> chat; |} events) returns error? {
+    check ctx.setInteraction(MULTI_EVENT, eventTimeout = {seconds: 60});
+    check ctx->runDurableAgent(conversationAgentModel,
+            {systemPrompt: "Chat with the user until they say bye."}, input.request);
+}
+
+// MULTI_EVENT without the mandatory eventTimeout — must fail at registration.
+@DurableAgent
+function unsafeConversationAgent(AgentContext ctx, AgentOrderInput input,
+        record {| future<string> chat; |} events) returns error? {
+    check ctx.setInteraction(MULTI_EVENT);
+    check ctx->runDurableAgent(conversationAgentModel, {systemPrompt: "unsafe"}, input.request);
+}
+
+// Model that always waits — exercises the maxEventWaits safety cap.
+@DurableAgent
+function cappedConversationAgent(AgentContext ctx, AgentOrderInput input,
+        record {| future<string> chat; |} events) returns error? {
+    check ctx.setInteraction(MULTI_EVENT, eventTimeout = {seconds: 60}, maxEventWaits = 2);
+    check ctx->runDurableAgent(conversationAgentModel,
+            {systemPrompt: "Chat forever."}, input.request);
+}
+
+// ── Event wait timeout ───────────────────────────────────────────────────────
+
+// Calls awaitEvent_approval once; on the timeout text, wraps up gracefully.
+isolated client class TimeoutMockModelProvider {
+    *ai:ModelProvider;
+
+    isolated remote function chat(ai:ChatMessage[]|ai:ChatUserMessage messages,
+            ai:ChatCompletionFunctions[] tools = [], string? stop = ())
+            returns ai:ChatAssistantMessage|ai:Error {
+        if messages is ai:ChatMessage[] {
+            foreach ai:ChatMessage message in messages {
+                if message is ai:ChatFunctionMessage && message.name == "awaitEvent_approval" {
+                    string? content = message.content;
+                    return {role: ai:ASSISTANT, content: "Wrapped up: " + (content ?: "")};
+                }
+            }
+        }
+        return {role: ai:ASSISTANT, toolCalls: [{name: "awaitEvent_approval", arguments: {}}]};
+    }
+
+    isolated remote function generate(ai:Prompt prompt, typedesc<anydata> td = <>)
+            returns td|ai:Error = @java:Method {
+        'class: "io.ballerina.lib.workflow.test.TestNatives",
+        name: "mockGenerate"
+    } external;
+}
+
+final TimeoutMockModelProvider timeoutAgentModel = new;
+
+@DurableAgent
+function timeoutAgent(AgentContext ctx, AgentOrderInput input,
+        record {| future<string> approval; |} events) returns error? {
+    check ctx.setInteraction(SINGLE_EVENT, eventTimeout = {seconds: 2});
+    check ctx->runDurableAgent(timeoutAgentModel, {systemPrompt: "Wait for approval."}, input.request);
+}
+
+// ── ai:Context-taking tool (via ai:executeTool delegation) ──────────────────
+
+@ai:AgentTool
+isolated function contextualLookup(ai:Context ctx, string item) returns string {
+    return "ctx-tool saw: " + item;
+}
+
+isolated client class ContextToolMockModelProvider {
+    *ai:ModelProvider;
+
+    isolated remote function chat(ai:ChatMessage[]|ai:ChatUserMessage messages,
+            ai:ChatCompletionFunctions[] tools = [], string? stop = ())
+            returns ai:ChatAssistantMessage|ai:Error {
+        if messages is ai:ChatMessage[] {
+            foreach ai:ChatMessage message in messages {
+                if message is ai:ChatFunctionMessage && message.name == "contextualLookup" {
+                    string? content = message.content;
+                    return {role: ai:ASSISTANT, content: "Ctx result: " + (content ?: "")};
+                }
+            }
+        }
+        return {role: ai:ASSISTANT, toolCalls: [{name: "contextualLookup", arguments: {"item": "laptop"}}]};
+    }
+
+    isolated remote function generate(ai:Prompt prompt, typedesc<anydata> td = <>)
+            returns td|ai:Error = @java:Method {
+        'class: "io.ballerina.lib.workflow.test.TestNatives",
+        name: "mockGenerate"
+    } external;
+}
+
+final ContextToolMockModelProvider contextToolAgentModel = new;
+
+@DurableAgent
+function contextToolAgent(AgentContext ctx, AgentOrderInput input) returns error? {
+    check ctx.registerTools([contextualLookup]);
+    check ctx->runDurableAgent(contextToolAgentModel, {systemPrompt: "Use your tools."}, input.request);
+}
+
+// ── BaseToolKit ──────────────────────────────────────────────────────────────
+
+isolated class TestToolKit {
+    *ai:BaseToolKit;
+
+    public isolated function getTools() returns ai:ToolConfig[] {
+        return ai:getToolConfigs([lookupPrice]);
+    }
+}
+
+@DurableAgent
+function toolkitAgent(AgentContext ctx, AgentOrderInput input) returns error? {
+    check ctx.registerTools([new TestToolKit()]);
+    check ctx->runDurableAgent(aiToolAgentModel, {systemPrompt: "You are a pricing assistant."},
+            input.request);
+}
+
+// ── Human task timeout ───────────────────────────────────────────────────────
+
+isolated client class SlowApprovalMockModelProvider {
+    *ai:ModelProvider;
+
+    isolated remote function chat(ai:ChatMessage[]|ai:ChatUserMessage messages,
+            ai:ChatCompletionFunctions[] tools = [], string? stop = ())
+            returns ai:ChatAssistantMessage|ai:Error {
+        if messages is ai:ChatMessage[] {
+            foreach ai:ChatMessage message in messages {
+                if message is ai:ChatFunctionMessage && message.name == "slowApproval" {
+                    string? content = message.content;
+                    return {role: ai:ASSISTANT, content: "Task outcome: " + (content ?: "")};
+                }
+            }
+        }
+        return {role: ai:ASSISTANT, toolCalls: [{name: "slowApproval", arguments: {"orderId": "ORD-1"}}]};
+    }
+
+    isolated remote function generate(ai:Prompt prompt, typedesc<anydata> td = <>)
+            returns td|ai:Error = @java:Method {
+        'class: "io.ballerina.lib.workflow.test.TestNatives",
+        name: "mockGenerate"
+    } external;
+}
+
+final SlowApprovalMockModelProvider slowApprovalAgentModel = new;
+
+@DurableAgent
+function humanTaskTimeoutAgent(AgentContext ctx, AgentOrderInput input) returns error? {
+    check ctx.registerHumanTask("slowApproval", "APPROVER", ApprovalResult, timeout = {seconds: 2});
+    check ctx->runDurableAgent(slowApprovalAgentModel, {systemPrompt: "Get approval."}, input.request);
+}
+
 // ── Setup ────────────────────────────────────────────────────────────────────
 
 @test:BeforeSuite
@@ -307,6 +502,28 @@ function setupAgentTests() returns error? {
     _ = check wfInternal:registerAgentTool("price-agent", lookupPrice);
     _ = check wfInternal:registerWorkflow(approvalAgent, "approval-agent", agentActivities);
     _ = check wfInternal:registerWorkflow(eventWaitingAgent, "event-waiting-agent", agentActivities);
+    _ = check wfInternal:registerWorkflow(conversationAgent, "conversation-agent", agentActivities);
+    _ = check wfInternal:registerWorkflow(unsafeConversationAgent, "unsafe-conversation-agent",
+            agentActivities);
+    _ = check wfInternal:registerWorkflow(cappedConversationAgent, "capped-conversation-agent",
+            agentActivities);
+    _ = check wfInternal:registerWorkflow(timeoutAgent, "timeout-agent", agentActivities);
+    _ = check wfInternal:registerWorkflow(contextToolAgent, "context-tool-agent", agentActivities);
+    _ = check wfInternal:registerWorkflow(toolkitAgent, "toolkit-agent", agentActivities);
+    _ = check wfInternal:registerWorkflow(humanTaskTimeoutAgent, "humantask-timeout-agent",
+            agentActivities);
+}
+
+// Polls until the agent's latest recorded response equals `expected`.
+function waitForAgentResponse(string workflowId, string expected) returns boolean {
+    foreach int i in 0 ..< 40 {
+        string?|error response = management:getAgentResponse(workflowId);
+        if response is string && response == expected {
+            return true;
+        }
+        runtime:sleep(0.5);
+    }
+    return false;
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -444,4 +661,123 @@ function testAgentEventWaitTool() returns error? {
     _ = check getWorkflowResult(workflowId, 30);
     test:assertEquals(getAgentFinalResponse(workflowId), "Event outcome: approved-by-manager",
             "Event data should flow back to the agent as the wait-tool result");
+}
+
+@test:Config {groups: ["unit"]}
+function testAgentMultiTurnConversation() returns error? {
+    // MULTI_EVENT: the model answers and re-arms the chat wait each turn until
+    // the user says bye. Each turn's answer is observable via getAgentResponse
+    // while the agent is still running.
+    map<anydata> input = {id: "agent-conversation-001", request: "hello"};
+    string|error runResult = run(conversationAgent, input);
+    if runResult is error {
+        return; // No workflow server available — skip.
+    }
+    string workflowId = runResult;
+
+    test:assertTrue(waitForAgentResponse(workflowId, "Turn 1 answer"),
+            "Turn 1 answer should be recorded while the agent waits for chat");
+
+    check sendData(conversationAgent, workflowId, "chat", "how are you");
+    test:assertTrue(waitForAgentResponse(workflowId, "Echo: how are you"),
+            "Turn 2 should consume the next chat message (FIFO re-armed event)");
+
+    check sendData(conversationAgent, workflowId, "chat", "ok bye");
+    _ = check getWorkflowResult(workflowId, 30);
+    test:assertEquals(getAgentFinalResponse(workflowId), "Conversation ended",
+            "The model ends the conversation by answering without waiting");
+}
+
+@test:Config {groups: ["unit"]}
+function testMultiEventRequiresTimeout() returns error? {
+    // MULTI_EVENT without an eventTimeout must fail at registration (safety).
+    map<anydata> input = {id: "agent-unsafe-conv-001", request: "hello"};
+    string|error runResult = run(unsafeConversationAgent, input);
+    if runResult is error {
+        return; // No workflow server available — skip.
+    }
+    anydata|error result = getWorkflowResult(runResult, 30);
+    test:assertTrue(result is error, "MULTI_EVENT without eventTimeout should fail the agent");
+    if result is error {
+        test:assertTrue(result.message().includes("eventTimeout"),
+                "Error should mention the missing eventTimeout: " + result.message());
+    }
+}
+
+@test:Config {groups: ["unit"]}
+function testAgentMaxEventWaitsCap() returns error? {
+    // The model waits forever; the maxEventWaits cap must end the agent.
+    map<anydata> input = {id: "agent-capped-conv-001", request: "hello"};
+    string|error runResult = run(cappedConversationAgent, input);
+    if runResult is error {
+        return; // No workflow server available — skip.
+    }
+    string workflowId = runResult;
+    runtime:sleep(2);
+    check sendData(cappedConversationAgent, workflowId, "chat", "turn two");
+    runtime:sleep(1);
+    check sendData(cappedConversationAgent, workflowId, "chat", "turn three");
+
+    anydata|error result = getWorkflowResult(workflowId, 30);
+    test:assertTrue(result is error, "Exceeding maxEventWaits should fail the agent");
+    if result is error {
+        test:assertTrue(result.message().includes("event waits"),
+                "Error should mention the event-wait limit: " + result.message());
+    }
+}
+
+@test:Config {groups: ["unit"]}
+function testAgentEventWaitTimeout() returns error? {
+    // No approval event is ever sent; the wait times out and the timeout text is
+    // fed back to the model, which wraps up gracefully.
+    map<anydata> input = {id: "agent-event-timeout-001", request: "Wait for approval"};
+    string|error runResult = run(timeoutAgent, input);
+    if runResult is error {
+        return; // No workflow server available — skip.
+    }
+    _ = check getWorkflowResult(runResult, 30);
+    string? response = getAgentFinalResponse(runResult);
+    test:assertTrue(response is string && response.includes("Timed out waiting for event 'approval'"),
+            "Timeout text should be fed back to the model, got: " + (response ?: "()"));
+}
+
+@test:Config {groups: ["unit"]}
+function testAgentContextTakingTool() returns error? {
+    // Tools with an ai:Context first parameter execute via ai:executeTool, which
+    // injects the context automatically.
+    map<anydata> input = {id: "agent-ctx-tool-001", request: "Look up the laptop"};
+    string|error runResult = run(contextToolAgent, input);
+    if runResult is error {
+        return; // No workflow server available — skip.
+    }
+    _ = check getWorkflowResult(runResult, 30);
+    test:assertEquals(getAgentFinalResponse(runResult), "Ctx result: ctx-tool saw: laptop",
+            "ai:Context-taking tools should execute through ai:executeTool");
+}
+
+@test:Config {groups: ["unit"]}
+function testAgentToolkitTools() returns error? {
+    // BaseToolKit implementations expand into their ToolConfigs.
+    map<anydata> input = {id: "agent-toolkit-001", request: "How much is the laptop?"};
+    string|error runResult = run(toolkitAgent, input);
+    if runResult is error {
+        return; // No workflow server available — skip.
+    }
+    _ = check getWorkflowResult(runResult, 30);
+    test:assertEquals(getAgentFinalResponse(runResult), "Price info: laptop costs $999",
+            "Toolkit tools should register and execute like other AI tools");
+}
+
+@test:Config {groups: ["unit"]}
+function testAgentHumanTaskTimeout() returns error? {
+    // Nobody completes the task; the timeout error is fed back to the model.
+    map<anydata> input = {id: "agent-ht-timeout-001", request: "Get approval for ORD-1"};
+    string|error runResult = run(humanTaskTimeoutAgent, input);
+    if runResult is error {
+        return; // No workflow server available — skip.
+    }
+    _ = check getWorkflowResult(runResult, 60);
+    string? response = getAgentFinalResponse(runResult);
+    test:assertTrue(response is string && response.includes("timed out"),
+            "Human-task timeout should be fed back to the model, got: " + (response ?: "()"));
 }

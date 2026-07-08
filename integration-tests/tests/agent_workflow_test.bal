@@ -18,6 +18,7 @@ import ballerina/jballerina.java;
 import ballerina/lang.runtime;
 import ballerina/test;
 import ballerina/workflow;
+import ballerina/workflow.management;
 
 // Probe: reads the final response the agent recorded on completion (agents have
 // no workflow return value).
@@ -25,6 +26,18 @@ isolated function getAgentFinalResponse(string workflowId) returns string? = @ja
     'class: "io.ballerina.lib.workflow.context.AgentResponseStore",
     name: "getFinalResponse"
 } external;
+
+// Polls until the agent's latest recorded response equals `expected`.
+function waitForAgentResponse(string workflowId, string expected) returns boolean {
+    foreach int i in 0 ..< 40 {
+        string?|error response = management:getAgentResponse(workflowId);
+        if response is string && response == expected {
+            return true;
+        }
+        runtime:sleep(0.5);
+    }
+    return false;
+}
 
 @test:Config {}
 function testDurableAgentPromptDriven() returns error? {
@@ -35,6 +48,26 @@ function testDurableAgentPromptDriven() returns error? {
 
     test:assertEquals(getAgentFinalResponse(agentId), "Stock check result: laptop is in stock",
             "Prompt-driven agent should complete the LLM -> tool -> LLM round trip");
+}
+
+@test:Config {}
+function testDurableAgentMultiTurnConversation() returns error? {
+    // MULTI_EVENT: FIFO re-armed chat waits across turns against the real server,
+    // with per-turn responses observable via management:getAgentResponse.
+    string agentId = check workflow:run(conversationalStockAgent,
+            {id: "agent-int-conv-001", request: "hello"});
+
+    test:assertTrue(waitForAgentResponse(agentId, "Turn 1 answer"),
+            "Turn 1 answer should be observable while the agent waits for chat");
+
+    check workflow:sendData(conversationalStockAgent, agentId, "chat", "how are you");
+    test:assertTrue(waitForAgentResponse(agentId, "Echo: how are you"),
+            "Turn 2 should consume the next chat message");
+
+    check workflow:sendData(conversationalStockAgent, agentId, "chat", "ok bye");
+    _ = check workflow:getWorkflowResult(agentId, 60);
+    test:assertEquals(check management:getAgentResponse(agentId), "Conversation ended",
+            "The model ends the conversation by answering without waiting");
 }
 
 @test:Config {}

@@ -65,6 +65,9 @@ public final class AgentContextNative {
     private static final String KIND_EVENT_PREFIX = "event:";
     private static final String EVENT_TOOL_PREFIX = "awaitEvent_";
 
+    // Interaction patterns (mirrors workflow:AgentInteractionPattern).
+    private static final String MULTI_EVENT = "MULTI_EVENT";
+
     private AgentContextNative() {
         // Utility class
     }
@@ -81,6 +84,11 @@ public final class AgentContextNative {
         private final List<ToolMeta> tools = new ArrayList<>();
         private final Map<String, HumanTaskMeta> humanTasks = new HashMap<>();
         private String finalResponse = "";
+        // Interaction semantics (configured via ctx.setInteraction; defaults = SINGLE_EVENT).
+        private boolean multiEvent = false;
+        private Long eventTimeoutMillis = null;
+        private long maxEventWaits = 50;
+        private long eventWaitCount = 0;
 
         public AgentContextInfo(String workflowId, String workflowType, SignalAwaitWrapper signalWrapper,
                                 Set<String> eventNames) {
@@ -97,7 +105,45 @@ public final class AgentContextNative {
 
     private record ToolMeta(String name, String description, Map<String, Object> schema, String kind) { }
 
-    private record HumanTaskMeta(Object userRoles, String title, String description, BTypedesc resultType) { }
+    private record HumanTaskMeta(Object userRoles, String title, String description, BTypedesc resultType,
+                                 Object timeout) { }
+
+    /**
+     * Configures the agent's interaction semantics. {@code MULTI_EVENT} makes event waits FIFO-repeatable
+     * (conversational) and requires an event timeout as its safety mechanism; {@code maxEventWaits} caps the total
+     * number of event waits per run.
+     *
+     * @param handle        the agent context handle
+     * @param pattern       "SINGLE_EVENT" or "MULTI_EVENT"
+     * @param eventTimeout  a {@code time:Duration} map, or null for no per-wait timeout
+     * @param maxEventWaits cap on total event waits per run
+     * @return null on success, or a Ballerina error
+     */
+    @SuppressWarnings("unchecked")
+    public static Object setInteraction(BHandle handle, BString pattern, Object eventTimeout, long maxEventWaits) {
+        try {
+            AgentContextInfo info = (AgentContextInfo) handle.getValue();
+            boolean multiEvent = MULTI_EVENT.equals(pattern.getValue());
+            Long timeoutMillis = eventTimeout instanceof BMap
+                    ? WorkflowContextNative.computeTimeoutMillis((BMap<BString, Object>) eventTimeout)
+                    : null;
+            if (multiEvent && timeoutMillis == null) {
+                return ErrorCreator.createError(StringUtils.fromString(
+                        "MULTI_EVENT interaction requires an eventTimeout as its safety mechanism"));
+            }
+            if (maxEventWaits < 1) {
+                return ErrorCreator.createError(StringUtils.fromString(
+                        "maxEventWaits must be at least 1"));
+            }
+            info.multiEvent = multiEvent;
+            info.eventTimeoutMillis = timeoutMillis;
+            info.maxEventWaits = maxEventWaits;
+            return null;
+        } catch (Exception e) {
+            return ErrorCreator.createError(StringUtils.fromString(
+                    "Failed to configure agent interaction: " + e.getMessage()));
+        }
+    }
 
     /**
      * Records a {@code @workflow:Activity} tool: derives its name and parameter JSON schema so the loop can advertise
@@ -165,10 +211,12 @@ public final class AgentContextNative {
      * @param resultType  the expected completion result type
      * @param title       optional short title
      * @param description optional description (also the tool description)
+     * @param timeout     optional {@code time:Duration} after which the task times out
      * @return null on success, or a Ballerina error
      */
     public static Object recordHumanTaskTool(BHandle handle, BString taskName, Object userRoles,
-                                             BTypedesc resultType, Object title, Object description) {
+                                             BTypedesc resultType, Object title, Object description,
+                                             Object timeout) {
         try {
             AgentContextInfo info = (AgentContextInfo) handle.getValue();
             String name = taskName.getValue();
@@ -185,7 +233,8 @@ public final class AgentContextNative {
             schema.put("type", "object");
             schema.put("additionalProperties", Boolean.TRUE);
             info.tools.add(new ToolMeta(name, descriptionStr, schema, KIND_HUMAN_TASK));
-            info.humanTasks.put(name, new HumanTaskMeta(userRoles, titleStr, descriptionStr, resultType));
+            info.humanTasks.put(name, new HumanTaskMeta(userRoles, titleStr, descriptionStr, resultType,
+                    timeout instanceof BMap ? timeout : null));
             return null;
         } catch (Exception e) {
             return ErrorCreator.createError(StringUtils.fromString(
@@ -264,6 +313,17 @@ public final class AgentContextNative {
         AgentContextInfo info = (AgentContextInfo) handle.getValue();
         info.finalResponse = response.getValue();
         AgentResponseStore.put(info.workflowId, response.getValue());
+        // Surface the (latest) response cross-process via the workflow memo, so
+        // management:getAgentResponse works from any process. Best-effort: some test
+        // environments may not support memo upserts; the in-JVM store remains the fallback.
+        try {
+            Map<String, Object> memo = new HashMap<>();
+            memo.put("workflowKind", "AGENT");
+            memo.put("agentResponse", response.getValue());
+            Workflow.upsertMemo(memo);
+        } catch (Exception e) {
+            // Ignore — response remains available via AgentResponseStore in this JVM.
+        }
         return null;
     }
 
@@ -281,11 +341,17 @@ public final class AgentContextNative {
                 return null;
             }
             Object data = awaitSignal(info, CHAT_EVENT);
+            if (data instanceof TimedOut) {
+                return ErrorCreator.createError(StringUtils.fromString(
+                        "Timed out waiting for the initial 'chat' event"));
+            }
             Object ballerina = TypesUtil.convertJavaToBallerinaType(data);
             if (ballerina instanceof BString bStr) {
                 return bStr;
             }
             return StringUtils.fromString(String.valueOf(ballerina));
+        } catch (io.temporal.worker.NonDeterministicException | io.temporal.failure.TemporalFailure e) {
+            throw e;
         } catch (Exception e) {
             return ErrorCreator.createError(StringUtils.fromString(
                     "Failed to await agent chat event: " + e.getMessage()));
@@ -294,7 +360,9 @@ public final class AgentContextNative {
 
     /**
      * Suspends the agent durably until the named data event arrives and returns its data. Backs the per-event
-     * wait-tools advertised to the model.
+     * wait-tools advertised to the model. Honors the configured interaction semantics: FIFO-repeatable waits under
+     * MULTI_EVENT, per-wait timeout (returned as a Ballerina error the loop feeds back to the model), and the
+     * max-event-waits safety cap (thrown as a hard failure that ends the agent).
      *
      * @param handle    the agent context handle
      * @param eventName the event field name declared in the agent's signature
@@ -309,6 +377,10 @@ public final class AgentContextNative {
                         "Event '" + name + "' is not declared in the agent's signature."));
             }
             Object data = awaitSignal(info, name);
+            if (data instanceof TimedOut) {
+                return ErrorCreator.createError(StringUtils.fromString(
+                        "Timed out waiting for event '" + name + "'"));
+            }
             return TypesUtil.convertJavaToBallerinaType(data);
         } catch (io.temporal.worker.NonDeterministicException | io.temporal.failure.TemporalFailure e) {
             throw e;
@@ -318,10 +390,41 @@ public final class AgentContextNative {
         }
     }
 
+    /** Sentinel returned by awaitSignal when the per-wait timeout elapses. */
+    private static final class TimedOut {
+        private static final TimedOut INSTANCE = new TimedOut();
+    }
+
+    /**
+     * Waits for the next signal according to the configured interaction pattern. SINGLE_EVENT uses the legacy
+     * one-shot promise; MULTI_EVENT takes from the FIFO channel so repeated waits observe successive signals.
+     * Enforces the max-event-waits cap (hard failure) and the per-wait timeout (returns {@link TimedOut}).
+     */
     private static Object awaitSignal(AgentContextInfo info, String eventName) throws Exception {
-        io.temporal.workflow.CompletablePromise<SignalAwaitWrapper.SignalData> future =
-                info.signalWrapper.getSignalFuture(eventName);
-        Workflow.await(future::isCompleted);
+        info.eventWaitCount++;
+        if (info.eventWaitCount > info.maxEventWaits) {
+            throw io.temporal.failure.ApplicationFailure.newNonRetryableFailure(
+                    "Agent exceeded the maximum number of event waits (" + info.maxEventWaits
+                            + "). Configure ctx.setInteraction(...) to raise the limit.", "AGENT_EVENT_WAIT_LIMIT");
+        }
+
+        io.temporal.workflow.CompletablePromise<SignalAwaitWrapper.SignalData> future = info.multiEvent
+                ? info.signalWrapper.takeSignalFuture(eventName)
+                : info.signalWrapper.getSignalFuture(eventName);
+
+        if (info.eventTimeoutMillis != null) {
+            boolean arrived = Workflow.await(java.time.Duration.ofMillis(info.eventTimeoutMillis),
+                    future::isCompleted);
+            if (!arrived) {
+                // Remove the abandoned FIFO waiter so a later signal is not consumed silently.
+                if (info.multiEvent) {
+                    info.signalWrapper.cancelWaiter(eventName, future);
+                }
+                return TimedOut.INSTANCE;
+            }
+        } else {
+            Workflow.await(future::isCompleted);
+        }
         return future.get().data();
     }
 
@@ -347,7 +450,7 @@ public final class AgentContextNative {
                 : io.ballerina.runtime.api.creators.ValueCreator.createMapValue();
         return WorkflowContextNative.awaitHumanTask(null, taskName, meta.userRoles(), payloadMap,
                 StringUtils.fromString(meta.title()), StringUtils.fromString(meta.description()),
-                null, meta.resultType());
+                meta.timeout(), meta.resultType());
     }
 
     /**

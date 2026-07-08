@@ -618,10 +618,11 @@ public final class WorkflowContextNative {
 
     /**
      * Converts a {@code time:Duration} BMap to total milliseconds as a {@code long}. Returns {@code null} to indicate
-     * "no timeout" when the duration map is absent.
+     * "no timeout" when the duration map is absent. Package-visible so {@link AgentContextNative} can reuse it for
+     * agent event/human-task wait timeouts.
      */
     @SuppressWarnings("unchecked")
-    private static Long computeTimeoutMillis(BMap<BString, Object> duration) {
+    static Long computeTimeoutMillis(BMap<BString, Object> duration) {
         if (duration == null) {
             return null; // no timeout — wait indefinitely
         }

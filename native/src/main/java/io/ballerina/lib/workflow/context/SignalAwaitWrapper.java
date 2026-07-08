@@ -58,6 +58,16 @@ public final class SignalAwaitWrapper {
     // Map of signal name to its data (for completed signals, used during replay)
     private final Map<String, SignalData> completedSignals = new ConcurrentHashMap<>();
 
+    // FIFO consume-once channel per signal name (used by durable agents' repeatable event
+    // waits). Signals not yet consumed queue up in pendingSignals; waiters registered before
+    // a signal arrives queue up in signalWaiters. recordSignal feeds this channel in addition
+    // to the legacy one-shot path above, which stays unchanged for events-record futures and
+    // the built-in human/retry task waits. Both recording (Temporal event-history order) and
+    // taking (workflow-thread program order) are deterministic, so this is replay-safe.
+    private final Map<String, java.util.Deque<SignalData>> pendingSignals = new ConcurrentHashMap<>();
+    private final Map<String, java.util.Deque<CompletablePromise<SignalData>>> signalWaiters =
+            new ConcurrentHashMap<>();
+
     /**
      * Default constructor for per-workflow instance.
      */
@@ -110,6 +120,62 @@ public final class SignalAwaitWrapper {
         if (promise != null && !promise.isCompleted()) {
             promise.complete(signalData);
             LOGGER.debug("[SignalAwaitWrapper] Promise for signal '{}' completed", signalName);
+        }
+
+        // Feed the FIFO consume-once channel: hand the signal to the oldest live
+        // waiter, or queue it until someone takes it.
+        java.util.Deque<CompletablePromise<SignalData>> waiters = signalWaiters.get(signalName);
+        if (waiters != null) {
+            CompletablePromise<SignalData> waiter;
+            while ((waiter = waiters.pollFirst()) != null) {
+                if (!waiter.isCompleted()) {
+                    waiter.complete(signalData);
+                    LOGGER.debug("[SignalAwaitWrapper] FIFO waiter for signal '{}' completed", signalName);
+                    return;
+                }
+            }
+        }
+        pendingSignals.computeIfAbsent(signalName, k -> new java.util.ArrayDeque<>()).addLast(signalData);
+        LOGGER.debug("[SignalAwaitWrapper] Signal '{}' queued for FIFO consumption", signalName);
+    }
+
+    /**
+     * Takes the next undelivered signal of the given name: returns a completed promise when one is queued, otherwise
+     * registers and returns a waiter promise that the next {@link #recordSignal} completes. Unlike
+     * {@link #getSignalFuture}, each returned promise consumes exactly one signal, so repeated waits observe
+     * successive signals (FIFO) — the basis of durable agents' multi-turn event waits.
+     *
+     * @param signalName the name of the signal
+     * @return a CompletablePromise that will contain the next signal data
+     */
+    public CompletablePromise<SignalData> takeSignalFuture(String signalName) {
+        java.util.Deque<SignalData> pending = pendingSignals.get(signalName);
+        if (pending != null) {
+            SignalData next = pending.pollFirst();
+            if (next != null) {
+                CompletablePromise<SignalData> completed = Workflow.newPromise();
+                completed.complete(next);
+                LOGGER.debug("[SignalAwaitWrapper] FIFO take of signal '{}' served from queue", signalName);
+                return completed;
+            }
+        }
+        CompletablePromise<SignalData> waiter = Workflow.newPromise();
+        signalWaiters.computeIfAbsent(signalName, k -> new java.util.ArrayDeque<>()).addLast(waiter);
+        LOGGER.debug("[SignalAwaitWrapper] FIFO waiter registered for signal '{}'", signalName);
+        return waiter;
+    }
+
+    /**
+     * Cancels a FIFO waiter previously returned by {@link #takeSignalFuture} (e.g. on wait timeout), so a later
+     * signal is not silently consumed by an abandoned promise.
+     *
+     * @param signalName the signal name the waiter was registered for
+     * @param waiter     the waiter promise to remove
+     */
+    public void cancelWaiter(String signalName, CompletablePromise<SignalData> waiter) {
+        java.util.Deque<CompletablePromise<SignalData>> waiters = signalWaiters.get(signalName);
+        if (waiters != null) {
+            waiters.remove(waiter);
         }
     }
 
