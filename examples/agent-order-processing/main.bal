@@ -16,13 +16,16 @@
 
 import ballerina/ai;
 import ballerina/io;
-import ballerina/jballerina.java;
 import ballerina/workflow;
 
 type OrderRequest record {|
     string orderId;
     string userPrompt;
 |};
+
+// The WSO2 default model provider, configured via `ballerina.ai.wso2ProviderConfig`
+// in Config.toml (see README.md — the Ballerina VS Code extension can generate it).
+final ai:Wso2ModelProvider orderModel = check ai:getDefaultModelProvider();
 
 // A tool the agent can invoke. Every tool call runs as a durable Temporal
 // activity, so it is retried and never re-executed on replay.
@@ -45,61 +48,13 @@ function orderAgent(workflow:AgentContext ctx, OrderRequest req,
     check ctx->runDurableAgent(orderModel,
             {
                 systemPrompt: string `You are the assistant for order ${req.orderId}.
-                        Use checkInventory to answer availability questions. After each
-                        answer, wait for the user's next chat message unless they say goodbye.`
+                        Use the checkInventory tool to answer product availability questions.
+                        After each answer, call the awaitEvent_chat tool to wait for the
+                        user's next message. Only when the user says goodbye, respond with
+                        a farewell WITHOUT calling any tool, to end the conversation.`
             },
             req.userPrompt);
 }
-
-// ── A self-contained mock model provider so the example runs without credentials.
-// Replace with a real provider, e.g. `check ai:getDefaultModelProvider()` or a
-// `ballerinax/ai.openai` client, in a real deployment.
-isolated client class MockModelProvider {
-    *ai:ModelProvider;
-
-    isolated remote function chat(ai:ChatMessage[]|ai:ChatUserMessage messages,
-            ai:ChatCompletionFunctions[] tools = [], string? stop = ())
-            returns ai:ChatAssistantMessage|ai:Error {
-        string? inventory = ();
-        string? lastChat = ();
-        if messages is ai:ChatMessage[] {
-            foreach ai:ChatMessage message in messages {
-                if message is ai:ChatFunctionMessage && message.name == "checkInventory" {
-                    inventory = message.content;
-                }
-                if message is ai:ChatFunctionMessage && message.name == "awaitEvent_chat" {
-                    lastChat = message.content;
-                }
-            }
-        }
-        if inventory is () {
-            return {role: ai:ASSISTANT, toolCalls: [{name: "checkInventory", arguments: {"item": "laptop"}}]};
-        }
-        if lastChat is () {
-            return {
-                role: ai:ASSISTANT,
-                content: "Good news: " + inventory + ". Anything else?",
-                toolCalls: [{name: "awaitEvent_chat", arguments: {}}]
-            };
-        }
-        if lastChat.includes("bye") {
-            return {role: ai:ASSISTANT, content: "Goodbye! Your order is on its way."};
-        }
-        return {
-            role: ai:ASSISTANT,
-            content: "You said: " + lastChat + ". Anything else?",
-            toolCalls: [{name: "awaitEvent_chat", arguments: {}}]
-        };
-    }
-
-    isolated remote function generate(ai:Prompt prompt, typedesc<anydata> td = <>)
-            returns td|ai:Error = @java:Method {
-        'class: "io.ballerina.lib.workflow.test.TestNatives",
-        name: "mockGenerate"
-    } external;
-}
-
-final MockModelProvider orderModel = new;
 
 public function main() returns error? {
     // Start the agent with no initial prompt: it suspends durably until the
@@ -116,7 +71,7 @@ public function main() returns error? {
     io:println("Turn 2: " + reply2);
 
     // The model ends the conversation when the user says goodbye.
-    string reply3 = check workflow:updateAgent(orderAgent, agentId, "chat", "great, bye!");
+    string reply3 = check workflow:updateAgent(orderAgent, agentId, "chat", "That's all, goodbye!");
     io:println("Final: " + reply3);
 
     _ = check workflow:getWorkflowResult(agentId);

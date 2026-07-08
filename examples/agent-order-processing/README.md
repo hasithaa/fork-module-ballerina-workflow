@@ -1,22 +1,53 @@
-# Durable AI Agent — Order Processing
+# Durable AI Agent — Conversational Order Processing
 
-Demonstrates a durable AI agent written with the imperative `workflow:AgentContext` API.
+Demonstrates a durable AI agent written with the imperative `workflow:AgentContext` API,
+powered by the **WSO2 default model provider** (`ai:getDefaultModelProvider()`).
 
 The `@workflow:DurableAgent` function receives an `AgentContext`, registers its tools
-(`@workflow:Activity` functions) imperatively, and hands control to the durable ReAct loop
-via `ctx->runDurableAgent(model, config, prompt)`. Every LLM call and every tool call runs as a
-durable Temporal activity, so the agent survives worker crashes and, on replay, re-loads its
-previous reasoning from the workflow event history instead of re-querying the model.
+(`@workflow:Activity` functions) imperatively, configures the `MULTI_EVENT` interaction pattern,
+and hands control to the durable ReAct loop via `ctx->runDurableAgent(model, config, prompt)`.
+Every LLM call and every tool call runs as a durable Temporal activity, so the agent survives
+worker crashes and, on replay, re-loads its previous reasoning from the workflow event history
+instead of re-querying the model.
 
-Key ideas:
+The client drives the conversation with **`workflow:updateAgent`** — a synchronous
+request-response interaction (a Temporal Update under the hood): each call delivers the user's
+message and returns the agent's answer for that turn. Between turns the agent suspends durably —
+it can wait hours or days for the next message without holding a thread.
 
-- **Imperative configuration** — tools and prompt are set up in ordinary Ballerina code, so system
-  prompts and tool sets can depend on runtime input.
-- **Model provider is a real object** — pass any `ai:ModelProvider` (here a self-contained mock so the
-  example runs without credentials; use `ai:getDefaultModelProvider()` or a `ballerinax/ai.*` client in
-  production).
-- **No return value** — a durable agent may run for a long time; it acts through its tools and events
-  rather than returning a value. The final answer is available via the workflow result APIs.
+```ballerina
+string reply = check workflow:updateAgent(orderAgent, agentId, "chat", "Is the laptop available?");
+```
+
+## Prerequisites — configure the model provider
+
+This example uses the WSO2 default model provider, which reads its credentials from
+`Config.toml`. The file contains an access token, so it is **git-ignored — never commit it**.
+
+### Generate it with VS Code (recommended)
+
+1. Open this example folder in VS Code with the
+   [Ballerina extension](https://marketplace.visualstudio.com/items?itemName=WSO2.ballerina)
+   installed, and sign in when prompted.
+2. Open the Command Palette (`Cmd/Ctrl + Shift + P`) and run
+   **“Ballerina: Configure Default Model Provider”**.
+3. The extension signs in to your WSO2 account and writes the
+   `[ballerina.ai.wso2ProviderConfig]` entries (`serviceUrl`, `accessToken`) into `Config.toml`.
+4. Add the workflow engine mode to the same file, so the final `Config.toml` looks like:
+
+```toml
+[ballerina.workflow]
+mode = "IN_MEMORY"
+
+[ballerina.ai.wso2ProviderConfig]
+serviceUrl = "<generated>"
+accessToken = "<generated>"
+```
+
+### Manual alternative
+
+Create `Config.toml` with the content above, supplying your own WSO2 AI service URL and
+access token.
 
 ## Run
 
@@ -24,5 +55,18 @@ Key ideas:
 bal run
 ```
 
-The agent starts, the mock model asks it to call `checkInventory`, and the agent completes after
-feeding the tool result back to the model.
+Expected flow (actual wording varies — a real LLM writes the replies):
+
+```
+Agent started with ID: <uuid>
+[activity] checkInventory(laptop)
+Turn 1: The laptop is in stock. ...
+Turn 2: ... (acknowledges expedited shipping) ...
+Final: Goodbye! ...
+```
+
+The system prompt instructs the model to call the `awaitEvent_chat` wait-tool after each
+answer — suspending the agent durably until the next `updateAgent` call — and to answer
+without waiting when the user says goodbye, which ends the workflow. Safety mechanisms from
+`ctx.setInteraction` (a 30-minute event timeout and the default max-event-waits cap) bound the
+conversation if no message arrives.

@@ -41,7 +41,7 @@ def ballerinaDistributionVersion = project.rootProject.findProperty("ballerinaLa
 // ai:ModelProvider whose dependently-typed `generate` uses TestNatives). Interop
 // bindings are validated against the current package's own platform dependencies,
 // so these examples must declare the jar themselves.
-def nativeJarExamples = ['agent-order-processing']
+def nativeJarExamples = []
 
 // Helper: generate a Ballerina.toml for an example
 def generateExampleToml = { String exampleDirName, String packageName ->
@@ -77,9 +77,10 @@ def testCoverageParam = "--code-coverage --coverage-format=xml --includes=io.bal
 // These are run with `bal run` as a smoke test to verify that the
 // compiler-plugin-generated __registerWorkflowsAndStart() function
 // works correctly at runtime — not just during `bal test`.
+// Note: agent-order-processing is build-verified only — running it requires
+// WSO2 model-provider credentials in a locally generated Config.toml.
 def runnableExamples = [
-    'get-started',
-    'agent-order-processing'
+    'get-started'
 ]
 
 task buildExamples {
