@@ -97,12 +97,17 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
         // the qualified-import copying below (workflow:llmChat needs the
         // ballerina/workflow import in the generated-code document).
         for (AgentFunctionInfo agent : allAgentInfos) {
-            Map<String, String> activityMap = new java.util.LinkedHashMap<>(agent.toolRefs());
+            Map<String, String> activityMap = new java.util.LinkedHashMap<>(agent.activityToolRefs());
             activityMap.put(WorkflowConstants.LLM_CHAT_ACTIVITY,
                     agent.workflowPrefix() + ":" + WorkflowConstants.LLM_CHAT_ACTIVITY);
             activityMap.put(WorkflowConstants.GENERATE_ACTIVITY,
                     agent.workflowPrefix() + ":" + WorkflowConstants.GENERATE_ACTIVITY);
-            allProcessInfos.add(new ProcessFunctionInfo(agent.functionName(), activityMap, Set.of()));
+            activityMap.put(WorkflowConstants.EXECUTE_AGENT_TOOL_ACTIVITY,
+                    agent.workflowPrefix() + ":" + WorkflowConstants.EXECUTE_AGENT_TOOL_ACTIVITY);
+            // Human tasks registered on the AgentContext reuse the same qualified
+            // "<functionName>.<taskName>" init registration as awaitHumanTask call sites.
+            allProcessInfos.add(new ProcessFunctionInfo(agent.functionName(), activityMap,
+                    agent.humanTaskNames()));
         }
 
         // Collect import declarations across every document in the module(s) being
@@ -152,6 +157,7 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
 
             ModulePartNode updatedRootNode = transformDocument(
                     rootNode, workflowContext, isLastDocument ? allProcessInfos : null,
+                    isLastDocument ? allAgentInfos : Collections.emptyList(),
                     isLastDocument
                         ? collectConnectionNames(documentId.moduleId().toString(), isTestDocument)
                         : Collections.emptyList());
@@ -177,6 +183,7 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
 
     private ModulePartNode transformDocument(ModulePartNode rootNode, WorkflowModifierContext workflowContext,
                                              List<ProcessFunctionInfo> allProcessInfos,
+                                             List<AgentFunctionInfo> allAgentInfos,
                                              List<String> connectionNames) {
         NodeList<ModuleMemberDeclarationNode> members = rootNode.members();
         List<ModuleMemberDeclarationNode> newMembers = new ArrayList<>();
@@ -188,7 +195,7 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
         // generate a private function that registers every workflow and
         // starts the runtime, plus a module-level variable that calls it.
         if (allProcessInfos != null && !allProcessInfos.isEmpty()) {
-            newMembers.add(createRegisterAndStartFunction(allProcessInfos, connectionNames));
+            newMembers.add(createRegisterAndStartFunction(allProcessInfos, allAgentInfos, connectionNames));
             newMembers.add(createRegisterAndStartInvocation());
         }
 
@@ -240,7 +247,8 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
      * </pre>
      */
     private ModuleMemberDeclarationNode createRegisterAndStartFunction(
-            List<ProcessFunctionInfo> allProcessInfos, List<String> connectionNames) {
+            List<ProcessFunctionInfo> allProcessInfos, List<AgentFunctionInfo> allAgentInfos,
+            List<String> connectionNames) {
         StringBuilder body = new StringBuilder();
         body.append("function __registerWorkflowsAndStart() returns boolean|error {");
         body.append(System.lineSeparator());
@@ -277,6 +285,18 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
                     .append(escapeBallerinaStringLiteral(qualifiedName))
                     .append("\");")
                     .append(System.lineSeparator());
+        }
+
+        // Register each agent's AI tool function pointers so the built-in
+        // executeAgentTool activity wrapper can resolve them on every worker.
+        for (AgentFunctionInfo agentInfo : allAgentInfos) {
+            for (String toolRef : agentInfo.aiToolRefs()) {
+                body.append("    _ = check ").append(WorkflowConstants.INTERNAL_MODULE_ALIAS)
+                        .append(":registerAgentTool(\"")
+                        .append(escapeBallerinaStringLiteral(agentInfo.functionName()))
+                        .append("\", ").append(toolRef).append(");")
+                        .append(System.lineSeparator());
+            }
         }
 
         body.append("    _ = check ").append(WorkflowConstants.INTERNAL_MODULE_ALIAS)

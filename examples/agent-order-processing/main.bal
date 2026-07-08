@@ -39,8 +39,10 @@ function checkInventory(string item) returns string|error {
 function orderAgent(workflow:AgentContext ctx, OrderRequest req) returns error? {
     check ctx.registerActivities([checkInventory]);
     check ctx->runDurableAgent(orderModel,
-            {systemPrompt: string `You are the assistant for order ${req.orderId}. ` +
-                    `Use checkInventory to answer availability questions.`},
+            {
+                systemPrompt: string `You are the assistant for order ${req.orderId}.
+                        Use checkInventory to answer availability questions.`
+            },
             req.userPrompt);
 }
 

@@ -73,10 +73,11 @@ public class AgentFunctionAnalysisTask implements AnalysisTask<SyntaxNodeAnalysi
         }
 
         String functionName = functionNode.functionName().text();
-        Map<String, String> toolRefs = new LinkedHashMap<>();
-        functionNode.functionBody().accept(new ToolRegistrationCollector(toolRefs));
+        ToolRegistrationCollector collector = new ToolRegistrationCollector();
+        functionNode.functionBody().accept(collector);
 
-        AgentFunctionInfo agentInfo = new AgentFunctionInfo(functionName, workflowPrefix, toolRefs);
+        AgentFunctionInfo agentInfo = new AgentFunctionInfo(functionName, workflowPrefix,
+                collector.activityToolRefs, collector.aiToolRefs, collector.humanTaskNames);
         addToModifierContext(context.documentId(), agentInfo);
     }
 
@@ -115,37 +116,56 @@ public class AgentFunctionAnalysisTask implements AnalysisTask<SyntaxNodeAnalysi
     }
 
     /**
-     * Collects tool references from {@code ctx.registerActivities([...])} and {@code ctx.registerAgentTools([...])}
-     * method calls within an agent body.
+     * Collects capability registrations from an agent body.
+     * <ul>
+     *   <li>{@code ctx.registerActivities([...])} — activity tool references (registered as workflow activities)</li>
+     *   <li>{@code ctx.registerTools([...])} — AI tool function references (registered for the
+     *       {@code executeAgentTool} wrapper); {@code ai:ToolConfig} mapping constructors are skipped, as those carry
+     *       their function pointer at runtime</li>
+     *   <li>{@code ctx.registerHumanTask("name", ...)} — human task name literals (registered as human task
+     *       workflow types)</li>
+     * </ul>
      */
     private static final class ToolRegistrationCollector extends NodeVisitor {
-        private final Map<String, String> toolRefs;
-
-        ToolRegistrationCollector(Map<String, String> toolRefs) {
-            this.toolRefs = toolRefs;
-        }
+        private final Map<String, String> activityToolRefs = new LinkedHashMap<>();
+        private final java.util.List<String> aiToolRefs = new java.util.ArrayList<>();
+        private final java.util.Set<String> humanTaskNames = new java.util.LinkedHashSet<>();
 
         @Override
         public void visit(MethodCallExpressionNode methodCall) {
             String methodName = methodCall.methodName().toSourceCode().trim();
-            if (WorkflowConstants.REGISTER_ACTIVITIES_METHOD.equals(methodName)
-                    || WorkflowConstants.REGISTER_AGENT_TOOLS_METHOD.equals(methodName)) {
-                SeparatedNodeList<FunctionArgumentNode> args = methodCall.arguments();
-                if (!args.isEmpty() && args.get(0) instanceof PositionalArgumentNode posArg
-                        && posArg.expression() instanceof ListConstructorExpressionNode toolsList) {
-                    for (Node element : toolsList.expressions()) {
-                        if (element.kind() == SyntaxKind.SIMPLE_NAME_REFERENCE
-                                || element.kind() == SyntaxKind.QUALIFIED_NAME_REFERENCE) {
-                            String ref = element.toSourceCode().trim();
-                            int colon = ref.indexOf(':');
-                            String simpleName = colon < 0 ? ref : ref.substring(colon + 1).trim();
-                            toolRefs.put(simpleName, ref);
-                        }
-                    }
+            SeparatedNodeList<FunctionArgumentNode> args = methodCall.arguments();
+            if (WorkflowConstants.REGISTER_ACTIVITIES_METHOD.equals(methodName)) {
+                collectFunctionRefs(args, ref -> {
+                    int colon = ref.indexOf(':');
+                    activityToolRefs.put(colon < 0 ? ref : ref.substring(colon + 1).trim(), ref);
+                });
+            } else if (WorkflowConstants.REGISTER_TOOLS_METHOD.equals(methodName)) {
+                collectFunctionRefs(args, aiToolRefs::add);
+            } else if (WorkflowConstants.REGISTER_HUMAN_TASK_METHOD.equals(methodName)
+                    && !args.isEmpty() && args.get(0) instanceof PositionalArgumentNode posArg
+                    && posArg.expression().kind() == SyntaxKind.STRING_LITERAL) {
+                String raw = posArg.expression().toSourceCode().trim();
+                if (raw.length() >= 2 && raw.startsWith("\"") && raw.endsWith("\"")) {
+                    humanTaskNames.add(raw.substring(1, raw.length() - 1));
                 }
             }
             methodCall.arguments().forEach(arg -> arg.accept(this));
             methodCall.expression().accept(this);
+        }
+
+        private static void collectFunctionRefs(SeparatedNodeList<FunctionArgumentNode> args,
+                                                java.util.function.Consumer<String> collector) {
+            if (args.isEmpty() || !(args.get(0) instanceof PositionalArgumentNode posArg)
+                    || !(posArg.expression() instanceof ListConstructorExpressionNode toolsList)) {
+                return;
+            }
+            for (Node element : toolsList.expressions()) {
+                if (element.kind() == SyntaxKind.SIMPLE_NAME_REFERENCE
+                        || element.kind() == SyntaxKind.QUALIFIED_NAME_REFERENCE) {
+                    collector.accept(element.toSourceCode().trim());
+                }
+            }
         }
     }
 }

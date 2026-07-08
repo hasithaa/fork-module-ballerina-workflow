@@ -39,16 +39,18 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Native implementations backing the {@code workflow:AgentContext} client class and the durable agent loop.
  * <p>
- * The imperative agent body registers tools on the context ({@link #recordTool}); the loop then advertises them to the
- * model ({@link #getToolDefs}) and invokes them / the built-in LLM activities as durable Temporal activities
- * ({@link #callActivity}). Events declared in the agent's signature are reachable via {@link #awaitChatEvent}.
+ * The imperative agent body registers capabilities on the context — workflow activities
+ * ({@link #recordActivityTool}), AI tools ({@link #recordAiTool}), and human tasks
+ * ({@link #recordHumanTaskTool}). The loop advertises them (plus one wait-tool per declared signature event) to the
+ * model via {@link #getToolDefs} and dispatches invocations durably: activities and AI tools as Temporal activities
+ * ({@link #callActivity}), human tasks as sub-workflows that suspend the agent ({@link #awaitHumanTask}), and events
+ * as durable signal waits ({@link #awaitEvent}).
  *
- * @since 0.6.0
+ * @since 0.7.0
  */
 public final class AgentContextNative {
 
@@ -56,17 +58,20 @@ public final class AgentContextNative {
     private static final String RETRY_ON_ERROR_KEY = "retryOnError";
     private static final String CHAT_EVENT = "chat";
 
-    // Final agent responses keyed by workflowId, so a completed agent's answer can be retrieved
-    // (the agent workflow itself returns no value).
-    private static final Map<String, String> FINAL_RESPONSES = new ConcurrentHashMap<>();
+    // Tool dispatch kinds understood by the Ballerina agent loop.
+    private static final String KIND_ACTIVITY = "activity";
+    private static final String KIND_AI_TOOL = "aitool";
+    private static final String KIND_HUMAN_TASK = "humantask";
+    private static final String KIND_EVENT_PREFIX = "event:";
+    private static final String EVENT_TOOL_PREFIX = "awaitEvent_";
 
     private AgentContextNative() {
         // Utility class
     }
 
     /**
-     * Per-execution state for an agent context. Holds the workflow identity, the signal wrapper (for event waits), the
-     * declared event names, the registered tools, and the agent's final response.
+     * Per-execution state for an agent context. Holds the workflow identity, the signal wrapper (for event waits),
+     * the declared event names, the registered tools, and the agent's final response.
      */
     public static final class AgentContextInfo {
         private final String workflowId;
@@ -74,6 +79,7 @@ public final class AgentContextNative {
         private final SignalAwaitWrapper signalWrapper;
         private final Set<String> eventNames;
         private final List<ToolMeta> tools = new ArrayList<>();
+        private final Map<String, HumanTaskMeta> humanTasks = new HashMap<>();
         private String finalResponse = "";
 
         public AgentContextInfo(String workflowId, String workflowType, SignalAwaitWrapper signalWrapper,
@@ -89,19 +95,20 @@ public final class AgentContextNative {
         }
     }
 
-    private record ToolMeta(String name, String description, Map<String, Object> schema) { }
+    private record ToolMeta(String name, String description, Map<String, Object> schema, String kind) { }
+
+    private record HumanTaskMeta(Object userRoles, String title, String description, BTypedesc resultType) { }
 
     /**
-     * Records a tool function on the agent context: derives its name and parameter JSON schema so the loop can
-     * advertise it to the model. The function pointer itself is already registered as a Temporal activity at module
-     * init (by the compiler plugin), so only metadata is stored here.
+     * Records a {@code @workflow:Activity} tool: derives its name and parameter JSON schema so the loop can advertise
+     * it to the model. The function pointer itself is registered as a Temporal activity at module init (by the
+     * compiler plugin), so only metadata is stored here.
      *
      * @param handle the agent context handle
      * @param fn     the tool function pointer
-     * @param kind   the tool kind ("activity", "aitool", "humantask") — reserved for iteration-2 behaviour
      * @return null on success, or a Ballerina error
      */
-    public static Object recordTool(BHandle handle, BFunctionPointer fn, BString kind) {
+    public static Object recordActivityTool(BHandle handle, BFunctionPointer fn) {
         try {
             AgentContextInfo info = (AgentContextInfo) handle.getValue();
             String name = fn.getType().getName();
@@ -109,43 +116,118 @@ public final class AgentContextNative {
                 return ErrorCreator.createError(StringUtils.fromString(
                         "Agent tools must be named module-level functions; anonymous functions are not supported."));
             }
-            FunctionType funcType = (FunctionType) fn.getType();
-            Parameter[] allParams = funcType.getParameters();
-            List<Parameter> dataParams = new ArrayList<>();
-            if (allParams != null) {
-                for (Parameter p : allParams) {
-                    if (p.type.getTag() != TypeTags.TYPEDESC_TAG) {
-                        dataParams.add(p);
-                    }
-                }
-            }
-            Parameter[] params = dataParams.toArray(new Parameter[0]);
-            Map<String, Object> schema = TypesUtil.toParameterSchemaMap(params, 0, params.length);
-            info.tools.add(new ToolMeta(name, "Tool " + name, schema));
+            info.tools.add(new ToolMeta(name, "Tool " + name, parameterSchemaOf(fn), KIND_ACTIVITY));
             return null;
         } catch (Exception e) {
             return ErrorCreator.createError(StringUtils.fromString(
-                    "Failed to register agent tool: " + e.getMessage()));
+                    "Failed to register agent activity tool: " + e.getMessage()));
         }
     }
 
     /**
-     * Returns the recorded tools as a JSON string shaped like {@code ai:ChatCompletionFunctions[]}.
+     * Records an AI tool (from an {@code ai:ToolConfig} or an {@code @ai:AgentTool} function). The tool's function
+     * pointer is stored in the worker-wide agent tool registry so the built-in {@code executeAgentTool} activity
+     * wrapper can invoke it.
+     *
+     * @param handle         the agent context handle
+     * @param fn             the tool's caller function pointer
+     * @param name           the tool's advertised name
+     * @param description    the tool's description
+     * @param parametersJson the tool's parameter JSON schema (nullable; derived from the function when absent)
+     * @return null on success, or a Ballerina error
+     */
+    public static Object recordAiTool(BHandle handle, BFunctionPointer fn, BString name, BString description,
+                                      Object parametersJson) {
+        try {
+            AgentContextInfo info = (AgentContextInfo) handle.getValue();
+            Map<String, Object> schema;
+            if (parametersJson instanceof BString schemaJson) {
+                schema = parseSchema(schemaJson.getValue());
+            } else {
+                schema = parameterSchemaOf(fn);
+            }
+            info.tools.add(new ToolMeta(name.getValue(), description.getValue(), schema, KIND_AI_TOOL));
+            WorkflowWorkerNative.putAgentTool(info.workflowType, name.getValue(), fn);
+            return null;
+        } catch (Exception e) {
+            return ErrorCreator.createError(StringUtils.fromString(
+                    "Failed to register agent AI tool: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Records a human task as an agent tool. When the agent invokes it, {@link #awaitHumanTask} starts the human-task
+     * sub-workflow and suspends the agent until completion.
+     *
+     * @param handle      the agent context handle
+     * @param taskName    the task name (also the tool name advertised to the model)
+     * @param userRoles   role or roles permitted to complete the task
+     * @param resultType  the expected completion result type
+     * @param title       optional short title
+     * @param description optional description (also the tool description)
+     * @return null on success, or a Ballerina error
+     */
+    public static Object recordHumanTaskTool(BHandle handle, BString taskName, Object userRoles,
+                                             BTypedesc resultType, Object title, Object description) {
+        try {
+            AgentContextInfo info = (AgentContextInfo) handle.getValue();
+            String name = taskName.getValue();
+            if (name.isBlank() || name.contains(".") || name.contains("|")) {
+                return ErrorCreator.createError(StringUtils.fromString(
+                        "HumanTask taskName must be non-blank and must not contain '.' or '|'"));
+            }
+            String titleStr = title instanceof BString t ? t.getValue() : name;
+            String descriptionStr = description instanceof BString d ? d.getValue()
+                    : "Creates the human task '" + name + "' and waits for a person to complete it. "
+                            + "Pass any details relevant for the person as fields.";
+            // The model may pass arbitrary payload fields shown to the person.
+            Map<String, Object> schema = new LinkedHashMap<>();
+            schema.put("type", "object");
+            schema.put("additionalProperties", Boolean.TRUE);
+            info.tools.add(new ToolMeta(name, descriptionStr, schema, KIND_HUMAN_TASK));
+            info.humanTasks.put(name, new HumanTaskMeta(userRoles, titleStr, descriptionStr, resultType));
+            return null;
+        } catch (Exception e) {
+            return ErrorCreator.createError(StringUtils.fromString(
+                    "Failed to register agent human task: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Returns the registered tools — plus one wait-tool per event declared in the agent's signature — as a JSON
+     * string of {@code {name, description, parameters, kind}} entries consumed by the agent loop.
      *
      * @param handle the agent context handle
-     * @return a JSON array string of {name, description, parameters}
+     * @return a JSON array string
      */
     public static Object getToolDefs(BHandle handle) {
         AgentContextInfo info = (AgentContextInfo) handle.getValue();
         List<Object> defs = new ArrayList<>();
         for (ToolMeta tool : info.tools) {
-            Map<String, Object> def = new LinkedHashMap<>();
-            def.put("name", tool.name());
-            def.put("description", tool.description());
-            def.put("parameters", tool.schema());
-            defs.add(def);
+            defs.add(toolDef(tool.name(), tool.description(), tool.schema(), tool.kind()));
+        }
+        if (info.eventNames != null) {
+            for (String eventName : info.eventNames) {
+                Map<String, Object> schema = new LinkedHashMap<>();
+                schema.put("type", "object");
+                schema.put("properties", new LinkedHashMap<>());
+                defs.add(toolDef(EVENT_TOOL_PREFIX + eventName,
+                        "Suspends until the external data event '" + eventName + "' arrives and returns its data. "
+                                + "Use this when you need to wait for '" + eventName + "'.",
+                        schema, KIND_EVENT_PREFIX + eventName));
+            }
         }
         return StringUtils.fromString(TypesUtil.toJsonString(defs));
+    }
+
+    private static Map<String, Object> toolDef(String name, String description, Map<String, Object> schema,
+                                               String kind) {
+        Map<String, Object> def = new LinkedHashMap<>();
+        def.put("name", name);
+        def.put("description", description);
+        def.put("parameters", schema);
+        def.put("kind", kind);
+        return def;
     }
 
     /**
@@ -181,19 +263,8 @@ public final class AgentContextNative {
     public static Object setResponse(BHandle handle, BString response) {
         AgentContextInfo info = (AgentContextInfo) handle.getValue();
         info.finalResponse = response.getValue();
-        FINAL_RESPONSES.put(info.workflowId, response.getValue());
+        AgentResponseStore.put(info.workflowId, response.getValue());
         return null;
-    }
-
-    /**
-     * Returns the final textual response recorded for a completed agent, or null if none.
-     *
-     * @param workflowId the agent's workflow id
-     * @return the final response (BString) or null
-     */
-    public static Object getFinalResponse(BString workflowId) {
-        String response = FINAL_RESPONSES.get(workflowId.getValue());
-        return response == null ? null : StringUtils.fromString(response);
     }
 
     /**
@@ -209,10 +280,7 @@ public final class AgentContextNative {
             if (info.eventNames == null || !info.eventNames.contains(CHAT_EVENT)) {
                 return null;
             }
-            io.temporal.workflow.CompletablePromise<SignalAwaitWrapper.SignalData> future =
-                    info.signalWrapper.getSignalFuture(CHAT_EVENT);
-            Workflow.await(future::isCompleted);
-            Object data = future.get().data();
+            Object data = awaitSignal(info, CHAT_EVENT);
             Object ballerina = TypesUtil.convertJavaToBallerinaType(data);
             if (ballerina instanceof BString bStr) {
                 return bStr;
@@ -225,8 +293,66 @@ public final class AgentContextNative {
     }
 
     /**
-     * Executes a registered agent tool (or a built-in activity such as {@code llmChat}) as a durable Temporal
-     * activity, resolving the activity type from the current workflow. Mirrors the NoRetry path of
+     * Suspends the agent durably until the named data event arrives and returns its data. Backs the per-event
+     * wait-tools advertised to the model.
+     *
+     * @param handle    the agent context handle
+     * @param eventName the event field name declared in the agent's signature
+     * @return the event data, or a Ballerina error
+     */
+    public static Object awaitEvent(BHandle handle, BString eventName) {
+        try {
+            AgentContextInfo info = (AgentContextInfo) handle.getValue();
+            String name = eventName.getValue();
+            if (info.eventNames == null || !info.eventNames.contains(name)) {
+                return ErrorCreator.createError(StringUtils.fromString(
+                        "Event '" + name + "' is not declared in the agent's signature."));
+            }
+            Object data = awaitSignal(info, name);
+            return TypesUtil.convertJavaToBallerinaType(data);
+        } catch (io.temporal.worker.NonDeterministicException | io.temporal.failure.TemporalFailure e) {
+            throw e;
+        } catch (Exception e) {
+            return ErrorCreator.createError(StringUtils.fromString(
+                    "Failed to await agent event: " + e.getMessage()));
+        }
+    }
+
+    private static Object awaitSignal(AgentContextInfo info, String eventName) throws Exception {
+        io.temporal.workflow.CompletablePromise<SignalAwaitWrapper.SignalData> future =
+                info.signalWrapper.getSignalFuture(eventName);
+        Workflow.await(future::isCompleted);
+        return future.get().data();
+    }
+
+    /**
+     * Starts the human-task sub-workflow registered under {@code taskName} and suspends the agent durably until a
+     * person completes it. Reuses the same child-workflow machinery as {@code workflow:Context->awaitHumanTask}.
+     *
+     * @param handle   the agent context handle
+     * @param taskName the registered task name
+     * @param payload  the payload supplied by the model (shown to the person)
+     * @return the completion result, or a Ballerina error
+     */
+    @SuppressWarnings("unchecked")
+    public static Object awaitHumanTask(BHandle handle, BString taskName, Object payload) {
+        AgentContextInfo info = (AgentContextInfo) handle.getValue();
+        HumanTaskMeta meta = info.humanTasks.get(taskName.getValue());
+        if (meta == null) {
+            return ErrorCreator.createError(StringUtils.fromString(
+                    "Human task '" + taskName.getValue() + "' is not registered on this agent."));
+        }
+        BMap<BString, Object> payloadMap = payload instanceof BMap
+                ? (BMap<BString, Object>) payload
+                : io.ballerina.runtime.api.creators.ValueCreator.createMapValue();
+        return WorkflowContextNative.awaitHumanTask(null, taskName, meta.userRoles(), payloadMap,
+                StringUtils.fromString(meta.title()), StringUtils.fromString(meta.description()),
+                null, meta.resultType());
+    }
+
+    /**
+     * Executes a registered agent activity tool (or a built-in activity such as {@code llmChat}) as a durable
+     * Temporal activity, resolving the activity type from the current workflow. Mirrors the NoRetry path of
      * {@link WorkflowContextNative#callActivity} but resolves the activity by name rather than by function pointer.
      *
      * @param nameB the activity/tool name
@@ -274,5 +400,34 @@ public final class AgentContextNative {
         } catch (Exception e) {
             return ErrorCreator.createError(StringUtils.fromString("Agent activity failed: " + e.getMessage()));
         }
+    }
+
+    // Derives a parameter JSON-schema map from a function's data parameters.
+    private static Map<String, Object> parameterSchemaOf(BFunctionPointer fn) {
+        FunctionType funcType = (FunctionType) fn.getType();
+        Parameter[] allParams = funcType.getParameters();
+        List<Parameter> dataParams = new ArrayList<>();
+        if (allParams != null) {
+            for (Parameter p : allParams) {
+                if (p.type.getTag() != TypeTags.TYPEDESC_TAG) {
+                    dataParams.add(p);
+                }
+            }
+        }
+        Parameter[] params = dataParams.toArray(new Parameter[0]);
+        return TypesUtil.toParameterSchemaMap(params, 0, params.length);
+    }
+
+    // Parses a JSON-schema string into the plain-map form used in tool definitions.
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> parseSchema(String schemaJson) {
+        Object parsed = TypesUtil.convertBallerinaToJavaType(
+                io.ballerina.runtime.api.utils.JsonUtils.parse(schemaJson));
+        if (parsed instanceof Map<?, ?> map) {
+            return (Map<String, Object>) map;
+        }
+        Map<String, Object> fallback = new LinkedHashMap<>();
+        fallback.put("type", "object");
+        return fallback;
     }
 }

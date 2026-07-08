@@ -37,9 +37,15 @@ def examplePackageNames = [
 
 def ballerinaDistributionVersion = project.rootProject.findProperty("ballerinaLangVersion") ?: "2201.13.2"
 
+// Examples that bind external functions to the workflow-native jar (e.g. a mock
+// ai:ModelProvider whose dependently-typed `generate` uses TestNatives). Interop
+// bindings are validated against the current package's own platform dependencies,
+// so these examples must declare the jar themselves.
+def nativeJarExamples = ['agent-order-processing']
+
 // Helper: generate a Ballerina.toml for an example
-def generateExampleToml = { String packageName ->
-    return """[package]
+def generateExampleToml = { String exampleDirName, String packageName ->
+    def toml = """[package]
 org = "ballerina_examples"
 name = "${packageName}"
 version = "0.1.0"
@@ -48,6 +54,18 @@ distribution = "${ballerinaDistributionVersion}"
 [build-options]
 observabilityIncluded = true
 """
+    if (nativeJarExamples.contains(exampleDirName)) {
+        def nativeVersion = project.version.toString()
+        def tomlVersion = nativeVersion.replace("-SNAPSHOT", "")
+        toml += """
+[[platform.java21.dependency]]
+groupId = "io.ballerina.lib"
+artifactId = "workflow-native"
+version = "${tomlVersion}"
+path = "../../native/build/libs/workflow-native-${nativeVersion}.jar"
+"""
+    }
+    return toml
 }
 
 // Coverage parameters used when running bal test for each example.
@@ -60,7 +78,8 @@ def testCoverageParam = "--code-coverage --coverage-format=xml --includes=io.bal
 // compiler-plugin-generated __registerWorkflowsAndStart() function
 // works correctly at runtime — not just during `bal test`.
 def runnableExamples = [
-    'get-started'
+    'get-started',
+    'agent-order-processing'
 ]
 
 task buildExamples {
@@ -98,7 +117,7 @@ task buildExamples {
 
             // Update Ballerina.toml
             def tomlFile = new File(exampleDir, "Ballerina.toml")
-            tomlFile.text = generateExampleToml(packageName)
+            tomlFile.text = generateExampleToml(exampleDir.name, packageName)
 
             // Delete stale Dependencies.toml so it gets regenerated
             def depsToml = new File(exampleDir, "Dependencies.toml")

@@ -19,28 +19,41 @@
 package io.ballerina.lib.workflow.compiler;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Holds information about a {@code @workflow:DurableAgent} function, collected during the code-modifier analysis phase
- * and consumed by {@link WorkflowSourceModifier} to emit the agent's workflow registration (its tools plus the
- * built-in {@code llmChat}/{@code generate} activities).
+ * and consumed by {@link WorkflowSourceModifier} to emit the agent's registrations at module init on every worker: its
+ * workflow (with activity tools plus the built-in {@code llmChat}/{@code generate}/{@code executeAgentTool}
+ * activities), its AI tool function pointers, and its human task types.
  *
- * @param functionName   the name of the agent function
- * @param workflowPrefix the import prefix through which {@code ballerina/workflow} is referenced (from the
- *                       {@code @<prefix>:DurableAgent} annotation), used to qualify the built-in activities
- * @param toolRefs       map of tool simple name -> source reference, collected from the arguments of
- *                       {@code ctx.registerActivities(...)} / {@code ctx.registerAgentTools(...)} calls
- * @since 0.6.0
+ * @param functionName     the name of the agent function
+ * @param workflowPrefix   the import prefix through which {@code ballerina/workflow} is referenced (from the
+ *                         {@code @<prefix>:DurableAgent} annotation), used to qualify the built-in activities
+ * @param activityToolRefs map of tool simple name to source reference, from {@code ctx.registerActivities([...])}
+ * @param aiToolRefs       source references of function tools from {@code ctx.registerTools([...])}
+ * @param humanTaskNames   task-name literals from {@code ctx.registerHumanTask("name", ...)} call sites
+ * @since 0.7.0
  */
-public record AgentFunctionInfo(String functionName, String workflowPrefix, Map<String, String> toolRefs) {
+public record AgentFunctionInfo(String functionName, String workflowPrefix, Map<String, String> activityToolRefs,
+                                List<String> aiToolRefs, Set<String> humanTaskNames) {
 
     public AgentFunctionInfo {
-        toolRefs = new LinkedHashMap<>(toolRefs);
+        activityToolRefs = new LinkedHashMap<>(activityToolRefs);
+        aiToolRefs = List.copyOf(aiToolRefs);
+        humanTaskNames = new LinkedHashSet<>(humanTaskNames);
     }
 
     @Override
-    public Map<String, String> toolRefs() {
-        return java.util.Collections.unmodifiableMap(toolRefs);
+    public Map<String, String> activityToolRefs() {
+        return java.util.Collections.unmodifiableMap(activityToolRefs);
+    }
+
+    @Override
+    public Set<String> humanTaskNames() {
+        return java.util.Collections.unmodifiableSet(humanTaskNames);
     }
 }

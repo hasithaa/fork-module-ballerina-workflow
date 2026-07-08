@@ -83,19 +83,31 @@ public type AgentChatMessage AgentSystemMessage|AgentUserMessage|AgentAssistantM
 # Runs the durable agent ReAct loop. Called from `AgentContext.runDurableAgent`;
 # not intended to be called directly.
 #
-# Conversation history is a workflow-local variable (replay-safe), and every LLM
-# call and tool call goes through a durable activity.
+# Conversation history is a workflow-local variable (replay-safe). Tool calls
+# dispatch by kind: activities and AI tools run as durable Temporal activities
+# (AI tools through the `executeAgentTool` wrapper), human-task tools start a
+# human-task sub-workflow and suspend the agent until completion, and event
+# tools suspend the agent until the corresponding data event arrives.
 #
 # + ctxHandle - The native agent context handle
 # + agentName - The agent's workflow type (keys the registered model provider)
 # + config - The system prompt and reasoning limits
 # + prompt - The initial user prompt, or "" to wait for the first chat event
-# + toolDefs - The tool definitions advertised to the model
+# + toolDefs - The registered tool definitions (with dispatch kinds)
 # + return - An error if the agent fails, otherwise nil
 isolated function runAgentLoop(handle ctxHandle, string agentName, AgentRunConfig config, string prompt,
-        ai:ChatCompletionFunctions[] toolDefs) returns error? {
-    string[] toolNames = from ai:ChatCompletionFunctions def in toolDefs
-        select def.name;
+        AgentToolDef[] toolDefs) returns error? {
+    map<string> toolKinds = {};
+    ai:ChatCompletionFunctions[] llmToolDefs = [];
+    foreach AgentToolDef def in toolDefs {
+        toolKinds[def.name] = def.kind;
+        ai:ChatCompletionFunctions llmDef = {name: def.name, description: def.description};
+        map<json>? parameters = def.parameters;
+        if parameters is map<json> {
+            llmDef.parameters = parameters;
+        }
+        llmToolDefs.push(llmDef);
+    }
 
     AgentChatMessage[] history = [<AgentSystemMessage>{content: config.systemPrompt}];
     if prompt != "" {
@@ -112,7 +124,7 @@ isolated function runAgentLoop(handle ctxHandle, string agentName, AgentRunConfi
     int maxIterations = int:max(1, config.maxIterations);
     foreach int _ in 0 ..< maxIterations {
         AgentAssistantMessage assistant = check callAgentActivity("llmChat",
-                {"agentName": agentName, "messages": history.toJson(), "tools": toolDefs.toJson()});
+                {"agentName": agentName, "messages": history.toJson(), "tools": llmToolDefs.toJson()});
         history.push(assistant);
 
         AgentFunctionCall[]? toolCalls = assistant.toolCalls;
@@ -122,21 +134,7 @@ isolated function runAgentLoop(handle ctxHandle, string agentName, AgentRunConfi
         }
 
         foreach AgentFunctionCall call in toolCalls {
-            string output;
-            if toolNames.indexOf(call.name) is () {
-                output = string `Error: unknown tool '${call.name}'`;
-            } else {
-                map<anydata> args = {};
-                map<json>? callArgs = call.arguments;
-                if callArgs is map<json> {
-                    foreach [string, json] [name, value] in callArgs.entries() {
-                        args[name] = value;
-                    }
-                }
-                anydata|error result = callAgentActivity(call.name, args);
-                // Tool failures are fed back to the model as text so it can recover.
-                output = result is error ? string `Error: ${result.message()}` : result.toJsonString();
-            }
+            string output = check dispatchAgentTool(ctxHandle, agentName, call, toolKinds[call.name]);
             AgentFunctionMessage functionMessage = {name: call.name, content: output};
             string? callId = call.id;
             if callId is string {
@@ -147,6 +145,64 @@ isolated function runAgentLoop(handle ctxHandle, string agentName, AgentRunConfi
     }
     return error(string `Agent exceeded the maximum number of iterations (${maxIterations})`);
 }
+
+// Dispatches one tool call by kind and renders the result as text for the model.
+// Tool failures are fed back as text so the model can recover; only
+// infrastructure errors propagate.
+isolated function dispatchAgentTool(handle ctxHandle, string agentName, AgentFunctionCall call, string? kind)
+        returns string|error {
+    if kind is () {
+        return string `Error: unknown tool '${call.name}'`;
+    }
+
+    map<anydata> args = {};
+    map<json>? callArgs = call.arguments;
+    if callArgs is map<json> {
+        foreach [string, json] [name, value] in callArgs.entries() {
+            args[name] = value;
+        }
+    }
+
+    anydata|error result;
+    if kind == "activity" {
+        result = callAgentActivity(call.name, args);
+    } else if kind == "aitool" {
+        // AI tool function pointers run through the built-in activity wrapper.
+        result = callAgentActivity("executeAgentTool",
+                {"agentName": agentName, "toolName": call.name, "arguments": args.toJson()});
+    } else if kind == "humantask" {
+        // Starts a human-task sub-workflow and suspends the agent durably
+        // until a person completes it.
+        result = awaitAgentHumanTask(ctxHandle, call.name, args.toJson());
+    } else if kind.startsWith("event:") {
+        // Suspends the agent durably until the data event arrives.
+        result = awaitAgentEvent(ctxHandle, kind.substring(6));
+    } else {
+        return string `Error: unsupported tool kind '${kind}' for tool '${call.name}'`;
+    }
+
+    if result is error {
+        return string `Error: ${result.message()}`;
+    }
+    // String results pass through raw (no JSON quoting).
+    return result is string ? result : result.toJsonString();
+}
+
+# The built-in activity wrapper that executes a registered AI tool function
+# pointer. AI tools (`ai:ToolConfig` / `@ai:AgentTool` functions) are not
+# `@workflow:Activity` functions, so the ReAct loop invokes them durably
+# through this wrapper instead.
+#
+# + agentName - The agent's workflow type; keys the tool registry
+# + toolName - The registered tool name
+# + arguments - Tool arguments keyed by parameter name
+# + return - The tool result, or an error
+@Activity
+public isolated function executeAgentTool(string agentName, string toolName, json arguments)
+        returns anydata|error = @java:Method {
+    'class: "io.ballerina.lib.workflow.worker.WorkflowWorkerNative",
+    name: "invokeAgentTool"
+} external;
 
 # The built-in LLM chat activity. Executes one model call outside the workflow
 # thread so that the non-deterministic LLM interaction is recorded in the
@@ -219,6 +275,20 @@ isolated function callAgentActivity(string name, map<anydata> args, typedesc<any
 isolated function awaitAgentChatEvent(handle nativeContext) returns string?|error = @java:Method {
     'class: "io.ballerina.lib.workflow.context.AgentContextNative",
     name: "awaitChatEvent"
+} external;
+
+// Suspends the agent durably until the named data event arrives; returns its data.
+isolated function awaitAgentEvent(handle nativeContext, string eventName) returns anydata|error = @java:Method {
+    'class: "io.ballerina.lib.workflow.context.AgentContextNative",
+    name: "awaitEvent"
+} external;
+
+// Starts a human-task sub-workflow and suspends the agent durably until a
+// person completes it; returns the completion result.
+isolated function awaitAgentHumanTask(handle nativeContext, string taskName, json payload)
+        returns anydata|error = @java:Method {
+    'class: "io.ballerina.lib.workflow.context.AgentContextNative",
+    name: "awaitHumanTask"
 } external;
 
 // Stores the agent's final textual response for later retrieval.

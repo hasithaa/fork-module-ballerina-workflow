@@ -37,6 +37,11 @@ dependencies = [
 	{org = "ballerina", name = "uuid"},
 	{org = "ballerina", name = "yaml"}
 ]
+modules = [
+	{org = "ballerina", packageName = "ai", moduleName = "ai"},
+	{org = "ballerina", packageName = "ai", moduleName = "ai.intelligence"},
+	{org = "ballerina", packageName = "ai", moduleName = "ai.observe"}
+]
 
 [[package]]
 org = "ballerina"
@@ -455,6 +460,7 @@ org = "ballerina"
 name = "workflow_tests"
 version = "0.6.0"
 dependencies = [
+	{org = "ballerina", name = "ai"},
 	{org = "ballerina", name = "email"},
 	{org = "ballerina", name = "http"},
 	{org = "ballerina", name = "io"},
