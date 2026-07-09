@@ -80,7 +80,7 @@ final AgentMockModelProvider agentMockModel = new;
 # + return - An error if the agent fails
 @workflow:DurableAgent
 function stockCheckAgent(workflow:AgentContext ctx, AgentStockInput input) returns error? {
-    check ctx.registerActivities([agentCheckStock]);
+    check ctx.registerActivity(agentCheckStock);
     check ctx.runDurableAgent(input.request,
             systemPrompt = {role: "", instructions: "You are an inventory assistant. Use agentCheckStock for availability."},
             model = agentMockModel);
@@ -95,7 +95,7 @@ function stockCheckAgent(workflow:AgentContext ctx, AgentStockInput input) retur
 @workflow:DurableAgent
 function chatDrivenStockAgent(workflow:AgentContext ctx, AgentStockInput input,
         record {| future<string> chat; |} events) returns error? {
-    check ctx.registerActivities([agentCheckStock]);
+    check ctx.registerActivity(agentCheckStock);
     check ctx.runDurableAgent(systemPrompt = {role: "", instructions: "You are an inventory assistant. Use agentCheckStock for availability."},
             model = agentMockModel);
 }

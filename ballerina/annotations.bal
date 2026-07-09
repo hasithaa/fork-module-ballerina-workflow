@@ -48,7 +48,7 @@ public annotation Activity on function;
 # @workflow:DurableAgent
 # function processOrderAgent(workflow:AgentContext ctx, OrderRequest req) returns error? {
 #     final ai:ModelProvider llm = check ai:getDefaultModelProvider();
-#     check ctx.registerActivities([checkInventory]);
+#     check ctx.registerActivity(checkInventory);
 #     check ctx.runDurableAgent(req.prompt,
 #             systemPrompt = {role: "Order assistant", instructions: "Help the user with their order."},
 #             model = llm);

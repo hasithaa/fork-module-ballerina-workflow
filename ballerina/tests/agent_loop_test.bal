@@ -21,7 +21,7 @@
 // The compiler plugin doesn't run on the workflow package itself, so these tests
 // register agents with `wfInternal:registerWorkflow` using the tools + built-in
 // activities map (mirroring the init code the plugin generates for user code).
-// The agent bodies use the real imperative API (ctx.registerActivities +
+// The agent bodies use the real imperative API (ctx.registerActivity +
 // ctx.runDurableAgent). The LLM is a scripted mock ai:ModelProvider; the full
 // durable loop runs against the embedded Temporal test server. Agents return no
 // value, so the final answer is observed via the recorded final response.
@@ -142,7 +142,7 @@ type AgentOrderInput record {|
 
 @DurableAgent
 function stockAgent(AgentContext ctx, AgentOrderInput input) returns error? {
-    check ctx.registerActivities([checkStock]);
+    check ctx.registerActivity(checkStock);
     check ctx.runDurableAgent(input.request,
             systemPrompt = {role: "", instructions: "You are an inventory assistant."},
             model = mockAgentModel);
@@ -151,7 +151,7 @@ function stockAgent(AgentContext ctx, AgentOrderInput input) returns error? {
 @DurableAgent
 function chatStockAgent(AgentContext ctx, AgentOrderInput input, record {| future<string> chat; |} events)
         returns error? {
-    check ctx.registerActivities([checkStock]);
+    check ctx.registerActivity(checkStock);
     // No initial prompt: the agent waits for one chat event.
     check ctx.runDurableAgent(systemPrompt = {role: "", instructions: "You are an inventory assistant."},
             model = mockAgentModel);
@@ -159,7 +159,7 @@ function chatStockAgent(AgentContext ctx, AgentOrderInput input, record {| futur
 
 @DurableAgent
 function loopingAgent(AgentContext ctx, AgentOrderInput input) returns error? {
-    check ctx.registerActivities([checkStock]);
+    check ctx.registerActivity(checkStock);
     check ctx.runDurableAgent(input.request,
             systemPrompt = {role: "", instructions: "Looping agent."},
             model = loopingAgentModel,
@@ -168,7 +168,7 @@ function loopingAgent(AgentContext ctx, AgentOrderInput input) returns error? {
 
 @DurableAgent
 function unknownToolAgent(AgentContext ctx, AgentOrderInput input) returns error? {
-    check ctx.registerActivities([checkStock]);
+    check ctx.registerActivity(checkStock);
     check ctx.runDurableAgent(input.request,
             systemPrompt = {role: "", instructions: "Unknown tool agent."},
             model = unknownToolAgentModel);
@@ -253,7 +253,7 @@ final HumanTaskMockModelProvider humanTaskAgentModel = new;
 
 @DurableAgent
 function approvalAgent(AgentContext ctx, AgentOrderInput input) returns error? {
-    check ctx.registerActivities([checkStock]);
+    check ctx.registerActivity(checkStock);
     check ctx.registerHumanTask("approveOrder", "APPROVER", ApprovalResult,
             title = "Approve order", description = "Ask a person to approve the order.");
     check ctx.runDurableAgent(input.request,
@@ -292,7 +292,7 @@ final EventToolMockModelProvider eventToolAgentModel = new;
 @DurableAgent
 function eventWaitingAgent(AgentContext ctx, AgentOrderInput input,
         record {| future<string> approval; |} events) returns error? {
-    check ctx.registerActivities([checkStock]);
+    check ctx.registerActivity(checkStock);
     check ctx.runDurableAgent(input.request,
             systemPrompt = {role: "", instructions: "You wait for events."},
             model = eventToolAgentModel);
@@ -618,7 +618,7 @@ function parkedPlainWorkflow(Context ctx, AgentOrderInput input,
 @test:BeforeSuite
 function setupAgentTests() returns error? {
     // Mirrors the init code the compiler plugin generates: tools discovered from
-    // ctx.registerActivities plus the built-in llmChat/generate/executeAgentTool.
+    // ctx.registerActivity plus the built-in llmChat/generate/executeAgentTool.
     map<function> agentActivities = {
         "checkStock": checkStock,
         "llmChat": llmChat,

@@ -52,7 +52,7 @@ public final class WorkflowConstants {
     /** AgentContext type name (first parameter of a @DurableAgent function). */
     public static final String AGENT_CONTEXT_TYPE = "AgentContext";
     /** AgentContext methods scanned to discover capabilities for init registration on every worker. */
-    public static final String REGISTER_ACTIVITIES_METHOD = "registerActivities";
+    public static final String REGISTER_ACTIVITY_METHOD = "registerActivity";
     public static final String RUN_DURABLE_AGENT_METHOD = "runDurableAgent";
     public static final String TOOLS_FIELD = "tools";
     public static final String REGISTER_HUMAN_TASK_METHOD = "registerHumanTask";

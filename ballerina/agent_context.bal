@@ -31,7 +31,7 @@ public type AgentRunConfig record {|
     ai:ModelProvider model;
 
     # The AI tools available to the agent. `@workflow:Activity` functions and
-    # human tasks are added separately via `registerActivities` and
+    # human tasks are added separately via `registerActivity` and
     # `registerHumanTask`
     @display {label: "Tools"}
     (ai:BaseToolKit|ai:ToolConfig|ai:FunctionTool)[] tools = [];
@@ -64,8 +64,8 @@ public enum AgentInteractionPattern {
 # registered on the context and the agent decides when to use them inside the
 # durable ReAct loop driven by `runDurableAgent`:
 #
-# - `registerActivities` — `@workflow:Activity` functions become tools that run
-#   as durable Temporal activities
+# - `registerActivity` — a `@workflow:Activity` function becomes a tool that runs
+#   as a durable Temporal activity
 # - `registerHumanTask` — a human task becomes a tool; when the agent invokes it,
 #   a human-task sub-workflow starts and the agent suspends durably until a
 #   person completes it
@@ -101,15 +101,13 @@ public client class AgentContext {
         return setAgentInteraction(self.nativeContext, pattern, eventTimeout, maxEventWaits);
     }
 
-    # Registers `@workflow:Activity` functions as agent tools. Each tool runs as
+    # Registers a `@workflow:Activity` function as an agent tool. The tool runs as
     # a durable Temporal activity that the agent may invoke during reasoning.
     #
-    # + tools - The `@workflow:Activity` functions to expose as tools
-    # + return - An error if a tool cannot be registered, otherwise nil
-    public isolated function registerActivities(function[] tools) returns error? {
-        foreach function tool in tools {
-            check recordActivityTool(self.nativeContext, tool);
-        }
+    # + activity - The `@workflow:Activity` function to expose as a tool
+    # + return - An error if the tool cannot be registered, otherwise nil
+    public isolated function registerActivity(function activity) returns error? {
+        return recordActivityTool(self.nativeContext, activity);
     }
 
     // Registers the AI tools passed to `runDurableAgent`. Accepts `ai:ToolConfig`

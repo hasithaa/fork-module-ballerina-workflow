@@ -42,7 +42,7 @@ import java.util.Optional;
 
 /**
  * Analysis task (code-modifier phase) that detects {@code @workflow:DurableAgent} functions and collects the tool
- * references from {@code ctx.registerActivities([...])} call sites and {@code ctx.runDurableAgent(..., tools = [...])}
+ * references from {@code ctx.registerActivity(...)} call sites and {@code ctx.runDurableAgent(..., tools = [...])}
  * arguments, so the
  * source modifier can register those tools (plus the built-in {@code llmChat}/{@code generate} activities) at module
  * init on every worker.
@@ -120,7 +120,7 @@ public class AgentFunctionAnalysisTask implements AnalysisTask<SyntaxNodeAnalysi
     /**
      * Collects capability registrations from an agent body.
      * <ul>
-     *   <li>{@code ctx.registerActivities([...])} — activity tool references (registered as workflow activities)</li>
+     *   <li>{@code ctx.registerActivity(...)} — activity tool references (registered as workflow activities)</li>
      *   <li>{@code ctx.runDurableAgent(..., tools = [...])} — AI tool function references (registered for the
      *       {@code executeAgentTool} wrapper); {@code ai:ToolConfig} mapping constructors are skipped, as those carry
      *       their function pointer at runtime</li>
@@ -137,11 +137,14 @@ public class AgentFunctionAnalysisTask implements AnalysisTask<SyntaxNodeAnalysi
         public void visit(MethodCallExpressionNode methodCall) {
             String methodName = methodCall.methodName().toSourceCode().trim();
             SeparatedNodeList<FunctionArgumentNode> args = methodCall.arguments();
-            if (WorkflowConstants.REGISTER_ACTIVITIES_METHOD.equals(methodName)) {
-                collectFunctionRefs(args, ref -> {
+            if (WorkflowConstants.REGISTER_ACTIVITY_METHOD.equals(methodName)) {
+                if (!args.isEmpty() && args.get(0) instanceof PositionalArgumentNode posArg
+                        && (posArg.expression().kind() == SyntaxKind.SIMPLE_NAME_REFERENCE
+                        || posArg.expression().kind() == SyntaxKind.QUALIFIED_NAME_REFERENCE)) {
+                    String ref = posArg.expression().toSourceCode().trim();
                     int colon = ref.indexOf(':');
                     activityToolRefs.put(colon < 0 ? ref : ref.substring(colon + 1).trim(), ref);
-                });
+                }
             } else if (WorkflowConstants.RUN_DURABLE_AGENT_METHOD.equals(methodName)) {
                 collectToolsNamedArg(args, aiToolRefs::add);
             } else if (WorkflowConstants.REGISTER_HUMAN_TASK_METHOD.equals(methodName)
@@ -169,14 +172,6 @@ public class AgentFunctionAnalysisTask implements AnalysisTask<SyntaxNodeAnalysi
             }
         }
 
-        private static void collectFunctionRefs(SeparatedNodeList<FunctionArgumentNode> args,
-                                                java.util.function.Consumer<String> collector) {
-            if (args.isEmpty() || !(args.get(0) instanceof PositionalArgumentNode posArg)
-                    || !(posArg.expression() instanceof ListConstructorExpressionNode toolsList)) {
-                return;
-            }
-            collectListRefs(toolsList, collector);
-        }
 
         private static void collectListRefs(ListConstructorExpressionNode toolsList,
                                             java.util.function.Consumer<String> collector) {

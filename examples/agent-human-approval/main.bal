@@ -53,7 +53,7 @@ function checkInventory(string item) returns string|error {
 function orderAgent(workflow:AgentContext ctx, OrderRequest req,
         record {| future<string> chat; |} events) returns error? {
     check ctx.setInteraction(workflow:MULTI_EVENT, eventTimeout = {minutes: 30});
-    check ctx.registerActivities([checkInventory]);
+    check ctx.registerActivity(checkInventory);
     check ctx.registerHumanTask("approveExpedite", "MANAGER", ExpediteApproval,
             title = "Approve expedited shipping",
             description = "Requests a manager's approval to expedite the order's shipping. "

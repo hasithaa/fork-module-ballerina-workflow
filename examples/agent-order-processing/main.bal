@@ -44,7 +44,7 @@ function checkInventory(string item) returns string|error {
 function orderAgent(workflow:AgentContext ctx, OrderRequest req,
         record {| future<string> chat; |} events) returns error? {
     check ctx.setInteraction(workflow:MULTI_EVENT, eventTimeout = {minutes: 5});
-    check ctx.registerActivities([checkInventory]);
+    check ctx.registerActivity(checkInventory);
     check ctx.runDurableAgent(req.userPrompt,
             systemPrompt = {
                 role: string `You are the assistant for order ${req.orderId}.`,
