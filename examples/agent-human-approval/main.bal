@@ -50,15 +50,15 @@ function checkInventory(string item) returns string|error {
 // without holding a thread) until a manager completes it, then reports the
 // decision back to the user.
 @workflow:DurableAgent
-function orderAgent(workflow:AgentContext ctx, OrderRequest req,
+function orderAgent(workflow:AgentContext durableAgentContext, OrderRequest req,
         record {| future<string> chat; |} events) returns error? {
-    check ctx.setInteraction(workflow:MULTI_EVENT, eventTimeout = {minutes: 30});
-    check ctx.registerActivity(checkInventory);
-    check ctx.registerHumanTask("approveExpedite", "MANAGER", ExpediteApproval,
+    check durableAgentContext.setInteraction(workflow:MULTI_EVENT, eventTimeout = {minutes: 30});
+    check durableAgentContext.registerActivity(checkInventory);
+    check durableAgentContext.registerHumanTask("approveExpedite", "MANAGER", ExpediteApproval,
             title = "Approve expedited shipping",
             description = "Requests a manager's approval to expedite the order's shipping. "
                 + "Pass the order id and the customer's reason as fields.");
-    check ctx.runDurableAgent(req.userPrompt,
+    check durableAgentContext.runDurableAgent(req.userPrompt,
             systemPrompt = {
                 role: string `You are the assistant for order ${req.orderId}.`,
                 instructions: string `Use the checkInventory tool for product availability questions.
