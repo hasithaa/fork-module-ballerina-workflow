@@ -104,7 +104,6 @@ public type AgentChatMessage AgentSystemMessage|AgentUserMessage|AgentAssistantM
 isolated function runAgentLoop(handle ctxHandle, string agentName, AgentRunConfig config, string prompt,
         AgentToolDef[] toolDefs) returns error? {
     map<string> toolKinds = {};
-    ai:ChatCompletionFunctions[] llmToolDefs = [];
     boolean conversational = false;
     boolean hasChatEvent = false;
     foreach AgentToolDef def in toolDefs {
@@ -115,6 +114,17 @@ isolated function runAgentLoop(handle ctxHandle, string agentName, AgentRunConfi
         if def.kind == "event:chat" {
             hasChatEvent = true;
         }
+    }
+    boolean autoContinue = conversational && hasChatEvent;
+
+    ai:ChatCompletionFunctions[] llmToolDefs = [];
+    foreach AgentToolDef def in toolDefs {
+        // Under framework-owned continuity the loop re-arms the chat wait itself after
+        // every answer. Never advertise the chat wait-tool to the model: calling it
+        // mid-turn would desynchronize the update/reply pairing of the current turn.
+        if autoContinue && def.kind == "event:chat" {
+            continue;
+        }
         ai:ChatCompletionFunctions llmDef = {name: def.name, description: def.description};
         map<json>? parameters = def.parameters;
         if parameters is map<json> {
@@ -122,7 +132,6 @@ isolated function runAgentLoop(handle ctxHandle, string agentName, AgentRunConfi
         }
         llmToolDefs.push(llmDef);
     }
-    boolean autoContinue = conversational && hasChatEvent;
 
     // Render the system prompt the same way `ai:Agent` does: role followed by
     // the specific instructions.
@@ -179,7 +188,8 @@ isolated function runAgentLoop(handle ctxHandle, string agentName, AgentRunConfi
                     }
                     return;
                 }
-                string output = check dispatchAgentTool(ctxHandle, agentName, call, toolKinds[call.name]);
+                string output = check dispatchAgentTool(ctxHandle, agentName, call, toolKinds[call.name],
+                        autoContinue);
                 AgentFunctionMessage functionMessage = {name: call.name, content: output};
                 string? callId = call.id;
                 if callId is string {
@@ -211,10 +221,19 @@ isolated function runAgentLoop(handle ctxHandle, string agentName, AgentRunConfi
 // Dispatches one tool call by kind and renders the result as text for the model.
 // Tool failures are fed back as text so the model can recover; only
 // infrastructure errors propagate.
-isolated function dispatchAgentTool(handle ctxHandle, string agentName, AgentFunctionCall call, string? kind)
-        returns string|error {
+isolated function dispatchAgentTool(handle ctxHandle, string agentName, AgentFunctionCall call, string? kind,
+        boolean autoContinue) returns string|error {
     if kind is () {
         return string `Error: unknown tool '${call.name}'`;
+    }
+
+    // Under framework-owned continuity the loop re-arms the chat wait itself after every
+    // answer. If the model still asks to wait for chat (e.g. replaying an older history),
+    // correct it instead of waiting — waiting here would desynchronize the update/reply
+    // pairing of the current turn.
+    if autoContinue && kind == "event:chat" {
+        return "The chat conversation is already open - do not wait for it. " +
+                "Answer the user's current message directly.";
     }
 
     map<anydata> args = {};

@@ -100,41 +100,41 @@ function chatDrivenStockAgent(workflow:AgentContext ctx, AgentStockInput input,
             model = agentMockModel);
 }
 
-// Scripted conversation: turn 1 answers and re-arms the chat wait; subsequent
-// turns echo the latest chat message and wait again, until the user says "bye".
+// Scripted conversation driven by the loop's framework-owned continuity: turn 1
+// answers, later turns echo the latest user (chat) message, "bye" ends it.
 isolated client class ConversationMockModelProvider {
     *ai:ModelProvider;
 
     isolated remote function chat(ai:ChatMessage[]|ai:ChatUserMessage messages,
             ai:ChatCompletionFunctions[] tools = [], string? stop = ())
             returns ai:ChatAssistantMessage|ai:Error {
+        // Framework-owned continuity: each chat message arrives as a user message and
+        // the loop re-arms the chat wait after every answer — the mock never waits itself.
         string? lastChat = ();
+        int userTurns = 0;
         if messages is ai:ChatMessage[] {
             foreach ai:ChatMessage message in messages {
-                if message is ai:ChatFunctionMessage && message.name == "awaitEvent_chat" {
-                    lastChat = message.content;
+                if message is ai:ChatUserMessage {
+                    userTurns += 1;
+                    string|ai:Prompt content = message.content;
+                    if content is string {
+                        lastChat = content;
+                    }
                 }
             }
         }
-        if lastChat is () {
-            return {
-                role: ai:ASSISTANT,
-                content: "Turn 1 answer",
-                toolCalls: [{name: "awaitEvent_chat", arguments: {}}]
-            };
+        if userTurns <= 1 {
+            return {role: ai:ASSISTANT, content: "Turn 1 answer"};
         }
-        if lastChat.includes("bye") {
+        string chatText = lastChat ?: "";
+        if chatText.includes("bye") {
             return {
                 role: ai:ASSISTANT,
                 content: "Conversation ended",
                 toolCalls: [{name: "endConversation", arguments: {}}]
             };
         }
-        return {
-            role: ai:ASSISTANT,
-            content: "Echo: " + lastChat,
-            toolCalls: [{name: "awaitEvent_chat", arguments: {}}]
-        };
+        return {role: ai:ASSISTANT, content: "Echo: " + chatText};
     }
 
     isolated remote function generate(ai:Prompt prompt, typedesc<anydata> td = <>)
