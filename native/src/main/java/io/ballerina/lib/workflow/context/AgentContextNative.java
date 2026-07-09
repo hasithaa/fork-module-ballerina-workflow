@@ -108,6 +108,8 @@ public final class AgentContextNative {
         // finalResponse / closingFailure instead of being enqueued (nobody would consume them).
         private boolean closing = false;
         private String closingFailure = null;
+        // The model provider configured via ctx.setModelProvider; consumed by runDurableAgent.
+        private BObject modelProvider = null;
 
         public AgentContextInfo(String workflowId, String workflowType, SignalAwaitWrapper signalWrapper,
                                 Set<String> eventNames) {
@@ -334,15 +336,32 @@ public final class AgentContextNative {
     }
 
     /**
-     * Registers the model provider for this agent so the built-in {@code llmChat}/{@code generate} activities can
-     * resolve it (keyed by the agent's workflow type).
+     * Stores the model provider configured via {@code ctx.setModelProvider}. Applied to the worker-wide model
+     * registry when {@code runDurableAgent} starts.
      *
      * @param handle the agent context handle
      * @param model  the model provider client object
      */
-    public static void registerModel(BHandle handle, BObject model) {
+    public static void setModelProvider(BHandle handle, BObject model) {
         AgentContextInfo info = (AgentContextInfo) handle.getValue();
-        WorkflowWorkerNative.putAgentModel(info.workflowType, model);
+        info.modelProvider = model;
+    }
+
+    /**
+     * Registers the stored model provider for this agent so the built-in {@code llmChat}/{@code generate}
+     * activities can resolve it (keyed by the agent's workflow type). Called by {@code runDurableAgent}.
+     *
+     * @param handle the agent context handle
+     * @return null on success, or a Ballerina error when no provider was configured
+     */
+    public static Object registerModel(BHandle handle) {
+        AgentContextInfo info = (AgentContextInfo) handle.getValue();
+        if (info.modelProvider == null) {
+            return ErrorCreator.createError(StringUtils.fromString(
+                    "No model provider configured. Call ctx.setModelProvider(...) before ctx->runDurableAgent(...)."));
+        }
+        WorkflowWorkerNative.putAgentModel(info.workflowType, info.modelProvider);
+        return null;
     }
 
     /**

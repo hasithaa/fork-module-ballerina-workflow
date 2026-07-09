@@ -58,8 +58,8 @@ function orderAgent(workflow:AgentContext ctx, OrderRequest req,
             title = "Approve expedited shipping",
             description = "Requests a manager's approval to expedite the order's shipping. "
                 + "Pass the order id and the customer's reason as fields.");
-    check ctx->runDurableAgent(orderModel,
-            {
+    ctx.setModelProvider(orderModel);
+    check ctx->runDurableAgent({
                 systemPrompt: string `You are the assistant for order ${req.orderId}.
                         Use the checkInventory tool for product availability questions.
                         Expedited shipping requires manager approval: when the user asks to

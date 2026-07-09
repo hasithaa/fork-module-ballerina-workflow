@@ -83,6 +83,14 @@ public client class AgentContext {
         return setAgentInteraction(self.nativeContext, pattern, eventTimeout, maxEventWaits);
     }
 
+    # Sets the model provider used for the agent's LLM calls. Must be called
+    # before `runDurableAgent`.
+    #
+    # + model - The model provider (e.g. from `ai:getDefaultModelProvider()`)
+    public isolated function setModelProvider(ai:ModelProvider model) {
+        setAgentModelProvider(self.nativeContext, model);
+    }
+
     # Registers `@workflow:Activity` functions as agent tools. Each tool runs as
     # a durable Temporal activity that the agent may invoke during reasoning.
     #
@@ -152,19 +160,19 @@ public client class AgentContext {
                 timeout);
     }
 
-    # Runs the durable AI agent loop. Every LLM call and tool call is executed
-    # durably, so the agent survives worker crashes and can suspend for days
-    # waiting on human tasks or events. This call may block for a long time; a
-    # durable agent has no direct return value.
+    # Runs the durable AI agent loop using the provider configured via
+    # `setModelProvider`. Every LLM call and tool call is executed durably, so
+    # the agent survives worker crashes and can suspend for days waiting on
+    # human tasks or events. This call may block for a long time; a durable
+    # agent has no direct return value.
     #
-    # + model - The model provider used for the agent's LLM calls
     # + config - The system prompt and reasoning limits
     # + prompt - The initial user prompt. When empty, the agent waits for the
     #            first `chat` event declared in the function signature
-    # + return - An error if the agent fails, otherwise nil
-    remote isolated function runDurableAgent(ai:ModelProvider model, AgentRunConfig config, string prompt = "")
-            returns error? {
-        registerAgentModelForContext(self.nativeContext, model);
+    # + return - An error if the agent fails (including when no model provider
+    #            was configured), otherwise nil
+    remote isolated function runDurableAgent(AgentRunConfig config, string prompt = "") returns error? {
+        check registerAgentModelForContext(self.nativeContext);
         string agentName = getAgentWorkflowType(self.nativeContext);
         string toolDefsJson = check getAgentToolDefs(self.nativeContext);
         json toolDefs = check toolDefsJson.fromJsonString();
@@ -230,7 +238,12 @@ isolated function getAgentWorkflowType(handle nativeContext) returns string = @j
     name: "getWorkflowType"
 } external;
 
-isolated function registerAgentModelForContext(handle nativeContext, object {} model) = @java:Method {
+isolated function setAgentModelProvider(handle nativeContext, object {} model) = @java:Method {
+    'class: "io.ballerina.lib.workflow.context.AgentContextNative",
+    name: "setModelProvider"
+} external;
+
+isolated function registerAgentModelForContext(handle nativeContext) returns error? = @java:Method {
     'class: "io.ballerina.lib.workflow.context.AgentContextNative",
     name: "registerModel"
 } external;

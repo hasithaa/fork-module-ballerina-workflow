@@ -143,8 +143,8 @@ type AgentOrderInput record {|
 @DurableAgent
 function stockAgent(AgentContext ctx, AgentOrderInput input) returns error? {
     check ctx.registerActivities([checkStock]);
-    check ctx->runDurableAgent(mockAgentModel,
-            {systemPrompt: "You are an inventory assistant."}, input.request);
+    ctx.setModelProvider(mockAgentModel);
+    check ctx->runDurableAgent({systemPrompt: "You are an inventory assistant."}, input.request);
 }
 
 @DurableAgent
@@ -152,20 +152,23 @@ function chatStockAgent(AgentContext ctx, AgentOrderInput input, record {| futur
         returns error? {
     check ctx.registerActivities([checkStock]);
     // No initial prompt: the agent waits for one chat event.
-    check ctx->runDurableAgent(mockAgentModel, {systemPrompt: "You are an inventory assistant."});
+    ctx.setModelProvider(mockAgentModel);
+    check ctx->runDurableAgent({systemPrompt: "You are an inventory assistant."});
 }
 
 @DurableAgent
 function loopingAgent(AgentContext ctx, AgentOrderInput input) returns error? {
     check ctx.registerActivities([checkStock]);
-    check ctx->runDurableAgent(loopingAgentModel, {systemPrompt: "Looping agent.", maxIterations: 2},
+    ctx.setModelProvider(loopingAgentModel);
+    check ctx->runDurableAgent({systemPrompt: "Looping agent.", maxIterations: 2},
             input.request);
 }
 
 @DurableAgent
 function unknownToolAgent(AgentContext ctx, AgentOrderInput input) returns error? {
     check ctx.registerActivities([checkStock]);
-    check ctx->runDurableAgent(unknownToolAgentModel, {systemPrompt: "Unknown tool agent."}, input.request);
+    ctx.setModelProvider(unknownToolAgentModel);
+    check ctx->runDurableAgent({systemPrompt: "Unknown tool agent."}, input.request);
 }
 
 // ── AI tool (registerTools / executeAgentTool wrapper) ──────────────────────
@@ -204,7 +207,8 @@ final AiToolMockModelProvider aiToolAgentModel = new;
 @DurableAgent
 function priceAgent(AgentContext ctx, AgentOrderInput input) returns error? {
     check ctx.registerTools([lookupPrice]);
-    check ctx->runDurableAgent(aiToolAgentModel, {systemPrompt: "You are a pricing assistant."}, input.request);
+    ctx.setModelProvider(aiToolAgentModel);
+    check ctx->runDurableAgent({systemPrompt: "You are a pricing assistant."}, input.request);
 }
 
 // ── Human task as an agent tool (registerHumanTask) ─────────────────────────
@@ -248,7 +252,8 @@ function approvalAgent(AgentContext ctx, AgentOrderInput input) returns error? {
     check ctx.registerActivities([checkStock]);
     check ctx.registerHumanTask("approveOrder", "APPROVER", ApprovalResult,
             title = "Approve order", description = "Ask a person to approve the order.");
-    check ctx->runDurableAgent(humanTaskAgentModel, {systemPrompt: "You are an approval assistant."},
+    ctx.setModelProvider(humanTaskAgentModel);
+    check ctx->runDurableAgent({systemPrompt: "You are an approval assistant."},
             input.request);
 }
 
@@ -284,7 +289,8 @@ final EventToolMockModelProvider eventToolAgentModel = new;
 function eventWaitingAgent(AgentContext ctx, AgentOrderInput input,
         record {| future<string> approval; |} events) returns error? {
     check ctx.registerActivities([checkStock]);
-    check ctx->runDurableAgent(eventToolAgentModel, {systemPrompt: "You wait for events."}, input.request);
+    ctx.setModelProvider(eventToolAgentModel);
+    check ctx->runDurableAgent({systemPrompt: "You wait for events."}, input.request);
 }
 
 // ── Multi-turn conversation (MULTI_EVENT interaction) ───────────────────────
@@ -347,8 +353,8 @@ final ConversationMockModelProvider conversationAgentModel = new;
 function conversationAgent(AgentContext ctx, AgentOrderInput input,
         record {| future<string> chat; |} events) returns error? {
     check ctx.setInteraction(MULTI_EVENT, eventTimeout = {seconds: 60});
-    check ctx->runDurableAgent(conversationAgentModel,
-            {systemPrompt: "Chat with the user until they say bye."}, input.request);
+    ctx.setModelProvider(conversationAgentModel);
+    check ctx->runDurableAgent({systemPrompt: "Chat with the user until they say bye."}, input.request);
 }
 
 // MULTI_EVENT without the mandatory eventTimeout — must fail at registration.
@@ -356,7 +362,8 @@ function conversationAgent(AgentContext ctx, AgentOrderInput input,
 function unsafeConversationAgent(AgentContext ctx, AgentOrderInput input,
         record {| future<string> chat; |} events) returns error? {
     check ctx.setInteraction(MULTI_EVENT);
-    check ctx->runDurableAgent(conversationAgentModel, {systemPrompt: "unsafe"}, input.request);
+    ctx.setModelProvider(conversationAgentModel);
+    check ctx->runDurableAgent({systemPrompt: "unsafe"}, input.request);
 }
 
 // Model that always waits — exercises the maxEventWaits safety cap.
@@ -364,8 +371,8 @@ function unsafeConversationAgent(AgentContext ctx, AgentOrderInput input,
 function cappedConversationAgent(AgentContext ctx, AgentOrderInput input,
         record {| future<string> chat; |} events) returns error? {
     check ctx.setInteraction(MULTI_EVENT, eventTimeout = {seconds: 60}, maxEventWaits = 2);
-    check ctx->runDurableAgent(conversationAgentModel,
-            {systemPrompt: "Chat forever."}, input.request);
+    ctx.setModelProvider(conversationAgentModel);
+    check ctx->runDurableAgent({systemPrompt: "Chat forever."}, input.request);
 }
 
 // ── Event wait timeout ───────────────────────────────────────────────────────
@@ -401,7 +408,8 @@ final TimeoutMockModelProvider timeoutAgentModel = new;
 function timeoutAgent(AgentContext ctx, AgentOrderInput input,
         record {| future<string> approval; |} events) returns error? {
     check ctx.setInteraction(SINGLE_EVENT, eventTimeout = {seconds: 2});
-    check ctx->runDurableAgent(timeoutAgentModel, {systemPrompt: "Wait for approval."}, input.request);
+    ctx.setModelProvider(timeoutAgentModel);
+    check ctx->runDurableAgent({systemPrompt: "Wait for approval."}, input.request);
 }
 
 // ── ai:Context-taking tool (via ai:executeTool delegation) ──────────────────
@@ -440,7 +448,8 @@ final ContextToolMockModelProvider contextToolAgentModel = new;
 @DurableAgent
 function contextToolAgent(AgentContext ctx, AgentOrderInput input) returns error? {
     check ctx.registerTools([contextualLookup]);
-    check ctx->runDurableAgent(contextToolAgentModel, {systemPrompt: "Use your tools."}, input.request);
+    ctx.setModelProvider(contextToolAgentModel);
+    check ctx->runDurableAgent({systemPrompt: "Use your tools."}, input.request);
 }
 
 // ── BaseToolKit ──────────────────────────────────────────────────────────────
@@ -456,7 +465,8 @@ isolated class TestToolKit {
 @DurableAgent
 function toolkitAgent(AgentContext ctx, AgentOrderInput input) returns error? {
     check ctx.registerTools([new TestToolKit()]);
-    check ctx->runDurableAgent(aiToolAgentModel, {systemPrompt: "You are a pricing assistant."},
+    ctx.setModelProvider(aiToolAgentModel);
+    check ctx->runDurableAgent({systemPrompt: "You are a pricing assistant."},
             input.request);
 }
 
@@ -491,7 +501,8 @@ final SlowApprovalMockModelProvider slowApprovalAgentModel = new;
 @DurableAgent
 function humanTaskTimeoutAgent(AgentContext ctx, AgentOrderInput input) returns error? {
     check ctx.registerHumanTask("slowApproval", "APPROVER", ApprovalResult, timeout = {seconds: 2});
-    check ctx->runDurableAgent(slowApprovalAgentModel, {systemPrompt: "Get approval."}, input.request);
+    ctx.setModelProvider(slowApprovalAgentModel);
+    check ctx->runDurableAgent({systemPrompt: "Get approval."}, input.request);
 }
 
 // ── Framework-owned conversation continuity (auto-continue) ─────────────────
@@ -538,7 +549,8 @@ final AutoChatMockModelProvider autoChatModel = new;
 function autoConversationAgent(AgentContext ctx, AgentOrderInput input,
         record {| future<string> chat; |} events) returns error? {
     check ctx.setInteraction(MULTI_EVENT, eventTimeout = {seconds: 60});
-    check ctx->runDurableAgent(autoChatModel, {systemPrompt: "Answer briefly."});
+    ctx.setModelProvider(autoChatModel);
+    check ctx->runDurableAgent({systemPrompt: "Answer briefly."});
 }
 
 // Same behaviour with a short timeout: with no follow-up message the
@@ -547,7 +559,8 @@ function autoConversationAgent(AgentContext ctx, AgentOrderInput input,
 function shortTimeoutConversationAgent(AgentContext ctx, AgentOrderInput input,
         record {| future<string> chat; |} events) returns error? {
     check ctx.setInteraction(MULTI_EVENT, eventTimeout = {seconds: 2});
-    check ctx->runDurableAgent(autoChatModel, {systemPrompt: "Answer briefly."});
+    ctx.setModelProvider(autoChatModel);
+    check ctx->runDurableAgent({systemPrompt: "Answer briefly."});
 }
 
 // ── Update drain on completion ───────────────────────────────────────────────
@@ -578,7 +591,8 @@ final EndAfterFirstChatMockModelProvider endAfterFirstChatModel = new;
 function endingAgent(AgentContext ctx, AgentOrderInput input,
         record {| future<string> chat; |} events) returns error? {
     check ctx.setInteraction(MULTI_EVENT, eventTimeout = {seconds: 60});
-    check ctx->runDurableAgent(endAfterFirstChatModel, {systemPrompt: "End after the first reply."});
+    ctx.setModelProvider(endAfterFirstChatModel);
+    check ctx->runDurableAgent({systemPrompt: "End after the first reply."});
 }
 
 // Plain (non-agent) workflow parked on an event — used to verify that

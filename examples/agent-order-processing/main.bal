@@ -45,8 +45,8 @@ function orderAgent(workflow:AgentContext ctx, OrderRequest req,
         record {| future<string> chat; |} events) returns error? {
     check ctx.setInteraction(workflow:MULTI_EVENT, eventTimeout = {minutes: 5});
     check ctx.registerActivities([checkInventory]);
-    check ctx->runDurableAgent(orderModel,
-            {
+    ctx.setModelProvider(orderModel);
+    check ctx->runDurableAgent({
                 systemPrompt: string `You are the assistant for order ${req.orderId}.
                         Use the checkInventory tool to answer product availability questions.
                         The conversation stays open automatically after each answer.

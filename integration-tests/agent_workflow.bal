@@ -81,8 +81,8 @@ final AgentMockModelProvider agentMockModel = new;
 @workflow:DurableAgent
 function stockCheckAgent(workflow:AgentContext ctx, AgentStockInput input) returns error? {
     check ctx.registerActivities([agentCheckStock]);
-    check ctx->runDurableAgent(agentMockModel,
-            {systemPrompt: "You are an inventory assistant. Use agentCheckStock for availability."},
+    ctx.setModelProvider(agentMockModel);
+    check ctx->runDurableAgent({systemPrompt: "You are an inventory assistant. Use agentCheckStock for availability."},
             input.request);
 }
 
@@ -96,8 +96,8 @@ function stockCheckAgent(workflow:AgentContext ctx, AgentStockInput input) retur
 function chatDrivenStockAgent(workflow:AgentContext ctx, AgentStockInput input,
         record {| future<string> chat; |} events) returns error? {
     check ctx.registerActivities([agentCheckStock]);
-    check ctx->runDurableAgent(agentMockModel,
-            {systemPrompt: "You are an inventory assistant. Use agentCheckStock for availability."});
+    ctx.setModelProvider(agentMockModel);
+    check ctx->runDurableAgent({systemPrompt: "You are an inventory assistant. Use agentCheckStock for availability."});
 }
 
 // Scripted conversation: turn 1 answers and re-arms the chat wait; subsequent
@@ -157,6 +157,6 @@ final ConversationMockModelProvider conversationMockModel = new;
 function conversationalStockAgent(workflow:AgentContext ctx, AgentStockInput input,
         record {| future<string> chat; |} events) returns error? {
     check ctx.setInteraction(workflow:MULTI_EVENT, eventTimeout = {minutes: 5});
-    check ctx->runDurableAgent(conversationMockModel,
-            {systemPrompt: "Chat with the user until they say bye."}, input.request);
+    ctx.setModelProvider(conversationMockModel);
+    check ctx->runDurableAgent({systemPrompt: "Chat with the user until they say bye."}, input.request);
 }
