@@ -18,14 +18,32 @@ import ballerina/ai;
 import ballerina/jballerina.java;
 import ballerina/time;
 
-# Configuration for a durable agent run.
-#
-# + systemPrompt - Instructions that define the agent's role and behaviour
-# + maxIterations - Maximum number of LLM reasoning iterations per conversation
-#                   turn before the agent fails with an error
+# Configuration for a durable agent run. Mirrors `ai:AgentConfiguration` so a
+# durable agent is configured the same way as a regular `ai:Agent` — the agent's
+# identity, model, and tools are all passed to `runDurableAgent` in one place.
 public type AgentRunConfig record {|
-    string systemPrompt;
-    int maxIterations = 16;
+    # The system prompt assigned to the agent
+    @display {label: "System Prompt"}
+    ai:SystemPrompt systemPrompt;
+
+    # The model provider used for the agent's LLM calls
+    @display {label: "Model"}
+    ai:ModelProvider model;
+
+    # The AI tools available to the agent. `@workflow:Activity` functions and
+    # human tasks are added separately via `registerActivities` and
+    # `registerHumanTask`
+    @display {label: "Tools"}
+    (ai:BaseToolKit|ai:ToolConfig|ai:FunctionTool)[] tools = [];
+
+    # The maximum number of LLM reasoning iterations per conversation turn
+    # before the agent fails with an error
+    @display {label: "Maximum Iterations"}
+    int maxIter = 16;
+
+    # Specifies whether verbose logging is enabled
+    @display {label: "Verbose"}
+    boolean verbose = false;
 |};
 
 # How a durable agent consumes its external data events.
@@ -48,11 +66,11 @@ public enum AgentInteractionPattern {
 #
 # - `registerActivities` — `@workflow:Activity` functions become tools that run
 #   as durable Temporal activities
-# - `registerTools` — `ai:ToolConfig` values or `@ai:AgentTool` functions become
-#   tools executed through the built-in activity wrapper
 # - `registerHumanTask` — a human task becomes a tool; when the agent invokes it,
 #   a human-task sub-workflow starts and the agent suspends durably until a
 #   person completes it
+# - AI tools and the model provider are passed directly to `runDurableAgent`,
+#   mirroring how a regular `ai:Agent` is configured
 # - events declared in the agent function's signature become wait-tools; when the
 #   agent invokes one, it suspends durably until that event arrives
 public client class AgentContext {
@@ -83,14 +101,6 @@ public client class AgentContext {
         return setAgentInteraction(self.nativeContext, pattern, eventTimeout, maxEventWaits);
     }
 
-    # Sets the model provider used for the agent's LLM calls. Must be called
-    # before `runDurableAgent`.
-    #
-    # + model - The model provider (e.g. from `ai:getDefaultModelProvider()`)
-    public isolated function setModelProvider(ai:ModelProvider model) {
-        setAgentModelProvider(self.nativeContext, model);
-    }
-
     # Registers `@workflow:Activity` functions as agent tools. Each tool runs as
     # a durable Temporal activity that the agent may invoke during reasoning.
     #
@@ -102,17 +112,13 @@ public client class AgentContext {
         }
     }
 
-    # Registers AI tools with the agent. Accepts `ai:ToolConfig` values, functions
-    # annotated with `@ai:AgentTool` (normalized via the ai module's tool plumbing),
-    # or `ai:BaseToolKit` implementations (expanded via their `getTools()`). When the
-    # agent invokes one of these tools, the call is executed durably through the
-    # built-in activity wrapper, delegating argument binding and `ai:Context`
-    # injection to `ai:executeTool`.
-    #
-    # + tools - The tools to register
-    # + return - An error if a tool cannot be registered (e.g. a function
-    #            missing the `@ai:AgentTool` annotation), otherwise nil
-    public isolated function registerTools((ai:BaseToolKit|ai:ToolConfig|ai:FunctionTool)[] tools)
+    // Registers the AI tools passed to `runDurableAgent`. Accepts `ai:ToolConfig`
+    // values, functions annotated with `@ai:AgentTool` (normalized via the ai
+    // module's tool plumbing), or `ai:BaseToolKit` implementations (expanded via
+    // their `getTools()`). When the agent invokes one of these tools, the call is
+    // executed durably through the built-in activity wrapper, delegating argument
+    // binding and `ai:Context` injection to `ai:executeTool`.
+    private isolated function registerTools((ai:BaseToolKit|ai:ToolConfig|ai:FunctionTool)[] tools)
             returns error? {
         foreach ai:BaseToolKit|ai:ToolConfig|ai:FunctionTool tool in tools {
             if tool is ai:BaseToolKit {
@@ -160,24 +166,30 @@ public client class AgentContext {
                 timeout);
     }
 
-    # Runs the durable AI agent loop using the provider configured via
-    # `setModelProvider`. Every LLM call and tool call is executed durably, so
-    # the agent survives worker crashes and can suspend for days waiting on
-    # human tasks or events. This call may block for a long time; a durable
-    # agent has no direct return value.
+    # Runs the durable AI agent loop. Configured like a regular `ai:Agent` — the
+    # system prompt, model, and AI tools all arrive through the included
+    # `AgentRunConfig`. Every LLM call and tool call is executed durably, so the
+    # agent survives worker crashes and can suspend for days waiting on human
+    # tasks or events. This call may block for a long time; a durable agent has
+    # no direct return value.
     #
-    # + config - The system prompt and reasoning limits
-    # + prompt - The initial user prompt. When empty, the agent waits for the
-    #            first `chat` event declared in the function signature
-    # + return - An error if the agent fails (including when no model provider
-    #            was configured), otherwise nil
-    remote isolated function runDurableAgent(AgentRunConfig config, string prompt = "") returns error? {
+    # + query - The initial user query. When empty, the agent waits for the
+    #           first `chat` event declared in the function signature
+    # + context - The tool-execution context. Reserved: tool calls run as
+    #             durable activities, so a caller-provided context does not
+    #             currently cross the activity boundary
+    # + config - The agent configuration (system prompt, model, tools, limits)
+    # + return - An error if the agent fails, otherwise nil
+    public isolated function runDurableAgent(@display {label: "Query"} string query = "",
+            @display {label: "Context"} ai:Context? context = (), *AgentRunConfig config) returns error? {
+        setAgentModelProvider(self.nativeContext, config.model);
         check registerAgentModelForContext(self.nativeContext);
+        check self.registerTools(config.tools);
         string agentName = getAgentWorkflowType(self.nativeContext);
         string toolDefsJson = check getAgentToolDefs(self.nativeContext);
         json toolDefs = check toolDefsJson.fromJsonString();
         AgentToolDef[] defs = check toolDefs.cloneWithType();
-        error? result = runAgentLoop(self.nativeContext, agentName, config, prompt, defs);
+        error? result = runAgentLoop(self.nativeContext, agentName, config, query, defs);
         // Settle any outstanding updateAgent requests before the workflow completes:
         // unconsumed updates receive the agent's final response (or its failure)
         // instead of failing with "workflow completed before the update completed".

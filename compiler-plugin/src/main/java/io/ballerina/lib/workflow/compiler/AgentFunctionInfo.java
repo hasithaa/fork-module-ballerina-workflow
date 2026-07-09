@@ -34,7 +34,7 @@ import java.util.Set;
  * @param workflowPrefix   the import prefix through which {@code ballerina/workflow} is referenced (from the
  *                         {@code @<prefix>:DurableAgent} annotation), used to qualify the built-in activities
  * @param activityToolRefs map of tool simple name to source reference, from {@code ctx.registerActivities([...])}
- * @param aiToolRefs       source references of function tools from {@code ctx.registerTools([...])}
+ * @param aiToolRefs       source references of function tools from {@code ctx.runDurableAgent(..., tools = [...])}
  * @param humanTaskNames   task-name literals from {@code ctx.registerHumanTask("name", ...)} call sites
  * @since 0.7.0
  */

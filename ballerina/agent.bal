@@ -124,7 +124,12 @@ isolated function runAgentLoop(handle ctxHandle, string agentName, AgentRunConfi
     }
     boolean autoContinue = conversational && hasChatEvent;
 
-    AgentChatMessage[] history = [<AgentSystemMessage>{content: config.systemPrompt}];
+    // Render the system prompt the same way `ai:Agent` does: role followed by
+    // the specific instructions.
+    string role = config.systemPrompt.role.trim();
+    string instructions = config.systemPrompt.instructions;
+    string systemContent = role == "" ? instructions : string `${role} ${instructions}`;
+    AgentChatMessage[] history = [<AgentSystemMessage>{content: systemContent}];
     if prompt != "" {
         history.push(<AgentUserMessage>{content: prompt});
     } else {
@@ -136,7 +141,7 @@ isolated function runAgentLoop(handle ctxHandle, string agentName, AgentRunConfi
         }
     }
 
-    int maxIterations = int:max(1, config.maxIterations);
+    int maxIterations = int:max(1, config.maxIter);
     while true {
         // One conversation turn: a bounded ReAct loop over LLM + tool calls.
         boolean turnAnswered = false;

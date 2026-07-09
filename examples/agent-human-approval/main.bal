@@ -58,17 +58,17 @@ function orderAgent(workflow:AgentContext ctx, OrderRequest req,
             title = "Approve expedited shipping",
             description = "Requests a manager's approval to expedite the order's shipping. "
                 + "Pass the order id and the customer's reason as fields.");
-    ctx.setModelProvider(orderModel);
-    check ctx->runDurableAgent({
-                systemPrompt: string `You are the assistant for order ${req.orderId}.
-                        Use the checkInventory tool for product availability questions.
+    check ctx.runDurableAgent(req.userPrompt,
+            systemPrompt = {
+                role: string `You are the assistant for order ${req.orderId}.`,
+                instructions: string `Use the checkInventory tool for product availability questions.
                         Expedited shipping requires manager approval: when the user asks to
                         expedite, call the approveExpedite tool with the order id and the
                         user's reason, then tell the user the manager's decision.
                         When the user says goodbye, call the endConversation tool with a
                         short farewell.`
             },
-            req.userPrompt);
+            model = orderModel);
 }
 
 // The chat turn blocks while the agent waits on the manager, so the listener

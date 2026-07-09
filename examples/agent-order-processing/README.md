@@ -5,7 +5,8 @@ powered by the **WSO2 default model provider** (`ai:getDefaultModelProvider()`).
 
 The `@workflow:DurableAgent` function receives an `AgentContext`, registers its tools
 (`@workflow:Activity` functions) imperatively, configures the `MULTI_EVENT` interaction pattern,
-and hands control to the durable ReAct loop via `ctx->runDurableAgent(model, config, prompt)`.
+and hands control to the durable ReAct loop via `ctx.runDurableAgent(query, systemPrompt = ..., model = ...)` —
+the same configuration shape as a regular `ai:Agent`.
 Every LLM call and every tool call runs as a durable Temporal activity, so the agent survives
 worker crashes and, on replay, re-loads its previous reasoning from the workflow event history
 instead of re-querying the model.

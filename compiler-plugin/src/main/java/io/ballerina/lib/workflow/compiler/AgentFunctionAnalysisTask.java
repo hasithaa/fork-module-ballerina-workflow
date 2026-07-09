@@ -25,6 +25,7 @@ import io.ballerina.compiler.syntax.tree.FunctionDefinitionNode;
 import io.ballerina.compiler.syntax.tree.ListConstructorExpressionNode;
 import io.ballerina.compiler.syntax.tree.MetadataNode;
 import io.ballerina.compiler.syntax.tree.MethodCallExpressionNode;
+import io.ballerina.compiler.syntax.tree.NamedArgumentNode;
 import io.ballerina.compiler.syntax.tree.Node;
 import io.ballerina.compiler.syntax.tree.NodeVisitor;
 import io.ballerina.compiler.syntax.tree.PositionalArgumentNode;
@@ -41,7 +42,8 @@ import java.util.Optional;
 
 /**
  * Analysis task (code-modifier phase) that detects {@code @workflow:DurableAgent} functions and collects the tool
- * references from {@code ctx.registerActivities([...])} / {@code ctx.registerAgentTools([...])} call sites, so the
+ * references from {@code ctx.registerActivities([...])} call sites and {@code ctx.runDurableAgent(..., tools = [...])}
+ * arguments, so the
  * source modifier can register those tools (plus the built-in {@code llmChat}/{@code generate} activities) at module
  * init on every worker.
  *
@@ -119,7 +121,7 @@ public class AgentFunctionAnalysisTask implements AnalysisTask<SyntaxNodeAnalysi
      * Collects capability registrations from an agent body.
      * <ul>
      *   <li>{@code ctx.registerActivities([...])} — activity tool references (registered as workflow activities)</li>
-     *   <li>{@code ctx.registerTools([...])} — AI tool function references (registered for the
+     *   <li>{@code ctx.runDurableAgent(..., tools = [...])} — AI tool function references (registered for the
      *       {@code executeAgentTool} wrapper); {@code ai:ToolConfig} mapping constructors are skipped, as those carry
      *       their function pointer at runtime</li>
      *   <li>{@code ctx.registerHumanTask("name", ...)} — human task name literals (registered as human task
@@ -140,8 +142,8 @@ public class AgentFunctionAnalysisTask implements AnalysisTask<SyntaxNodeAnalysi
                     int colon = ref.indexOf(':');
                     activityToolRefs.put(colon < 0 ? ref : ref.substring(colon + 1).trim(), ref);
                 });
-            } else if (WorkflowConstants.REGISTER_TOOLS_METHOD.equals(methodName)) {
-                collectFunctionRefs(args, aiToolRefs::add);
+            } else if (WorkflowConstants.RUN_DURABLE_AGENT_METHOD.equals(methodName)) {
+                collectToolsNamedArg(args, aiToolRefs::add);
             } else if (WorkflowConstants.REGISTER_HUMAN_TASK_METHOD.equals(methodName)
                     && !args.isEmpty() && args.get(0) instanceof PositionalArgumentNode posArg
                     && posArg.expression().kind() == SyntaxKind.STRING_LITERAL) {
@@ -154,12 +156,30 @@ public class AgentFunctionAnalysisTask implements AnalysisTask<SyntaxNodeAnalysi
             methodCall.expression().accept(this);
         }
 
+        // Collects the function references from the `tools = [...]` named argument of a
+        // `ctx.runDurableAgent(...)` call (the AI tools of the included AgentRunConfig).
+        private static void collectToolsNamedArg(SeparatedNodeList<FunctionArgumentNode> args,
+                                                 java.util.function.Consumer<String> collector) {
+            for (FunctionArgumentNode arg : args) {
+                if (arg instanceof NamedArgumentNode namedArg
+                        && WorkflowConstants.TOOLS_FIELD.equals(namedArg.argumentName().name().text())
+                        && namedArg.expression() instanceof ListConstructorExpressionNode toolsList) {
+                    collectListRefs(toolsList, collector);
+                }
+            }
+        }
+
         private static void collectFunctionRefs(SeparatedNodeList<FunctionArgumentNode> args,
                                                 java.util.function.Consumer<String> collector) {
             if (args.isEmpty() || !(args.get(0) instanceof PositionalArgumentNode posArg)
                     || !(posArg.expression() instanceof ListConstructorExpressionNode toolsList)) {
                 return;
             }
+            collectListRefs(toolsList, collector);
+        }
+
+        private static void collectListRefs(ListConstructorExpressionNode toolsList,
+                                            java.util.function.Consumer<String> collector) {
             for (Node element : toolsList.expressions()) {
                 if (element.kind() == SyntaxKind.SIMPLE_NAME_REFERENCE
                         || element.kind() == SyntaxKind.QUALIFIED_NAME_REFERENCE) {

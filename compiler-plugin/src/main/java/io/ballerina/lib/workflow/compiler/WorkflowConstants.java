@@ -53,7 +53,8 @@ public final class WorkflowConstants {
     public static final String AGENT_CONTEXT_TYPE = "AgentContext";
     /** AgentContext methods scanned to discover capabilities for init registration on every worker. */
     public static final String REGISTER_ACTIVITIES_METHOD = "registerActivities";
-    public static final String REGISTER_TOOLS_METHOD = "registerTools";
+    public static final String RUN_DURABLE_AGENT_METHOD = "runDurableAgent";
+    public static final String TOOLS_FIELD = "tools";
     public static final String REGISTER_HUMAN_TASK_METHOD = "registerHumanTask";
     /** Name of the agent loop function in ballerina/workflow called from generated agent bodies. */
     public static final String RUN_AGENT_FUNCTION = "runAgent";

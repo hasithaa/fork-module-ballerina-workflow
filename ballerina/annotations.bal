@@ -38,16 +38,20 @@ public annotation Activity on function;
 #
 # The function receives a `workflow:AgentContext` as its first parameter, an
 # input record, and an optional events record (`record {| future<T> ... |}`).
-# It configures the agent imperatively — registering tools and human tasks on the
-# context — and finally calls `ctx->runDurableAgent(...)`. The function returns
-# `error?`; a durable agent has no direct return value (it may run for days).
+# It configures the agent imperatively — registering activities and human tasks
+# on the context — and finally calls `ctx.runDurableAgent(...)`, which takes the
+# same configuration as a regular `ai:Agent` (system prompt, model, AI tools).
+# The function returns `error?`; a durable agent has no direct return value (it
+# may run for days).
 #
 # ```ballerina
 # @workflow:DurableAgent
 # function processOrderAgent(workflow:AgentContext ctx, OrderRequest req) returns error? {
 #     final ai:ModelProvider llm = check ai:getDefaultModelProvider();
-#     ctx.registerActivities([checkInventory]);
-#     check ctx->runDurableAgent(llm, {systemPrompt: "You are an order assistant."}, req.prompt);
+#     check ctx.registerActivities([checkInventory]);
+#     check ctx.runDurableAgent(req.prompt,
+#             systemPrompt = {role: "Order assistant", instructions: "Help the user with their order."},
+#             model = llm);
 # }
 # ```
 public annotation DurableAgent on function;

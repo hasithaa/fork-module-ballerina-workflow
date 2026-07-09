@@ -45,15 +45,15 @@ function orderAgent(workflow:AgentContext ctx, OrderRequest req,
         record {| future<string> chat; |} events) returns error? {
     check ctx.setInteraction(workflow:MULTI_EVENT, eventTimeout = {minutes: 5});
     check ctx.registerActivities([checkInventory]);
-    ctx.setModelProvider(orderModel);
-    check ctx->runDurableAgent({
-                systemPrompt: string `You are the assistant for order ${req.orderId}.
-                        Use the checkInventory tool to answer product availability questions.
+    check ctx.runDurableAgent(req.userPrompt,
+            systemPrompt = {
+                role: string `You are the assistant for order ${req.orderId}.`,
+                instructions: string `Use the checkInventory tool to answer product availability questions.
                         The conversation stays open automatically after each answer.
                         When the user says goodbye or asks to end the conversation, call the
                         endConversation tool with a short farewell.`
             },
-            req.userPrompt);
+            model = orderModel);
 }
 
 public function main() returns error? {

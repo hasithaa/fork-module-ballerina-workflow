@@ -81,9 +81,9 @@ final AgentMockModelProvider agentMockModel = new;
 @workflow:DurableAgent
 function stockCheckAgent(workflow:AgentContext ctx, AgentStockInput input) returns error? {
     check ctx.registerActivities([agentCheckStock]);
-    ctx.setModelProvider(agentMockModel);
-    check ctx->runDurableAgent({systemPrompt: "You are an inventory assistant. Use agentCheckStock for availability."},
-            input.request);
+    check ctx.runDurableAgent(input.request,
+            systemPrompt = {role: "", instructions: "You are an inventory assistant. Use agentCheckStock for availability."},
+            model = agentMockModel);
 }
 
 # Chat-driven durable agent: waits durably for the first chat event before reasoning.
@@ -96,8 +96,8 @@ function stockCheckAgent(workflow:AgentContext ctx, AgentStockInput input) retur
 function chatDrivenStockAgent(workflow:AgentContext ctx, AgentStockInput input,
         record {| future<string> chat; |} events) returns error? {
     check ctx.registerActivities([agentCheckStock]);
-    ctx.setModelProvider(agentMockModel);
-    check ctx->runDurableAgent({systemPrompt: "You are an inventory assistant. Use agentCheckStock for availability."});
+    check ctx.runDurableAgent(systemPrompt = {role: "", instructions: "You are an inventory assistant. Use agentCheckStock for availability."},
+            model = agentMockModel);
 }
 
 // Scripted conversation: turn 1 answers and re-arms the chat wait; subsequent
@@ -157,6 +157,7 @@ final ConversationMockModelProvider conversationMockModel = new;
 function conversationalStockAgent(workflow:AgentContext ctx, AgentStockInput input,
         record {| future<string> chat; |} events) returns error? {
     check ctx.setInteraction(workflow:MULTI_EVENT, eventTimeout = {minutes: 5});
-    ctx.setModelProvider(conversationMockModel);
-    check ctx->runDurableAgent({systemPrompt: "Chat with the user until they say bye."}, input.request);
+    check ctx.runDurableAgent(input.request,
+            systemPrompt = {role: "", instructions: "Chat with the user until they say bye."},
+            model = conversationMockModel);
 }
