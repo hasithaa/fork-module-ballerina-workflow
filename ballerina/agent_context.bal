@@ -18,9 +18,9 @@ import ballerina/ai;
 import ballerina/jballerina.java;
 import ballerina/time;
 
-# Configuration for a durable agent run. Mirrors `ai:AgentConfiguration` so a
-# durable agent is configured the same way as a regular `ai:Agent` — the agent's
-# identity, model, and tools are all passed to `runDurableAgent` in one place.
+# Configuration for a durable agent run: the agent's identity (system prompt),
+# its model, and reasoning limits. Tools, activities, human tasks, and update
+# channels are registered on the context before `buildAndRun`.
 public type AgentRunConfig record {|
     # The system prompt assigned to the agent
     @display {label: "System Prompt"}
@@ -29,12 +29,6 @@ public type AgentRunConfig record {|
     # The model provider used for the agent's LLM calls
     @display {label: "Model"}
     ai:ModelProvider model;
-
-    # The AI tools available to the agent. `@workflow:Activity` functions and
-    # human tasks are added separately via `registerActivity` and
-    # `registerHumanTask`
-    @display {label: "Tools"}
-    (ai:BaseToolKit|ai:ToolConfig|ai:FunctionTool)[] tools = [];
 
     # The maximum number of LLM reasoning iterations per conversation turn
     # before the agent fails with an error
@@ -46,9 +40,9 @@ public type AgentRunConfig record {|
     boolean verbose = false;
 |};
 
-# How a durable agent consumes its external data events.
+# How a durable agent consumes its update-channel requests and data events.
 public enum AgentInteractionPattern {
-    # Each event declared in the agent's signature may be consumed once per run (default)
+    # Each registered update channel/event may be consumed once per run (default)
     SINGLE_EVENT,
     # Events are re-armable: the agent may wait repeatedly on the same event, each wait
     # consuming the next queued payload (conversational agents). Requires an event
@@ -62,17 +56,19 @@ public enum AgentInteractionPattern {
 # Unlike `workflow:Context`, this context deliberately does not expose
 # `callActivity`, `sleep`, or `awaitHumanTask`. Instead, capabilities are
 # registered on the context and the agent decides when to use them inside the
-# durable ReAct loop driven by `runDurableAgent`:
+# durable ReAct loop driven by `buildAndRun`:
 #
 # - `registerActivity` — a `@workflow:Activity` function becomes a tool that runs
 #   as a durable Temporal activity
+# - `registerAgentTool` — an AI tool (`@ai:AgentTool` function, `ai:ToolConfig`,
+#   or `ai:BaseToolKit`) executed durably through the built-in activity wrapper
 # - `registerHumanTask` — a human task becomes a tool; when the agent invokes it,
 #   a human-task sub-workflow starts and the agent suspends durably until a
 #   person completes it
-# - AI tools and the model provider are passed directly to `runDurableAgent`,
-#   mirroring how a regular `ai:Agent` is configured
-# - events declared in the agent function's signature become wait-tools; when the
-#   agent invokes one, it suspends durably until that event arrives
+# - `registerUpdateEvents` — declares a named two-way update channel (request and
+#   optional response types); `workflow:updateAgent` drives it from outside
+# - `buildAndRun` — builds the agent from everything registered above and hands
+#   control to the durable ReAct loop; must be the last statement of the agent
 public client class AgentContext {
     private handle nativeContext;
 
@@ -110,29 +106,46 @@ public client class AgentContext {
         return recordActivityTool(self.nativeContext, activity);
     }
 
-    // Registers the AI tools passed to `runDurableAgent`. Accepts `ai:ToolConfig`
-    // values, functions annotated with `@ai:AgentTool` (normalized via the ai
-    // module's tool plumbing), or `ai:BaseToolKit` implementations (expanded via
-    // their `getTools()`). When the agent invokes one of these tools, the call is
-    // executed durably through the built-in activity wrapper, delegating argument
-    // binding and `ai:Context` injection to `ai:executeTool`.
-    private isolated function registerTools((ai:BaseToolKit|ai:ToolConfig|ai:FunctionTool)[] tools)
+    # Registers an AI tool with the agent. Accepts an `ai:ToolConfig` value, a
+    # function annotated with `@ai:AgentTool` (normalized via the ai module's tool
+    # plumbing), or an `ai:BaseToolKit` implementation (expanded via its
+    # `getTools()`). When the agent invokes the tool, the call is executed durably
+    # through the built-in activity wrapper, delegating argument binding and
+    # `ai:Context` injection to `ai:executeTool`.
+    #
+    # + tool - The tool to register
+    # + return - An error if the tool cannot be registered (e.g. a function
+    #            missing the `@ai:AgentTool` annotation), otherwise nil
+    public isolated function registerAgentTool(ai:BaseToolKit|ai:ToolConfig|ai:FunctionTool tool)
             returns error? {
-        foreach ai:BaseToolKit|ai:ToolConfig|ai:FunctionTool tool in tools {
-            if tool is ai:BaseToolKit {
-                foreach ai:ToolConfig config in tool.getTools() {
-                    check self.recordToolConfig(config);
-                }
-            } else if tool is ai:ToolConfig {
-                check self.recordToolConfig(tool);
-            } else {
-                ai:ToolConfig[] configs = ai:getToolConfigs([tool]);
-                if configs.length() == 0 {
-                    return error("Agent tool functions must be annotated with @ai:AgentTool");
-                }
-                check self.recordToolConfig(configs[0]);
+        if tool is ai:BaseToolKit {
+            foreach ai:ToolConfig config in tool.getTools() {
+                check self.recordToolConfig(config);
             }
+        } else if tool is ai:ToolConfig {
+            check self.recordToolConfig(tool);
+        } else {
+            ai:ToolConfig[] configs = ai:getToolConfigs([tool]);
+            if configs.length() == 0 {
+                return error("Agent tool functions must be annotated with @ai:AgentTool");
+            }
+            check self.recordToolConfig(configs[0]);
         }
+    }
+
+    # Declares a named two-way update channel for the agent. `workflow:updateAgent`
+    # sends a request on the channel and blocks until the agent answers the turn
+    # that consumed it. Inside the ReAct loop the channel also appears as a durable
+    # wait: a channel named `chat` drives the conversation itself.
+    #
+    # + name - The update channel name (e.g. `"chat"`)
+    # + requestType - The request payload type; validated when a request arrives
+    # + responseType - The expected response type; when provided, the turn answer
+    #                  is validated against it before completing the update
+    # + return - An error if the channel cannot be registered, otherwise nil
+    public isolated function registerUpdateEvents(string name, typedesc<anydata> requestType,
+            typedesc<anydata>? responseType = ()) returns error? {
+        return registerAgentUpdateEvent(self.nativeContext, name, requestType, responseType);
     }
 
     private isolated function recordToolConfig(ai:ToolConfig config) returns error? {
@@ -164,25 +177,21 @@ public client class AgentContext {
                 timeout);
     }
 
-    # Runs the durable AI agent loop. Configured like a regular `ai:Agent` — the
-    # system prompt, model, and AI tools all arrive through the included
-    # `AgentRunConfig`. Every LLM call and tool call is executed durably, so the
-    # agent survives worker crashes and can suspend for days waiting on human
-    # tasks or events. This call may block for a long time; a durable agent has
-    # no direct return value.
+    # Builds the agent from everything registered on this context (activities, AI
+    # tools, human tasks, update channels) and hands control to the durable ReAct
+    # loop. This is a terminal operation: it must be the last statement of the
+    # `@workflow:DurableAgent` function (enforced by the compiler plugin). Every
+    # LLM call and tool call is executed durably, so the agent survives worker
+    # crashes and can suspend for days waiting on human tasks or updates.
     #
     # + query - The initial user query. When empty, the agent waits for the
-    #           first `chat` event declared in the function signature
-    # + context - The tool-execution context. Reserved: tool calls run as
-    #             durable activities, so a caller-provided context does not
-    #             currently cross the activity boundary
-    # + config - The agent configuration (system prompt, model, tools, limits)
+    #           first `chat` update channel request
+    # + config - The agent configuration (system prompt, model, limits)
     # + return - An error if the agent fails, otherwise nil
-    public isolated function runDurableAgent(@display {label: "Query"} string query = "",
-            @display {label: "Context"} ai:Context? context = (), *AgentRunConfig config) returns error? {
+    public isolated function buildAndRun(@display {label: "Query"} string query = "",
+            *AgentRunConfig config) returns error? {
         setAgentModelProvider(self.nativeContext, config.model);
         check registerAgentModelForContext(self.nativeContext);
-        check self.registerTools(config.tools);
         string agentName = getAgentWorkflowType(self.nativeContext);
         string toolDefsJson = check getAgentToolDefs(self.nativeContext);
         json toolDefs = check toolDefsJson.fromJsonString();
@@ -225,6 +234,12 @@ isolated function recordHumanTaskTool(handle nativeContext, string taskName, str
         returns error? = @java:Method {
     'class: "io.ballerina.lib.workflow.context.AgentContextNative",
     name: "recordHumanTaskTool"
+} external;
+
+isolated function registerAgentUpdateEvent(handle nativeContext, string name, typedesc<anydata> requestType,
+        typedesc<anydata>? responseType) returns error? = @java:Method {
+    'class: "io.ballerina.lib.workflow.context.AgentContextNative",
+    name: "registerUpdateEvent"
 } external;
 
 isolated function setAgentInteraction(handle nativeContext, string pattern, time:Duration? eventTimeout,

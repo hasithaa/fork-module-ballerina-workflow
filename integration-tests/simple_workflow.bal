@@ -45,9 +45,10 @@ type SimpleInput record {|
 # A simple workflow that processes input without calling any activities.
 # This is useful for pure computation workflows that don't need I/O.
 #
+# + ctx - The workflow context
 # + input - The workflow input containing id and name
 # + return - A greeting string or error
 @workflow:Workflow
-function simpleWorkflow(SimpleInput input) returns string|error {
+function simpleWorkflow(workflow:Context ctx, SimpleInput input) returns string|error {
     return "Hello from workflow: " + input.name;
 }

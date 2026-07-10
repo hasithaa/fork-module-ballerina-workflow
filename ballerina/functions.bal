@@ -31,6 +31,22 @@ public isolated function run(function processFunction, map<anydata>? input = ())
     name: "run"
 } external;
 
+# Starts a new durable agent instance and returns its unique ID. The dedicated
+# starter mirrors `run` for `@workflow:DurableAgent` functions.
+#
+# ```ballerina
+# string agentId = check workflow:runDurableAgent(orderAgent, input = {"orderId": "ORD-123"});
+# ```
+#
+# + agentFunction - The agent function (must have `@DurableAgent`)
+# + input - Optional input data for the agent
+# + return - The agent (workflow) ID, or an error
+public isolated function runDurableAgent(function agentFunction, map<anydata>? input = ())
+        returns string|error = @java:Method {
+    'class: "io.ballerina.lib.workflow.runtime.nativeimpl.WorkflowNative",
+    name: "run"
+} external;
+
 # Sends data to a running workflow's events record.
 #
 # ```ballerina

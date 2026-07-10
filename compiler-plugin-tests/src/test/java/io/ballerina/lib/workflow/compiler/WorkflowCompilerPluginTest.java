@@ -161,7 +161,7 @@ public class WorkflowCompilerPluginTest {
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertTrue(diagnosticResult.errorCount() > 0,
                 "Expected validation error for workflow with non-anydata input parameter");
-        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_101);
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_140);
     }
 
     @Test(groups = "invalid")
@@ -765,8 +765,10 @@ public class WorkflowCompilerPluginTest {
 
     @Test(groups = "invalid")
     public void testInvalidAgentEventsShape() {
+        // Declaring an events parameter on a @DurableAgent is forbidden: update
+        // channels are registered imperatively via ctx.registerUpdateEvents.
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult("invalid_agent_events_shape");
-        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_132);
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_138);
     }
 
     @Test(groups = "invalid")

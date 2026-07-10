@@ -9,7 +9,7 @@ function fetchCustomer(http:Client connection, string path) returns json|error {
 }
 
 @workflow:Workflow
-function customerWorkflow(workflow:Context ctx) returns json|error {
+function customerWorkflow(workflow:Context ctx, map<anydata> input) returns json|error {
     return ctx->callActivity(fetchCustomer, {
         connection,
         path: "/customers/1"

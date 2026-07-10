@@ -38,14 +38,17 @@ import io.ballerina.compiler.syntax.tree.ExpressionNode;
 import io.ballerina.compiler.syntax.tree.FieldAccessExpressionNode;
 import io.ballerina.compiler.syntax.tree.ForkStatementNode;
 import io.ballerina.compiler.syntax.tree.FunctionArgumentNode;
+import io.ballerina.compiler.syntax.tree.FunctionBodyBlockNode;
 import io.ballerina.compiler.syntax.tree.FunctionCallExpressionNode;
 import io.ballerina.compiler.syntax.tree.FunctionDefinitionNode;
 import io.ballerina.compiler.syntax.tree.ListConstructorExpressionNode;
 import io.ballerina.compiler.syntax.tree.MappingConstructorExpressionNode;
 import io.ballerina.compiler.syntax.tree.MappingFieldNode;
+import io.ballerina.compiler.syntax.tree.MethodCallExpressionNode;
 import io.ballerina.compiler.syntax.tree.NamedArgumentNode;
 import io.ballerina.compiler.syntax.tree.NamedWorkerDeclarationNode;
 import io.ballerina.compiler.syntax.tree.Node;
+import io.ballerina.compiler.syntax.tree.NodeList;
 import io.ballerina.compiler.syntax.tree.NodeVisitor;
 import io.ballerina.compiler.syntax.tree.NonTerminalNode;
 import io.ballerina.compiler.syntax.tree.ParameterNode;
@@ -55,6 +58,7 @@ import io.ballerina.compiler.syntax.tree.SeparatedNodeList;
 import io.ballerina.compiler.syntax.tree.SimpleNameReferenceNode;
 import io.ballerina.compiler.syntax.tree.SpecificFieldNode;
 import io.ballerina.compiler.syntax.tree.StartActionNode;
+import io.ballerina.compiler.syntax.tree.StatementNode;
 import io.ballerina.compiler.syntax.tree.SyntaxKind;
 import io.ballerina.compiler.syntax.tree.TupleTypeDescriptorNode;
 import io.ballerina.compiler.syntax.tree.TypeDescriptorNode;
@@ -164,80 +168,26 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         FunctionSymbol functionSymbol = (FunctionSymbol) symbolOpt.get();
         FunctionTypeSymbol typeSymbol = functionSymbol.typeDescriptor();
 
-        // Get parameters
-        Optional<List<ParameterSymbol>> paramsOpt = typeSymbol.params();
-        if (paramsOpt.isEmpty() || paramsOpt.get().isEmpty()) {
-            // No parameters is valid - validate return type only
-            validateReturnType(functionNode, context, typeSymbol);
+        // The context and input parameters are mandatory: a workflow function must not be
+        // callable as a regular function. Signature: (Context ctx, Input input, Events events?).
+        List<ParameterSymbol> params = typeSymbol.params().orElse(List.of());
+        if (params.size() < 2
+                || !WorkflowPluginUtils.isContextType(params.get(0).typeDescriptor())
+                || !WorkflowPluginUtils.isSubtypeOfAnydata(params.get(1).typeDescriptor(), semanticModel)) {
+            reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_140);
             return;
         }
-
-        List<ParameterSymbol> params = paramsOpt.get();
-        
-        // Check for excess parameters (max 3: Context, input, events)
         if (params.size() > 3) {
             reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_106);
             return;
         }
-
-        int paramIndex = 0;
-        boolean hasInput = false;
-        boolean hasEvents = false;
-
-        // Check first parameter - could be Context, input, or events
-        ParameterSymbol firstParam = params.get(paramIndex);
-        TypeSymbol firstParamType = firstParam.typeDescriptor();
-
-        if (WorkflowPluginUtils.isContextType(firstParamType)) {
-            paramIndex++;
-        }
-
-        // Check remaining parameters - they can be input and/or events
-        // The order should be: [Context], [input], [events]
-        while (paramIndex < params.size()) {
-            ParameterSymbol param = params.get(paramIndex);
-            TypeSymbol paramType = param.typeDescriptor();
-
-            // Determine expected parameter type based on position
-            // After context (or at start), next should be input or events
-            // After input, next should be events
-            
-            if (hasInput) {
-                // Already have input, so this parameter MUST be events
-                if (!isValidEventsType(paramType)) {
-                    reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_102);
-                    return;
-                }
-                if (hasEvents) {
-                    // Already have events parameter, this is an error
-                    reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_106);
-                    return;
-                }
-                validateEventFutureTypes(paramType, functionNode, context, semanticModel);
-                hasEvents = true;
-                paramIndex++;
-            } else {
-                // No input yet - this could be input or events
-                if (isValidEventsType(paramType)) {
-                    // This is an events parameter (can come without input)
-                    validateEventFutureTypes(paramType, functionNode, context, semanticModel);
-                    hasEvents = true;
-                    paramIndex++;
-                } else if (WorkflowPluginUtils.isSubtypeOfAnydata(paramType, semanticModel)) {
-                    // This is an input parameter
-                    if (hasEvents) {
-                        // Input must come before events
-                        reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_101);
-                        return;
-                    }
-                    hasInput = true;
-                    paramIndex++;
-                } else {
-                    // Parameter is neither anydata nor events record - error
-                    reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_101);
-                    return;
-                }
+        if (params.size() == 3) {
+            TypeSymbol eventsType = params.get(2).typeDescriptor();
+            if (!isValidEventsType(eventsType)) {
+                reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_102);
+                return;
             }
+            validateEventFutureTypes(eventsType, functionNode, context, semanticModel);
         }
 
         // Validate return type
@@ -953,21 +903,69 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         }
         FunctionTypeSymbol typeSymbol = ((FunctionSymbol) symbolOpt.get()).typeDescriptor();
 
-        // Signature: (AgentContext ctx, InputRecord input, EventsRecord events?).
+        // Signature: exactly (AgentContext ctx, InputRecord input). Update channels are
+        // declared imperatively via ctx.registerUpdateEvents, not in the signature.
         List<ParameterSymbol> params = typeSymbol.params().orElse(List.of());
-        if (params.size() < 2 || params.size() > 3
+        if (params.size() == 3 && isValidEventsType(params.get(2).typeDescriptor())) {
+            reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_138);
+        } else if (params.size() != 2
                 || !isAgentContextType(params.get(0).typeDescriptor())
                 || !WorkflowPluginUtils.isSubtypeOfAnydata(params.get(1).typeDescriptor(), semanticModel)) {
             reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_131);
-        } else if (params.size() == 3 && !isValidEventsType(params.get(2).typeDescriptor())) {
-            reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_132);
         }
+
+        // buildAndRun() is terminal: it must be the last top-level statement of the body.
+        validateBuildAndRunPlacement(functionNode, context);
 
         // Return type: error? (no value).
         Optional<TypeSymbol> returnTypeOpt = typeSymbol.returnTypeDescriptor();
         if (returnTypeOpt.isPresent() && !isErrorOptional(returnTypeOpt.get(), semanticModel)) {
             reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_133);
         }
+    }
+
+    /**
+     * Validates that every {@code buildAndRun()} call inside the agent function is the final
+     * top-level statement of the function body — never nested in conditionals or loops, and
+     * never followed by further statements.
+     */
+    private void validateBuildAndRunPlacement(FunctionDefinitionNode functionNode,
+                                              SyntaxNodeAnalysisContext context) {
+        if (!(functionNode.functionBody() instanceof FunctionBodyBlockNode bodyBlock)) {
+            return;
+        }
+        NodeList<StatementNode> statements = bodyBlock.statements();
+        StatementNode lastStatement = statements.isEmpty() ? null : statements.get(statements.size() - 1);
+
+        functionNode.functionBody().accept(new NodeVisitor() {
+            @Override
+            public void visit(MethodCallExpressionNode methodCall) {
+                String methodName = methodCall.methodName().toSourceCode().trim();
+                if (WorkflowConstants.BUILD_AND_RUN_METHOD.equals(methodName)
+                        && !isLastTopLevelStatement(methodCall, bodyBlock, lastStatement)) {
+                    DiagnosticInfo info = new DiagnosticInfo(WorkflowDiagnostic.WORKFLOW_139.getCode(),
+                            WorkflowDiagnostic.WORKFLOW_139.getMessage(),
+                            WorkflowDiagnostic.WORKFLOW_139.getSeverity());
+                    context.reportDiagnostic(DiagnosticFactory.createDiagnostic(info, methodCall.location()));
+                }
+                methodCall.arguments().forEach(arg -> arg.accept(this));
+                methodCall.expression().accept(this);
+            }
+        });
+    }
+
+    // True when the call's enclosing statement is directly in the function body block and is
+    // its final statement.
+    private boolean isLastTopLevelStatement(MethodCallExpressionNode methodCall,
+                                            FunctionBodyBlockNode bodyBlock, StatementNode lastStatement) {
+        Node node = methodCall;
+        while (node != null && !(node instanceof StatementNode)) {
+            node = node.parent();
+        }
+        if (node == null || node != lastStatement) {
+            return false;
+        }
+        return node.parent() == bodyBlock;
     }
 
     /**

@@ -1898,12 +1898,12 @@ public final class WorkflowWorkerNative {
                 throw failure;
             }
             io.temporal.workflow.WorkflowInfo temporalInfo = Workflow.getInfo();
-            Set<String> eventNames = new HashSet<>(
-                    EventExtractor.extractEventNames(processFunction));
+            // Update channels are declared imperatively via ctx.registerUpdateEvents;
+            // the set starts empty and fills as the agent body registers channels.
             AgentContextNative.AgentContextInfo agentInfo =
                     new AgentContextNative.AgentContextInfo(
                             temporalInfo.getWorkflowId(), temporalInfo.getWorkflowType(),
-                            signalWrapper, eventNames);
+                            signalWrapper, new HashSet<>());
             this.agentContextInfo = agentInfo;
             Object nativeContextHandle = ValueCreator.createHandleValue(agentInfo);
             return ValueCreator.createObjectValue(workflowModule, "AgentContext", nativeContextHandle);

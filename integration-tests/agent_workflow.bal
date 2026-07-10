@@ -81,7 +81,7 @@ final AgentMockModelProvider agentMockModel = new;
 @workflow:DurableAgent
 function stockCheckAgent(workflow:AgentContext ctx, AgentStockInput input) returns error? {
     check ctx.registerActivity(agentCheckStock);
-    check ctx.runDurableAgent(input.request,
+    check ctx.buildAndRun(input.request,
             systemPrompt = {role: "", instructions: "You are an inventory assistant. Use agentCheckStock for availability."},
             model = agentMockModel);
 }
@@ -90,13 +90,12 @@ function stockCheckAgent(workflow:AgentContext ctx, AgentStockInput input) retur
 #
 # + ctx - The agent context
 # + input - The agent input
-# + events - The agent's chat event
 # + return - An error if the agent fails
 @workflow:DurableAgent
-function chatDrivenStockAgent(workflow:AgentContext ctx, AgentStockInput input,
-        record {| future<string> chat; |} events) returns error? {
+function chatDrivenStockAgent(workflow:AgentContext ctx, AgentStockInput input) returns error? {
     check ctx.registerActivity(agentCheckStock);
-    check ctx.runDurableAgent(systemPrompt = {role: "", instructions: "You are an inventory assistant. Use agentCheckStock for availability."},
+    check ctx.registerUpdateEvents("chat", string);
+    check ctx.buildAndRun(systemPrompt = {role: "", instructions: "You are an inventory assistant. Use agentCheckStock for availability."},
             model = agentMockModel);
 }
 
@@ -151,13 +150,12 @@ final ConversationMockModelProvider conversationMockModel = new;
 #
 # + ctx - The agent context
 # + input - The agent input
-# + events - The agent's chat event
 # + return - An error if the agent fails
 @workflow:DurableAgent
-function conversationalStockAgent(workflow:AgentContext ctx, AgentStockInput input,
-        record {| future<string> chat; |} events) returns error? {
+function conversationalStockAgent(workflow:AgentContext ctx, AgentStockInput input) returns error? {
     check ctx.setInteraction(workflow:MULTI_EVENT, eventTimeout = {minutes: 5});
-    check ctx.runDurableAgent(input.request,
+    check ctx.registerUpdateEvents("chat", string);
+    check ctx.buildAndRun(input.request,
             systemPrompt = {role: "", instructions: "Chat with the user until they say bye."},
             model = conversationMockModel);
 }

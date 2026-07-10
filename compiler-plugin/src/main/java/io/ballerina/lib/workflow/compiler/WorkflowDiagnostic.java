@@ -176,6 +176,18 @@ public enum WorkflowDiagnostic {
             DiagnosticSeverity.ERROR),
     WORKFLOW_137("WORKFLOW_137",
             "@DurableAgent cannot be combined with @Workflow or @Activity on the same function",
+            DiagnosticSeverity.ERROR),
+    WORKFLOW_138("WORKFLOW_138",
+            "a @DurableAgent function must not declare an events parameter; declare update channels "
+                    + "imperatively via ctx.registerUpdateEvents(name, requestType) instead",
+            DiagnosticSeverity.ERROR),
+    WORKFLOW_139("WORKFLOW_139",
+            "buildAndRun() must be the last statement of the @DurableAgent function and cannot appear "
+                    + "inside conditional or loop blocks",
+            DiagnosticSeverity.ERROR),
+    WORKFLOW_140("WORKFLOW_140",
+            "a @Workflow function must declare the context and input parameters: "
+                    + "function name(workflow:Context ctx, InputType input, ...)",
             DiagnosticSeverity.ERROR);
 
     private final String code;

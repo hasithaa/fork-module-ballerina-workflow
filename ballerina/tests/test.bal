@@ -65,7 +65,7 @@ type SingleEventRecord record {|
 
 // Test process function for workflow registration tests.
 @Workflow
-function testProcessFunction(string input) returns string|error {
+function testProcessFunction(Context ctx, string input) returns string|error {
     return "processed: " + input;
 }
 
@@ -113,9 +113,9 @@ function processWithEvents(Context ctx, string input, MultiEventRecord events) r
     return "processed with events: " + input;
 }
 
-// Test process with only optional Context and events (no separate input).
+// Test process with Context, input, and events.
 @Workflow
-function processWithContextAndEvents(Context ctx, SingleEventRecord events) returns boolean|error {
+function processWithContextAndEvents(Context ctx, map<anydata> input, SingleEventRecord events) returns boolean|error {
     return true;
 }
 
@@ -131,7 +131,7 @@ function processWithInlineEvents(Context ctx, string input, record {|
 
 // Test process with inline record for single event.
 @Workflow
-function processWithSingleInlineEvent(Context ctx, record {|
+function processWithSingleInlineEvent(Context ctx, map<anydata> input, record {|
     future<boolean> confirmEvent;
 |} events) returns boolean|error {
     return true;
@@ -147,9 +147,9 @@ function processWithMixedInlineEvents(Context ctx, string input, record {|
     return "mixed events: " + input;
 }
 
-// Test process with inline record without Context parameter.
+// Test process with inline record (previously without Context; ctx is now mandatory).
 @Workflow
-function processWithInlineEventsNoContext(string input, record {|
+function processWithInlineEventsNoContext(Context ctx, string input, record {|
     future<string> simpleEvent;
 |} events) returns string|error {
     return "no context: " + input;
@@ -157,7 +157,7 @@ function processWithInlineEventsNoContext(string input, record {|
 
 // Simple workflow process for testing run
 @Workflow
-function simpleWorkflowProcess(string input) returns string|error {
+function simpleWorkflowProcess(Context ctx, string input) returns string|error {
     return "Hello, " + input;
 }
 
@@ -510,7 +510,7 @@ function testDependentActivityRegistration() returns error? {
 
 // Separate unregistered process for testing run with unregistered process
 @Workflow
-function unregisteredProcess(string input) returns string|error {
+function unregisteredProcess(Context ctx, string input) returns string|error {
     return "This process is intentionally not registered: " + input;
 }
 

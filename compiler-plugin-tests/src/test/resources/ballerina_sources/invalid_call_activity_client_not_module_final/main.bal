@@ -9,7 +9,7 @@ function fetchCustomer(http:Client connection, string path) returns json|error {
 }
 
 @workflow:Workflow
-function customerWorkflow(workflow:Context ctx) returns json|error {
+function customerWorkflow(workflow:Context ctx, map<anydata> input) returns json|error {
     // Invalid for client-object parameters: the reference must resolve to a
     // module-level final client variable.
     return ctx->callActivity(fetchCustomer, {

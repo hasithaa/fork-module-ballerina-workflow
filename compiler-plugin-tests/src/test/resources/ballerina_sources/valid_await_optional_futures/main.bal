@@ -29,6 +29,7 @@ type BioDataWorkflowData record {|
 @workflow:Workflow
 function bioDataWorkflow(
     workflow:Context ctx,
+    map<anydata> input,
     BioDataWorkflowData data
 ) returns string|error {
     [int?, string?] [a, q] = check ctx->await([data.a, data.q], minCount = 1);

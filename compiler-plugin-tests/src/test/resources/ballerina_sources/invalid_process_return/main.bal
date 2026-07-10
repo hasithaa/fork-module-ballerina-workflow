@@ -36,6 +36,6 @@ class InvalidResult {
 // Invalid: Workflow function with non-anydata return type
 // Should trigger WORKFLOW_105 error
 @workflow:Workflow
-function workflowWithInvalidReturn(OrderInput input) returns InvalidResult|error {
+function workflowWithInvalidReturn(workflow:Context ctx, OrderInput input) returns InvalidResult|error {
     return new InvalidResult("DONE");
 }

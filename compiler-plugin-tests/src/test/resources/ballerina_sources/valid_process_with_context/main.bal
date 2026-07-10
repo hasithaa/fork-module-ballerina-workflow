@@ -57,9 +57,9 @@ function orderWorkflowWithContext(workflow:Context ctx, OrderInput input) return
     };
 }
 
-// Valid: Workflow function with only input parameter (Context is optional)
+// Valid: minimal workflow function (Context and input are both mandatory)
 @workflow:Workflow
-function orderWorkflowWithoutContext(OrderInput input) returns OrderResult|error {
+function orderWorkflowMinimal(workflow:Context ctx, OrderInput input) returns OrderResult|error {
     return {
         status: "COMPLETED",
         workflowId: "unknown"

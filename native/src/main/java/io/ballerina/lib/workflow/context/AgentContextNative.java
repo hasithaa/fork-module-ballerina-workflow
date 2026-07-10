@@ -93,6 +93,8 @@ public final class AgentContextNative {
         private final String workflowType;
         private final SignalAwaitWrapper signalWrapper;
         private final Set<String> eventNames;
+        // Update channels declared via registerUpdateEvents: name -> [requestType, responseType?].
+        private final Map<String, Object[]> updateEvents = new HashMap<>();
         private final List<ToolMeta> tools = new ArrayList<>();
         private final Map<String, HumanTaskMeta> humanTasks = new HashMap<>();
         private String finalResponse = "";
@@ -345,6 +347,29 @@ public final class AgentContextNative {
     public static void setModelProvider(BHandle handle, BObject model) {
         AgentContextInfo info = (AgentContextInfo) handle.getValue();
         info.modelProvider = model;
+    }
+
+    /**
+     * Registers a named two-way update channel declared via {@code ctx.registerUpdateEvents}. The name joins the
+     * agent's waitable event set (so the loop and {@code updateAgent} can target it) and the request/response
+     * typedescs are retained for validation.
+     *
+     * @param handle       the agent context handle
+     * @param name         the update channel name
+     * @param requestType  the request payload typedesc
+     * @param responseType the optional response typedesc (nil when unspecified)
+     * @return null on success, or a Ballerina error for an invalid name
+     */
+    public static Object registerUpdateEvent(BHandle handle, BString name, BTypedesc requestType, Object responseType) {
+        AgentContextInfo info = (AgentContextInfo) handle.getValue();
+        String eventName = name.getValue();
+        if (eventName.isEmpty() || eventName.contains(".") || eventName.contains("|")) {
+            return ErrorCreator.createError(StringUtils.fromString(
+                    "Invalid update channel name '" + eventName + "': must be non-empty and not contain '.' or '|'"));
+        }
+        info.eventNames.add(eventName);
+        info.updateEvents.put(eventName, new Object[] {requestType, responseType});
+        return null;
     }
 
     /**

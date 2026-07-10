@@ -85,10 +85,11 @@ function formatChildResultActivity(string childResult) returns string|error {
 # A simple child workflow that processes a value and returns a result.
 # This is the target workflow that will be started by the parent workflow.
 #
+# + ctx - The workflow context
 # + input - The child workflow input
 # + return - The processed result or error
 @workflow:Workflow
-function childWorkflow(ChildInput input) returns string|error {
+function childWorkflow(workflow:Context ctx, ChildInput input) returns string|error {
     return "child-processed:" + input.value;
 }
 
@@ -120,11 +121,12 @@ function parentWorkflow(workflow:Context ctx, ParentInput input) returns string|
 # A receiver workflow that waits for data sent via workflow:sendData.
 # Used to test the implicit sendData activity from inside another workflow.
 #
+# + ctx - The workflow context
 # + input - The receiver workflow input
 # + events - The signal futures (notification)
 # + return - The received data or error
 @workflow:Workflow
-function receiverWorkflow(ReceiverInput input, ReceiverEvents events) returns string|error {
+function receiverWorkflow(workflow:Context ctx, ReceiverInput input, ReceiverEvents events) returns string|error {
     // Wait for notification signal
     map<anydata> notification = check wait events.notification;
     string message = <string>(notification["message"]);
