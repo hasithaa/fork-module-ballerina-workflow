@@ -153,9 +153,8 @@ final ConversationMockModelProvider conversationMockModel = new;
 # + return - An error if the agent fails
 @workflow:DurableAgent
 function conversationalStockAgent(workflow:AgentContext ctx, AgentStockInput input) returns error? {
-    check ctx.setInteraction(workflow:MULTI_EVENT, eventTimeout = {minutes: 5});
     check ctx.registerUpdateEvents("chat", string);
     check ctx.buildAndRun(input.request,
             systemPrompt = {role: "", instructions: "Chat with the user until they say bye."},
-            model = conversationMockModel);
+            model = conversationMockModel, interaction = workflow:MULTI_EVENT, eventTimeout = {minutes: 5});
 }

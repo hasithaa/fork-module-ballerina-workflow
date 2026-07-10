@@ -42,7 +42,6 @@ function checkInventory(string item) returns string|error {
 // goodbye (or the safety timeout/wait-cap kicks in).
 @workflow:DurableAgent
 function orderAgent(workflow:AgentContext durableAgentContext, OrderRequest req) returns error? {
-    check durableAgentContext.setInteraction(workflow:MULTI_EVENT, eventTimeout = {minutes: 5});
     check durableAgentContext.registerActivity(checkInventory);
     check durableAgentContext.registerUpdateEvents("chat", string);
     check durableAgentContext.buildAndRun(req.userPrompt,
@@ -53,7 +52,7 @@ function orderAgent(workflow:AgentContext durableAgentContext, OrderRequest req)
                         When the user says goodbye or asks to end the conversation, call the
                         endConversation tool with a short farewell.`
             },
-            model = orderModel);
+            model = orderModel, interaction = workflow:MULTI_EVENT, eventTimeout = {minutes: 5});
 }
 
 public function main() returns error? {

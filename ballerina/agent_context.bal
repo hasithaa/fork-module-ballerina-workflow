@@ -38,6 +38,22 @@ public type AgentRunConfig record {|
     # Specifies whether verbose logging is enabled
     @display {label: "Verbose"}
     boolean verbose = false;
+
+    # How the agent consumes its update-channel requests: `SINGLE_EVENT` (each
+    # channel once per run) or `MULTI_EVENT` (re-armable channels for multi-turn
+    # conversations; requires `eventTimeout`)
+    @display {label: "Interaction Pattern"}
+    AgentInteractionPattern interaction = SINGLE_EVENT;
+
+    # Maximum wait per update/event. On timeout the model is told the wait timed
+    # out so it can wrap up gracefully. Required for `MULTI_EVENT`
+    @display {label: "Event Timeout"}
+    time:Duration? eventTimeout = ();
+
+    # Hard cap on the total number of event waits per run; exceeding it fails
+    # the agent (backstop for open-ended conversations)
+    @display {label: "Maximum Event Waits"}
+    int maxEventWaits = 50;
 |};
 
 # How a durable agent consumes its update-channel requests and data events.
@@ -77,24 +93,6 @@ public client class AgentContext {
     # + nativeContext - Native agent context handle from the workflow engine
     public isolated function init(handle nativeContext) {
         self.nativeContext = nativeContext;
-    }
-
-    # Configures how the agent consumes external events, together with its safety
-    # limits. Termination stays model-driven: the agent ends when the model produces
-    # a final answer without waiting; these settings bound how long and how often it
-    # may wait.
-    #
-    # + pattern - `SINGLE_EVENT` (each event once per run) or `MULTI_EVENT`
-    #             (re-armable events for multi-turn conversations)
-    # + eventTimeout - Maximum wait per event. On timeout the model is told the wait
-    #                  timed out so it can wrap up gracefully. Required for
-    #                  `MULTI_EVENT`; optional otherwise
-    # + maxEventWaits - Hard cap on the total number of event waits per run; exceeding
-    #                   it fails the agent (backstop for open-ended conversations)
-    # + return - An error if the configuration is invalid, otherwise nil
-    public isolated function setInteraction(AgentInteractionPattern pattern,
-            time:Duration? eventTimeout = (), int maxEventWaits = 50) returns error? {
-        return setAgentInteraction(self.nativeContext, pattern, eventTimeout, maxEventWaits);
     }
 
     # Registers a `@workflow:Activity` function as an agent tool. The tool runs as
@@ -190,6 +188,8 @@ public client class AgentContext {
     # + return - An error if the agent fails, otherwise nil
     public isolated function buildAndRun(@display {label: "Query"} string query = "",
             *AgentRunConfig config) returns error? {
+        check setAgentInteraction(self.nativeContext, config.interaction, config.eventTimeout,
+                config.maxEventWaits);
         setAgentModelProvider(self.nativeContext, config.model);
         check registerAgentModelForContext(self.nativeContext);
         string agentName = getAgentWorkflowType(self.nativeContext);

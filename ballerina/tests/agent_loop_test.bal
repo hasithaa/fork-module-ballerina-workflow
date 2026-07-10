@@ -352,31 +352,28 @@ final ConversationMockModelProvider conversationAgentModel = new;
 
 @DurableAgent
 function conversationAgent(AgentContext ctx, AgentOrderInput input) returns error? {
-    check ctx.setInteraction(MULTI_EVENT, eventTimeout = {seconds: 60});
     check ctx.registerUpdateEvents("chat", string);
     check ctx.buildAndRun(input.request,
             systemPrompt = {role: "", instructions: "Chat with the user until they say bye."},
-            model = conversationAgentModel);
+            model = conversationAgentModel, interaction = MULTI_EVENT, eventTimeout = {seconds: 60});
 }
 
 // MULTI_EVENT without the mandatory eventTimeout — must fail at registration.
 @DurableAgent
 function unsafeConversationAgent(AgentContext ctx, AgentOrderInput input) returns error? {
-    check ctx.setInteraction(MULTI_EVENT);
     check ctx.registerUpdateEvents("chat", string);
     check ctx.buildAndRun(input.request,
             systemPrompt = {role: "", instructions: "unsafe"},
-            model = conversationAgentModel);
+            model = conversationAgentModel, interaction = MULTI_EVENT);
 }
 
 // Model that always waits — exercises the maxEventWaits safety cap.
 @DurableAgent
 function cappedConversationAgent(AgentContext ctx, AgentOrderInput input) returns error? {
-    check ctx.setInteraction(MULTI_EVENT, eventTimeout = {seconds: 60}, maxEventWaits = 2);
     check ctx.registerUpdateEvents("chat", string);
     check ctx.buildAndRun(input.request,
             systemPrompt = {role: "", instructions: "Chat forever."},
-            model = conversationAgentModel);
+            model = conversationAgentModel, interaction = MULTI_EVENT, eventTimeout = {seconds: 60}, maxEventWaits = 2);
 }
 
 // ── Event wait timeout ───────────────────────────────────────────────────────
@@ -410,11 +407,10 @@ final TimeoutMockModelProvider timeoutAgentModel = new;
 
 @DurableAgent
 function timeoutAgent(AgentContext ctx, AgentOrderInput input) returns error? {
-    check ctx.setInteraction(SINGLE_EVENT, eventTimeout = {seconds: 2});
     check ctx.registerUpdateEvents("approval", string);
     check ctx.buildAndRun(input.request,
             systemPrompt = {role: "", instructions: "Wait for approval."},
-            model = timeoutAgentModel);
+            model = timeoutAgentModel, interaction = SINGLE_EVENT, eventTimeout = {seconds: 2});
 }
 
 // ── ai:Context-taking tool (via ai:executeTool delegation) ──────────────────
@@ -554,18 +550,16 @@ final AutoChatMockModelProvider autoChatModel = new;
 
 @DurableAgent
 function autoConversationAgent(AgentContext ctx, AgentOrderInput input) returns error? {
-    check ctx.setInteraction(MULTI_EVENT, eventTimeout = {seconds: 60});
     check ctx.registerUpdateEvents("chat", string);
-    check ctx.buildAndRun(systemPrompt = {role: "", instructions: "Answer briefly."}, model = autoChatModel);
+    check ctx.buildAndRun(systemPrompt = {role: "", instructions: "Answer briefly."}, model = autoChatModel, interaction = MULTI_EVENT, eventTimeout = {seconds: 60});
 }
 
 // Same behaviour with a short timeout: with no follow-up message the
 // conversation must end gracefully on its own.
 @DurableAgent
 function shortTimeoutConversationAgent(AgentContext ctx, AgentOrderInput input) returns error? {
-    check ctx.setInteraction(MULTI_EVENT, eventTimeout = {seconds: 2});
     check ctx.registerUpdateEvents("chat", string);
-    check ctx.buildAndRun(systemPrompt = {role: "", instructions: "Answer briefly."}, model = autoChatModel);
+    check ctx.buildAndRun(systemPrompt = {role: "", instructions: "Answer briefly."}, model = autoChatModel, interaction = MULTI_EVENT, eventTimeout = {seconds: 2});
 }
 
 // ── Update drain on completion ───────────────────────────────────────────────
@@ -594,10 +588,9 @@ final EndAfterFirstChatMockModelProvider endAfterFirstChatModel = new;
 
 @DurableAgent
 function endingAgent(AgentContext ctx, AgentOrderInput input) returns error? {
-    check ctx.setInteraction(MULTI_EVENT, eventTimeout = {seconds: 60});
     check ctx.registerUpdateEvents("chat", string);
     check ctx.buildAndRun(systemPrompt = {role: "", instructions: "End after the first reply."},
-            model = endAfterFirstChatModel);
+            model = endAfterFirstChatModel, interaction = MULTI_EVENT, eventTimeout = {seconds: 60});
 }
 
 // Plain (non-agent) workflow parked on an event — used to verify that

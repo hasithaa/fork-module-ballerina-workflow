@@ -51,7 +51,6 @@ function checkInventory(string item) returns string|error {
 // decision back to the user.
 @workflow:DurableAgent
 function orderAgent(workflow:AgentContext durableAgentContext, OrderRequest req) returns error? {
-    check durableAgentContext.setInteraction(workflow:MULTI_EVENT, eventTimeout = {minutes: 30});
     check durableAgentContext.registerActivity(checkInventory);
     check durableAgentContext.registerUpdateEvents("chat", string);
     check durableAgentContext.registerHumanTask("approveExpedite", "MANAGER", ExpediteApproval,
@@ -68,7 +67,7 @@ function orderAgent(workflow:AgentContext durableAgentContext, OrderRequest req)
                         When the user says goodbye, call the endConversation tool with a
                         short farewell.`
             },
-            model = orderModel);
+            model = orderModel, interaction = workflow:MULTI_EVENT, eventTimeout = {minutes: 30});
 }
 
 // The chat turn blocks while the agent waits on the manager, so the listener
