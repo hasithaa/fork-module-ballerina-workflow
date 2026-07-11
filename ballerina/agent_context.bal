@@ -98,10 +98,30 @@ public client class AgentContext {
     # Registers a `@workflow:Activity` function as an agent tool. The tool runs as
     # a durable Temporal activity that the agent may invoke during reasoning.
     #
+    # Arguments may be partially applied at registration via `bindings`: bound
+    # values are fixed and never advertised to the model — only the remaining
+    # data parameters appear in the tool's schema. Client-object parameters
+    # (e.g. the `connection` of a built-in activity such as
+    # `activity:callRestAPI`) must be bound this way, referencing a module-level
+    # `final` client variable:
+    #
+    # ```ballerina
+    # check ctx.registerActivity(activity:callRestAPI,
+    #         name = "fetchExchangeRates",
+    #         description = "Fetches currency exchange rates from the rates API",
+    #         bindings = {connection: ratesApi, method: activity:GET});
+    # ```
+    #
     # + activity - The `@workflow:Activity` function to expose as a tool
+    # + name - The tool name advertised to the model. Defaults to the function name
+    # + description - The tool description advertised to the model
+    # + bindings - Arguments fixed at registration, keyed by parameter name.
+    #              Bound client objects are transported as `"connection:<name>"`
+    #              markers and resolved on the executing worker
     # + return - An error if the tool cannot be registered, otherwise nil
-    public isolated function registerActivity(function activity) returns error? {
-        return recordActivityTool(self.nativeContext, activity);
+    public isolated function registerActivity(function activity, string? name = (),
+            string? description = (), map<anydata|object {}>? bindings = ()) returns error? {
+        return recordActivityTool(self.nativeContext, activity, name, description, bindings);
     }
 
     # Registers an AI tool with the agent. Accepts an `ai:ToolConfig` value, a
@@ -218,7 +238,8 @@ type AgentToolDef record {|
 // Native bindings for AgentContext
 // ============================================================================
 
-isolated function recordActivityTool(handle nativeContext, function tool) returns error? = @java:Method {
+isolated function recordActivityTool(handle nativeContext, function tool, string? name,
+        string? description, map<anydata|object {}>? bindings) returns error? = @java:Method {
     'class: "io.ballerina.lib.workflow.context.AgentContextNative",
     name: "recordActivityTool"
 } external;

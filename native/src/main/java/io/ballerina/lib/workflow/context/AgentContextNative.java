@@ -134,7 +134,24 @@ public final class AgentContextNative {
         }
     }
 
-    private record ToolMeta(String name, String description, Map<String, Object> schema, String kind) { }
+    /**
+     * Metadata for one advertised tool.
+     *
+     * @param name         the tool name advertised to the model
+     * @param description  the tool description advertised to the model
+     * @param schema       the model-facing parameter JSON schema
+     * @param kind         the dispatch kind ({@code activity}, {@code aitool}, {@code humantask})
+     * @param activityName for activity tools, the underlying {@code @workflow:Activity} function name (the advertised
+     *                     {@code name} may be overridden at registration); {@code null} for other kinds
+     * @param bindings     for activity tools, registration-time fixed arguments with client objects already converted
+     *                     to {@code "connection:<name>"} markers; {@code null} when absent or for other kinds
+     */
+    private record ToolMeta(String name, String description, Map<String, Object> schema, String kind,
+                            String activityName, Map<String, Object> bindings) {
+        ToolMeta(String name, String description, Map<String, Object> schema, String kind) {
+            this(name, description, schema, kind, null, null);
+        }
+    }
 
     private record HumanTaskMeta(Object userRoles, String title, String description, BTypedesc resultType,
                                  Object timeout) { }
@@ -180,20 +197,42 @@ public final class AgentContextNative {
      * Records a {@code @workflow:Activity} tool: derives its name and parameter JSON schema so the loop can advertise
      * it to the model. The function pointer itself is registered as a Temporal activity at module init (by the
      * compiler plugin), so only metadata is stored here.
+     * <p>
+     * Arguments may be partially applied at registration via {@code bindings}: bound parameters (and client-object /
+     * typedesc parameters, which the model can never supply) are excluded from the advertised schema, and the bound
+     * values — client objects converted to {@code "connection:<name>"} markers — are merged into the model-supplied
+     * arguments at dispatch by {@link #callActivityTool}. This lets built-in activities such as
+     * {@code activity:callRestAPI} be registered as-is, without a wrapper function.
      *
-     * @param handle the agent context handle
-     * @param fn     the tool function pointer
+     * @param handle         the agent context handle
+     * @param fn             the tool function pointer
+     * @param nameArg        the advertised tool name (BString), or null for the function name
+     * @param descriptionArg the advertised tool description (BString), or null for a default
+     * @param bindingsArg    a BMap of arguments fixed at registration, or null
      * @return null on success, or a Ballerina error
      */
-    public static Object recordActivityTool(BHandle handle, BFunctionPointer fn) {
+    @SuppressWarnings("unchecked")
+    public static Object recordActivityTool(BHandle handle, BFunctionPointer fn, Object nameArg,
+                                            Object descriptionArg, Object bindingsArg) {
         try {
             AgentContextInfo info = (AgentContextInfo) handle.getValue();
-            String name = fn.getType().getName();
-            if (name == null || name.isBlank()) {
+            String activityName = fn.getType().getName();
+            if (activityName == null || activityName.isBlank()) {
                 return ErrorCreator.createError(StringUtils.fromString(
                         "Agent tools must be named module-level functions; anonymous functions are not supported."));
             }
-            info.tools.add(new ToolMeta(name, "Tool " + name, parameterSchemaOf(fn), KIND_ACTIVITY));
+            String toolName = nameArg instanceof BString nameB && !nameB.getValue().isBlank()
+                    ? nameB.getValue() : activityName;
+            String description = descriptionArg instanceof BString descB && !descB.getValue().isBlank()
+                    ? descB.getValue() : "Tool " + toolName;
+            Map<String, Object> bindings = null;
+            if (bindingsArg instanceof BMap<?, ?>) {
+                bindings = WorkflowContextNative.convertArgsMapWithConnectionMarkers(
+                        (BMap<BString, Object>) bindingsArg);
+            }
+            Set<String> boundNames = bindings == null ? Set.of() : bindings.keySet();
+            Map<String, Object> schema = parameterSchemaOf(fn, boundNames, activityName);
+            info.tools.add(new ToolMeta(toolName, description, schema, KIND_ACTIVITY, activityName, bindings));
             return null;
         } catch (Exception e) {
             return ErrorCreator.createError(StringUtils.fromString(
@@ -618,16 +657,54 @@ public final class AgentContextNative {
      * @param td    the expected return type (dependent typing)
      * @return the activity result coerced to {@code td}, or a Ballerina error
      */
-    @SuppressWarnings("unchecked")
     public static Object callActivity(BString nameB, BMap<BString, Object> args, BTypedesc td) {
+        return executeActivity(nameB.getValue(), argsToJavaMap(args), td);
+    }
+
+    /**
+     * Executes a registered activity tool by its advertised tool name: resolves the underlying activity function
+     * (the tool name may be a registration-time override) and merges the registration-time bindings into the
+     * model-supplied arguments — bindings win, so the model can never override a fixed value such as a connection
+     * marker or a pinned HTTP method.
+     *
+     * @param handle    the agent context handle
+     * @param toolNameB the advertised tool name from the model's tool call
+     * @param args      model-supplied named arguments
+     * @param td        the expected return type (dependent typing)
+     * @return the activity result coerced to {@code td}, or a Ballerina error
+     */
+    public static Object callActivityTool(BHandle handle, BString toolNameB, BMap<BString, Object> args,
+                                          BTypedesc td) {
+        String toolName = toolNameB.getValue();
+        String activityName = toolName;
+        Map<String, Object> namedArgs = argsToJavaMap(args);
+        AgentContextInfo info = (AgentContextInfo) handle.getValue();
+        for (ToolMeta tool : info.tools) {
+            if (KIND_ACTIVITY.equals(tool.kind()) && tool.name().equals(toolName)) {
+                if (tool.activityName() != null) {
+                    activityName = tool.activityName();
+                }
+                if (tool.bindings() != null) {
+                    namedArgs.putAll(tool.bindings());
+                }
+                break;
+            }
+        }
+        return executeActivity(activityName, namedArgs, td);
+    }
+
+    private static Map<String, Object> argsToJavaMap(BMap<BString, Object> args) {
+        Map<String, Object> namedArgs = new HashMap<>();
+        for (BString key : args.getKeys()) {
+            namedArgs.put(key.getValue(), TypesUtil.convertBallerinaToJavaType(args.get(key)));
+        }
+        return namedArgs;
+    }
+
+    private static Object executeActivity(String activityName, Map<String, Object> namedArgs, BTypedesc td) {
         try {
             String workflowType = Workflow.getInfo().getWorkflowType();
-            String fullActivityName = workflowType + "." + nameB.getValue();
-
-            Map<String, Object> namedArgs = new HashMap<>();
-            for (BString key : args.getKeys()) {
-                namedArgs.put(key.getValue(), TypesUtil.convertBallerinaToJavaType(args.get(key)));
-            }
+            String fullActivityName = workflowType + "." + activityName;
 
             Map<String, Object> callConfig = new HashMap<>();
             callConfig.put(CALL_CONFIG_MARKER, true);
@@ -662,14 +739,35 @@ public final class AgentContextNative {
 
     // Derives a parameter JSON-schema map from a function's data parameters.
     private static Map<String, Object> parameterSchemaOf(BFunctionPointer fn) {
+        return parameterSchemaOf(fn, Set.of(), null);
+    }
+
+    /**
+     * Derives the model-facing parameter JSON schema, excluding parameters the model can never supply:
+     * typedesc parameters, registration-time bound parameters, and client-object parameters. A required
+     * (non-defaultable) client-object parameter that is not bound is a registration error — the model has no way to
+     * provide a connection, so the user must fix a value via {@code bindings}.
+     */
+    private static Map<String, Object> parameterSchemaOf(BFunctionPointer fn, Set<String> boundNames,
+                                                         String activityName) {
         FunctionType funcType = (FunctionType) fn.getType();
         Parameter[] allParams = funcType.getParameters();
         List<Parameter> dataParams = new ArrayList<>();
         if (allParams != null) {
             for (Parameter p : allParams) {
-                if (p.type.getTag() != TypeTags.TYPEDESC_TAG) {
-                    dataParams.add(p);
+                if (p.type.getTag() == TypeTags.TYPEDESC_TAG || boundNames.contains(p.name)) {
+                    continue;
                 }
+                if (WorkflowWorkerNative.isObjectParam(p)) {
+                    if (!p.isDefault) {
+                        throw new IllegalStateException("Parameter '" + p.name + "' of activity '"
+                                + (activityName == null ? fn.getType().getName() : activityName)
+                                + "' is a client object and cannot be supplied by the model. Bind it at "
+                                + "registration: bindings = {" + p.name + ": <moduleLevelClient>}");
+                    }
+                    continue;
+                }
+                dataParams.add(p);
             }
         }
         Parameter[] params = dataParams.toArray(new Parameter[0]);

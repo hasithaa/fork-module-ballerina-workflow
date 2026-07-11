@@ -951,7 +951,7 @@ public final class WorkflowWorkerNative {
      * <p>Type references (named types, intersections introduced by client
      * declarations, etc.) are dereferenced with bounded depth before checking the tag.
      */
-    static boolean isObjectParam(Parameter param) {
+    public static boolean isObjectParam(Parameter param) {
         return isObjectType(param.type, 0);
     }
 

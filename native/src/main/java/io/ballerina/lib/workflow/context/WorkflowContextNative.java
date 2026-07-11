@@ -339,13 +339,16 @@ public final class WorkflowContextNative {
      * such value is a module-level {@code final} {@code client object} reference and that {@code registerConnection}
      * has been emitted for it during module init, so the registry lookup is expected to succeed.
      *
+     * <p>Also used by {@link AgentContextNative#recordActivityTool} to convert registration-time bindings: there the
+     * connection reference is validated at runtime (an unregistered client surfaces as a registration error).
+     *
      * @param args the raw BMap passed to {@code callActivity}
      * @return a serializable Java map with connection refs replaced by markers
      * @throws RuntimeException if a {@link BObject} value is not registered; this surfaces as a workflow-side error in
      *                          the catch block above.
      */
     @SuppressWarnings("unchecked")
-    private static Map<String, Object> convertArgsMapWithConnectionMarkers(BMap<BString, Object> args) {
+    static Map<String, Object> convertArgsMapWithConnectionMarkers(BMap<BString, Object> args) {
         Map<String, Object> result = new HashMap<>();
         for (BString key : args.getKeys()) {
             Object value = args.get(key);

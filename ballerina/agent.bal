@@ -246,7 +246,10 @@ isolated function dispatchAgentTool(handle ctxHandle, string agentName, AgentFun
 
     anydata|error result;
     if kind == "activity" {
-        result = callAgentActivity(call.name, args);
+        // Resolved through the context so registration-time bindings (fixed
+        // arguments, connection markers) are merged in and a tool-name override
+        // maps back to the underlying activity function.
+        result = callAgentActivityTool(ctxHandle, call.name, args);
     } else if kind == "aitool" {
         // AI tool function pointers run through the built-in activity wrapper.
         result = callAgentActivity("executeAgentTool",
@@ -368,6 +371,15 @@ isolated function callAgentActivity(string name, map<anydata> args, typedesc<any
         returns targetType|error = @java:Method {
     'class: "io.ballerina.lib.workflow.context.AgentContextNative",
     name: "callActivity"
+} external;
+
+// Executes a registered activity tool by its advertised tool name, merging any
+// registration-time bindings into the model-supplied arguments before running
+// the underlying activity durably.
+isolated function callAgentActivityTool(handle nativeContext, string toolName, map<anydata> args,
+        typedesc<anydata> targetType = <>) returns targetType|error = @java:Method {
+    'class: "io.ballerina.lib.workflow.context.AgentContextNative",
+    name: "callActivityTool"
 } external;
 
 // Waits durably for the agent's "chat" event, if declared in the signature.
