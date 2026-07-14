@@ -42,7 +42,7 @@ public isolated function run(function processFunction, anydata input = ()) retur
 # + agentFunction - The agent function (must have `@DurableAgent`)
 # + input - Optional input data for the agent
 # + return - The agent (workflow) ID, or an error
-public isolated function runDurableAgent(function agentFunction, map<anydata>? input = ())
+public isolated function runDurableAgent(function agentFunction, anydata input = ())
         returns string|error = @java:Method {
     'class: "io.ballerina.lib.workflow.runtime.nativeimpl.WorkflowNative",
     name: "run"
