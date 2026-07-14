@@ -29,7 +29,7 @@ import io.ballerina.tools.diagnostics.DiagnosticSeverity;
 public enum WorkflowDiagnostic {
 
     WORKFLOW_100("WORKFLOW_100",
-            "@Workflow function's first parameter must be 'workflow:Context' if context is used",
+            "@Workflow function must declare 'workflow:Context' as its first parameter",
             DiagnosticSeverity.ERROR),
     WORKFLOW_101("WORKFLOW_101",
             "@Workflow function's input parameter must be a subtype of 'anydata'",
@@ -147,32 +147,31 @@ public enum WorkflowDiagnostic {
                     + "subtype of 'anydata'",
             DiagnosticSeverity.ERROR),
     WORKFLOW_130("WORKFLOW_130",
-            "@DurableAgent function must be declared with an external body ('= external;'). "
-                    + "The workflow compiler plugin generates the durable agent loop",
+            "The first argument of 'workflow:%s' must be a function with the @Workflow annotation",
             DiagnosticSeverity.ERROR),
     WORKFLOW_131("WORKFLOW_131",
-            "@DurableAgent function signature must be an input record parameter, "
-                    + "optionally followed by an events record with a single 'future<string> chat' field. "
-                    + "The input must be a subtype of 'anydata' and a 'workflow:Context' parameter is not allowed",
+            "Input type mismatch in 'workflow:run': workflow function '%s' expects input of type "
+                    + "'%s', but found '%s'",
             DiagnosticSeverity.ERROR),
     WORKFLOW_132("WORKFLOW_132",
-            "@DurableAgent function's events parameter must be a record with a single "
-                    + "'future<string> chat' field",
+            "Workflow function '%s' does not declare an input parameter, but an input argument "
+                    + "was provided to 'workflow:run'",
             DiagnosticSeverity.ERROR),
     WORKFLOW_133("WORKFLOW_133",
-            "@DurableAgent function return type must be 'string|error'",
+            "Workflow function '%s' does not declare an events record parameter, so "
+                    + "'workflow:sendData' cannot deliver data to it",
             DiagnosticSeverity.ERROR),
     WORKFLOW_134("WORKFLOW_134",
-            "Agent tool '%s' must be a module-level function annotated with @workflow:Activity",
+            "Unknown event name '%s' in 'workflow:sendData': workflow function '%s' has no such "
+                    + "field in its events record. Available event names: %s",
             DiagnosticSeverity.ERROR),
     WORKFLOW_135("WORKFLOW_135",
-            "Agent tool name '%s' collides with another tool or the reserved built-in activity 'llmChat'. "
-                    + "Tool function names must be unique within an agent",
+            "Data type mismatch in 'workflow:sendData': event '%s' of workflow function '%s' "
+                    + "expects '%s', but found '%s'",
             DiagnosticSeverity.ERROR),
     WORKFLOW_136("WORKFLOW_136",
-            "Cannot resolve a model provider for @DurableAgent function '%s': %s. "
-                    + "Define exactly one module-level 'final' 'ai:ModelProvider' variable in this module, "
-                    + "or select one by name via the 'model' field of the @DurableAgent annotation",
+            "Direct calls to @Workflow functions are not allowed. "
+                    + "Use 'workflow:run(workflowFunc, input)' to start a workflow",
             DiagnosticSeverity.ERROR),
     WORKFLOW_137("WORKFLOW_137",
             "@DurableAgent cannot be combined with @Workflow or @Activity on the same function",
@@ -188,6 +187,16 @@ public enum WorkflowDiagnostic {
     WORKFLOW_140("WORKFLOW_140",
             "a @Workflow function must declare the context and input parameters: "
                     + "function name(workflow:Context ctx, InputType input, ...)",
+            DiagnosticSeverity.ERROR),
+    WORKFLOW_141("WORKFLOW_141",
+            "@DurableAgent function must have a function body; an external body is not allowed",
+            DiagnosticSeverity.ERROR),
+    WORKFLOW_142("WORKFLOW_142",
+            "@DurableAgent function signature must be '(workflow:AgentContext ctx, InputType input)' "
+                    + "where the input is a subtype of 'anydata'",
+            DiagnosticSeverity.ERROR),
+    WORKFLOW_143("WORKFLOW_143",
+            "@DurableAgent function return type must be 'error?'",
             DiagnosticSeverity.ERROR);
 
     private final String code;

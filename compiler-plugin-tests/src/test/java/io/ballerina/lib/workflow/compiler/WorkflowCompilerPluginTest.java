@@ -161,7 +161,7 @@ public class WorkflowCompilerPluginTest {
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
         Assert.assertTrue(diagnosticResult.errorCount() > 0,
                 "Expected validation error for workflow with non-anydata input parameter");
-        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_140);
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_101);
     }
 
     @Test(groups = "invalid")
@@ -608,6 +608,98 @@ public class WorkflowCompilerPluginTest {
                         + getDiagnosticMessages(diagnosticResult));
     }
 
+    // ===== workflow:run input validation =====
+
+    @Test(groups = "valid")
+    public void testValidRunWithAnydataInput() {
+        // Any anydata subtype (string, int, record, mapping constructor) is a valid
+        // workflow input and must be accepted by workflow:run without diagnostics.
+        String packagePath = "valid_run_anydata_input";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertEquals(diagnosticResult.errorCount(), 0,
+                "Expected no errors for workflow:run with anydata inputs (string/int/record). Errors: "
+                        + getDiagnosticMessages(diagnosticResult));
+    }
+
+    @Test(groups = "invalid")
+    public void testInvalidRunInputTypeMismatch() {
+        String packagePath = "invalid_run_input_type_mismatch";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        List<Diagnostic> diags = getDiagnosticsWithCode(diagnosticResult, "WORKFLOW_131");
+        Assert.assertEquals(diags.size(), 4,
+                "Expected 4 WORKFLOW_131 errors for mismatched workflow:run input types "
+                        + "(string/int/nil/mapping against incompatible declared types). Errors: "
+                        + getDiagnosticMessages(diagnosticResult));
+    }
+
+    @Test(groups = "invalid")
+    public void testInvalidRunInputNotAccepted() {
+        String packagePath = "invalid_run_input_not_accepted";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertTrue(diagnosticResult.errorCount() > 0,
+                "Expected validation error for workflow:run input to a no-input workflow");
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_132);
+    }
+
+    @Test(groups = "invalid")
+    public void testInvalidRunWithNonWorkflowFunction() {
+        String packagePath = "invalid_run_not_workflow_function";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertTrue(diagnosticResult.errorCount() > 0,
+                "Expected validation error for workflow:run with a non-@Workflow function");
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_130);
+    }
+
+    // ===== workflow:sendData event name and data type validation =====
+
+    @Test(groups = "invalid")
+    public void testInvalidSendDataUnknownEventName() {
+        String packagePath = "invalid_send_data_unknown_event";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertTrue(diagnosticResult.errorCount() > 0,
+                "Expected validation error for sendData with an unknown event name");
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_134);
+    }
+
+    @Test(groups = "invalid")
+    public void testInvalidSendDataTypeMismatch() {
+        String packagePath = "invalid_send_data_type_mismatch";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertTrue(diagnosticResult.errorCount() > 0,
+                "Expected validation error for sendData with a mismatched data type");
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_135);
+    }
+
+    @Test(groups = "invalid")
+    public void testInvalidSendDataToWorkflowWithoutEvents() {
+        String packagePath = "invalid_send_data_no_events";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertTrue(diagnosticResult.errorCount() > 0,
+                "Expected validation error for sendData targeting a workflow without events");
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_133);
+    }
+
+    // ===== Mandatory workflow:Context validation =====
+
+    @Test(groups = "invalid")
+    public void testInvalidWorkflowMissingContext() {
+        String packagePath = "invalid_workflow_missing_context";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        List<Diagnostic> diags = getDiagnosticsWithCode(diagnosticResult, "WORKFLOW_100");
+        Assert.assertEquals(diags.size(), 3,
+                "Expected 3 WORKFLOW_100 errors for @Workflow functions without a leading "
+                        + "workflow:Context parameter. Errors: " + getDiagnosticMessages(diagnosticResult));
+    }
+
+    @Test(groups = "invalid")
+    public void testInvalidDirectWorkflowFunctionCall() {
+        String packagePath = "invalid_direct_workflow_call";
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult(packagePath);
+        Assert.assertTrue(diagnosticResult.errorCount() > 0,
+                "Expected validation error for a direct call to a @Workflow function");
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_136);
+    }
+
     /**
      * Get diagnostic result for the given package path.
      * Uses runCodeGenAndModifyPlugins() to run the code modifier.
@@ -754,13 +846,13 @@ public class WorkflowCompilerPluginTest {
     @Test(groups = "invalid")
     public void testInvalidAgentExternalBody() {
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult("invalid_agent_external_body");
-        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_130);
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_141);
     }
 
     @Test(groups = "invalid")
     public void testInvalidAgentNoContext() {
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult("invalid_agent_no_context");
-        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_131);
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_142);
     }
 
     @Test(groups = "invalid")
@@ -774,7 +866,7 @@ public class WorkflowCompilerPluginTest {
     @Test(groups = "invalid")
     public void testInvalidAgentReturnType() {
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult("invalid_agent_return_type");
-        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_133);
+        assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_143);
     }
 
     @Test(groups = "invalid")

@@ -57,7 +57,7 @@ function orderWorkflowWithContext(workflow:Context ctx, OrderInput input) return
     };
 }
 
-// Valid: minimal workflow function (Context and input are both mandatory)
+// Valid: minimal workflow function (Context is mandatory)
 @workflow:Workflow
 function orderWorkflowMinimal(workflow:Context ctx, OrderInput input) returns OrderResult|error {
     return {

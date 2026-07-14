@@ -83,7 +83,7 @@ import java.util.regex.Pattern;
  * <p>
  * Validates:
  * <ul>
- *   <li>@Workflow functions have valid signature: (Context?, anydata input, record{future<anydata>...} events?)</li>
+ *   <li>@Workflow functions have valid signature: (Context, anydata input?, record{future<anydata>...} events?)</li>
  *   <li>@Activity functions have anydata parameters and anydata|error return type</li>
  * </ul>
  *
@@ -139,7 +139,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
     /**
      * Validates @Workflow function signature.
      * <ul>
-     *   <li>Optional first parameter: workflow:Context</li>
+     *   <li>Mandatory first parameter: workflow:Context</li>
      *   <li>Optional input parameter: subtype of anydata</li>
      *   <li>Optional events parameter: record with future anydata fields</li>
      *   <li>Return type: subtype of anydata|error</li>
@@ -147,15 +147,14 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
      * <p>
      * Valid signatures:
      * <ul>
-     *   <li>function process() returns R|error</li>
      *   <li>function process(Context ctx) returns R|error</li>
-     *   <li>function process(Input input) returns R|error</li>
-     *   <li>function process(Events events) returns R|error</li>
      *   <li>function process(Context ctx, Input input) returns R|error</li>
      *   <li>function process(Context ctx, Events events) returns R|error</li>
-     *   <li>function process(Input input, Events events) returns R|error</li>
      *   <li>function process(Context ctx, Input input, Events events) returns R|error</li>
      * </ul>
+     * The mandatory Context parameter also prevents @Workflow functions from being
+     * invoked directly as normal functions — callers outside the workflow runtime
+     * cannot construct a workflow:Context.
      */
     private void validateProcessFunction(FunctionDefinitionNode functionNode, SyntaxNodeAnalysisContext context) {
         SemanticModel semanticModel = context.semanticModel();
@@ -168,26 +167,81 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         FunctionSymbol functionSymbol = (FunctionSymbol) symbolOpt.get();
         FunctionTypeSymbol typeSymbol = functionSymbol.typeDescriptor();
 
-        // The context and input parameters are mandatory: a workflow function must not be
-        // callable as a regular function. Signature: (Context ctx, Input input, Events events?).
-        List<ParameterSymbol> params = typeSymbol.params().orElse(List.of());
-        if (params.size() < 2
-                || !WorkflowPluginUtils.isContextType(params.get(0).typeDescriptor())
-                || !WorkflowPluginUtils.isSubtypeOfAnydata(params.get(1).typeDescriptor(), semanticModel)) {
-            reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_140);
+        // Get parameters — workflow:Context is mandatory as the first parameter
+        Optional<List<ParameterSymbol>> paramsOpt = typeSymbol.params();
+        if (paramsOpt.isEmpty() || paramsOpt.get().isEmpty()) {
+            reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_100);
             return;
         }
+
+        List<ParameterSymbol> params = paramsOpt.get();
+
+        // Check for excess parameters (max 3: Context, input, events)
         if (params.size() > 3) {
             reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_106);
             return;
         }
-        if (params.size() == 3) {
-            TypeSymbol eventsType = params.get(2).typeDescriptor();
-            if (!isValidEventsType(eventsType)) {
-                reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_102);
-                return;
+
+        int paramIndex = 0;
+        boolean hasInput = false;
+        boolean hasEvents = false;
+
+        // First parameter must be workflow:Context
+        ParameterSymbol firstParam = params.get(paramIndex);
+        TypeSymbol firstParamType = firstParam.typeDescriptor();
+
+        if (!WorkflowPluginUtils.isContextType(firstParamType)) {
+            reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_100);
+            return;
+        }
+        paramIndex++;
+
+        // Check remaining parameters - they can be input and/or events
+        // The order should be: [Context], [input], [events]
+        while (paramIndex < params.size()) {
+            ParameterSymbol param = params.get(paramIndex);
+            TypeSymbol paramType = param.typeDescriptor();
+
+            // Determine expected parameter type based on position
+            // After context (or at start), next should be input or events
+            // After input, next should be events
+
+            if (hasInput) {
+                // Already have input, so this parameter MUST be events
+                if (!isValidEventsType(paramType)) {
+                    reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_102);
+                    return;
+                }
+                if (hasEvents) {
+                    // Already have events parameter, this is an error
+                    reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_106);
+                    return;
+                }
+                validateEventFutureTypes(paramType, functionNode, context, semanticModel);
+                hasEvents = true;
+                paramIndex++;
+            } else {
+                // No input yet - this could be input or events
+                if (isValidEventsType(paramType)) {
+                    // This is an events parameter (can come without input)
+                    validateEventFutureTypes(paramType, functionNode, context, semanticModel);
+                    hasEvents = true;
+                    paramIndex++;
+                } else if (WorkflowPluginUtils.isSubtypeOfAnydata(paramType, semanticModel)) {
+                    // This is an input parameter
+                    if (hasEvents) {
+                        // Input must come before events
+                        reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_101);
+                        return;
+                    }
+                    hasInput = true;
+                    paramIndex++;
+                } else {
+                    // Parameter is neither anydata nor events record - error
+                    reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_101);
+                    return;
+                }
             }
-            validateEventFutureTypes(eventsType, functionNode, context, semanticModel);
         }
 
         // Validate return type
@@ -792,41 +846,11 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
     }
 
     /**
-     * Validates the events parameter type - should be a record with future<anydata> fields.
-     * All fields in the record must be future types.
+     * Validates the events parameter type - should be a non-empty record whose every field is
+     * a future type. Delegates to {@link WorkflowPluginUtils#isEventsRecordType(TypeSymbol)}.
      */
     private boolean isValidEventsType(TypeSymbol typeSymbol) {
-        TypeSymbol resolvedType = WorkflowPluginUtils.resolveTypeReference(typeSymbol);
-        TypeDescKind kind = resolvedType.typeKind();
-
-        // Must be a record type
-        if (kind != TypeDescKind.RECORD) {
-            return false;
-        }
-
-        // Check that it's a RecordTypeSymbol and all fields are future types
-        if (resolvedType instanceof RecordTypeSymbol recordType) {
-
-            // Get all record fields and validate each is a future type
-            java.util.Map<String, io.ballerina.compiler.api.symbols.RecordFieldSymbol> fields = 
-                    recordType.fieldDescriptors();
-            
-            if (fields.isEmpty()) {
-                // Empty record is not a valid events record
-                return false;
-            }
-            
-            for (io.ballerina.compiler.api.symbols.RecordFieldSymbol field : fields.values()) {
-                TypeSymbol fieldType = WorkflowPluginUtils.resolveTypeReference(field.typeDescriptor());
-                
-                // Each field must be a future type
-                if (fieldType.typeKind() != TypeDescKind.FUTURE) {
-                    return false;
-                }
-            }
-        }
-
-        return true;
+        return WorkflowPluginUtils.isEventsRecordType(typeSymbol);
     }
 
     /**
@@ -882,11 +906,11 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
     /**
      * Validates a {@code @workflow:DurableAgent} function.
      * <ul>
-     *   <li>WORKFLOW_130 — must have a body (not {@code = external})</li>
-     *   <li>WORKFLOW_131 — signature must be {@code (workflow:AgentContext ctx, InputRecord input,
+     *   <li>WORKFLOW_141 — must have a body (not {@code = external})</li>
+     *   <li>WORKFLOW_142 — signature must be {@code (workflow:AgentContext ctx, InputRecord input,
      *       EventsRecord events?)} with input a subtype of anydata</li>
      *   <li>WORKFLOW_132 — the events parameter, when present, must be an all-{@code future} record</li>
-     *   <li>WORKFLOW_133 — return type must be {@code error?}</li>
+     *   <li>WORKFLOW_143 — return type must be {@code error?}</li>
      * </ul>
      */
     private void validateAgentFunction(FunctionDefinitionNode functionNode, SyntaxNodeAnalysisContext context) {
@@ -894,7 +918,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
 
         // Body must not be external.
         if (functionNode.functionBody().kind() == SyntaxKind.EXTERNAL_FUNCTION_BODY) {
-            reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_130);
+            reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_141);
         }
 
         Optional<Symbol> symbolOpt = semanticModel.symbol(functionNode);
@@ -911,7 +935,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         } else if (params.size() != 2
                 || !isAgentContextType(params.get(0).typeDescriptor())
                 || !WorkflowPluginUtils.isSubtypeOfAnydata(params.get(1).typeDescriptor(), semanticModel)) {
-            reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_131);
+            reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_142);
         }
 
         // buildAndRun() is terminal: it must be the last top-level statement of the body.
@@ -920,7 +944,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         // Return type: error? (no value).
         Optional<TypeSymbol> returnTypeOpt = typeSymbol.returnTypeDescriptor();
         if (returnTypeOpt.isPresent() && !isErrorOptional(returnTypeOpt.get(), semanticModel)) {
-            reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_133);
+            reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_143);
         }
     }
 
