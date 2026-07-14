@@ -864,6 +864,17 @@ public class WorkflowCompilerPluginTest {
     }
 
     @Test(groups = "invalid")
+    public void testInvalidDirectAiCall() {
+        // Direct model-provider/agent calls inside a @Workflow body are non-deterministic;
+        // the same calls wrapped in @workflow:Activity functions are valid.
+        DiagnosticResult diagnosticResult = getValidationDiagnosticResult("invalid_direct_ai_call");
+        List<Diagnostic> aiCallDiags = getDiagnosticsWithCode(diagnosticResult, "WORKFLOW_144");
+        Assert.assertEquals(aiCallDiags.size(), 2,
+                "Expected exactly the two direct AI calls inside the workflow to be flagged. Got: "
+                        + getDiagnosticMessages(diagnosticResult));
+    }
+
+    @Test(groups = "invalid")
     public void testInvalidAgentReturnType() {
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult("invalid_agent_return_type");
         assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_143);

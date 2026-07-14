@@ -197,6 +197,11 @@ public enum WorkflowDiagnostic {
             DiagnosticSeverity.ERROR),
     WORKFLOW_143("WORKFLOW_143",
             "@DurableAgent function return type must be 'error?'",
+            DiagnosticSeverity.ERROR),
+    WORKFLOW_144("WORKFLOW_144",
+            "Direct AI calls are not allowed inside a workflow: LLM responses are non-deterministic and "
+                    + "break workflow replay. Wrap the call in an @workflow:Activity function and invoke it "
+                    + "via 'ctx->callActivity' (or register it on the agent via 'registerActivity')",
             DiagnosticSeverity.ERROR);
 
     private final String code;

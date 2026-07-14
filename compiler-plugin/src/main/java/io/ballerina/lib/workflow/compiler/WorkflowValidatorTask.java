@@ -31,6 +31,7 @@ import io.ballerina.compiler.api.symbols.Symbol;
 import io.ballerina.compiler.api.symbols.SymbolKind;
 import io.ballerina.compiler.api.symbols.TupleTypeSymbol;
 import io.ballerina.compiler.api.symbols.TypeDescKind;
+import io.ballerina.compiler.api.symbols.TypeReferenceTypeSymbol;
 import io.ballerina.compiler.api.symbols.TypeSymbol;
 import io.ballerina.compiler.api.symbols.UnionTypeSymbol;
 import io.ballerina.compiler.syntax.tree.DefaultableParameterNode;
@@ -114,6 +115,8 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
             validateAwaitUsage(functionNode, context);
             // Validate no concurrency primitives (worker/fork/start) inside @Workflow
             validateNoConcurrencyPrimitives(functionNode, context);
+            // Validate no direct AI model/agent calls (non-deterministic) inside @Workflow
+            validateNoDirectAiCalls(functionNode, context);
         }
 
         // Check if function has @Activity annotation
@@ -128,6 +131,90 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
                 reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_137);
             }
             validateAgentFunction(functionNode, context);
+            // The agent body configures the durable loop; direct AI calls there are equally
+            // non-deterministic — the loop itself performs LLM calls durably as activities.
+            validateNoDirectAiCalls(functionNode, context);
+        }
+    }
+
+    /**
+     * Validates that no direct AI calls are made inside a workflow/agent body: remote calls on an
+     * {@code ai:ModelProvider} ({@code model->chat(...)}, {@code model->generate(...)}) and method calls on an
+     * {@code ai:Agent} ({@code agent.run(...)}). LLM responses differ between executions, so such calls break
+     * replay; they must be wrapped in an {@code @workflow:Activity} function instead.
+     */
+    private void validateNoDirectAiCalls(FunctionDefinitionNode functionNode, SyntaxNodeAnalysisContext context) {
+        DirectAiCallValidator validator = new DirectAiCallValidator(context);
+        functionNode.functionBody().accept(validator);
+    }
+
+    /**
+     * Node visitor that reports {@link WorkflowDiagnostic#WORKFLOW_144} for direct AI model-provider remote calls
+     * and AI agent method calls.
+     */
+    private static class DirectAiCallValidator extends NodeVisitor {
+
+        private static final String AI_AGENT_CLASS = "Agent";
+
+        private final SyntaxNodeAnalysisContext context;
+        private final SemanticModel semanticModel;
+
+        DirectAiCallValidator(SyntaxNodeAnalysisContext context) {
+            this.context = context;
+            this.semanticModel = context.semanticModel();
+        }
+
+        @Override
+        public void visit(RemoteMethodCallActionNode remoteCall) {
+            if (isAiReceiver(remoteCall.expression())) {
+                reportAiCall(remoteCall.methodName().location());
+            }
+            remoteCall.arguments().forEach(arg -> arg.accept(this));
+        }
+
+        @Override
+        public void visit(MethodCallExpressionNode methodCall) {
+            if (isAiReceiver(methodCall.expression())) {
+                reportAiCall(methodCall.methodName().location());
+            }
+            methodCall.arguments().forEach(arg -> arg.accept(this));
+            methodCall.expression().accept(this);
+        }
+
+        private boolean isAiReceiver(io.ballerina.compiler.syntax.tree.ExpressionNode receiver) {
+            Optional<TypeSymbol> typeOpt = semanticModel.typeOf(receiver);
+            if (typeOpt.isEmpty()) {
+                return false;
+            }
+            TypeSymbol type = typeOpt.get();
+            return WorkflowPluginUtils.isModelProviderType(type) || isAiAgentType(type, 0);
+        }
+
+        private boolean isAiAgentType(TypeSymbol typeSymbol, int depth) {
+            if (typeSymbol == null || depth > 6) {
+                return false;
+            }
+            if (typeSymbol instanceof TypeReferenceTypeSymbol typeRef) {
+                Optional<String> nameOpt = typeRef.getName();
+                if (nameOpt.isPresent() && AI_AGENT_CLASS.equals(nameOpt.get())
+                        && typeRef.getModule()
+                                .map(module -> WorkflowConstants.AI_PACKAGE_NAME.equals(
+                                        module.getName().orElse(""))
+                                        && WorkflowConstants.AI_PACKAGE_ORG.equals(module.id().orgName()))
+                                .orElse(false)) {
+                    return true;
+                }
+                return isAiAgentType(typeRef.typeDescriptor(), depth + 1);
+            }
+            return false;
+        }
+
+        private void reportAiCall(io.ballerina.tools.diagnostics.Location location) {
+            DiagnosticInfo diagnosticInfo = new DiagnosticInfo(
+                    WorkflowDiagnostic.WORKFLOW_144.getCode(),
+                    WorkflowDiagnostic.WORKFLOW_144.getMessage(),
+                    WorkflowDiagnostic.WORKFLOW_144.getSeverity());
+            context.reportDiagnostic(DiagnosticFactory.createDiagnostic(diagnosticInfo, location));
         }
     }
 
