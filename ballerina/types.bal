@@ -131,3 +131,14 @@ public type UpdatePendingDetail record {|
 # typically because it is suspended on a human task. The request stays durably
 # accepted on the workflow server; check back later with the same update ID.
 public type UpdatePendingError distinct error<UpdatePendingDetail>;
+
+# A request a durable agent has accepted but not yet answered. Returned by
+# `getPendingAgentUpdates` so callers can rediscover in-flight turns after a
+# crash and fetch their answers via `getAgentUpdateResult`.
+#
+# + updateId - The update ID to fetch the answer with
+# + eventName - The update channel the request was sent on
+public type PendingAgentUpdate record {|
+    string updateId;
+    string eventName;
+|};

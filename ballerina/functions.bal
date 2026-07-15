@@ -141,6 +141,26 @@ public isolated function getAgentUpdateResult(string agentId, string updateId,
     name: "getAgentUpdateResult"
 } external;
 
+# Lists the requests a running durable agent has accepted but not yet answered.
+# Use after a crash or restart to rediscover in-flight turns for a session and
+# fetch their answers via `getAgentUpdateResult` — nothing is lost while the
+# agent works, however long the turn takes.
+#
+# ```ballerina
+# workflow:PendingAgentUpdate[] pending = check workflow:getPendingAgentUpdates(agentId);
+# foreach var update in pending {
+#     string answer = check workflow:getAgentUpdateResult(agentId, update.updateId);
+# }
+# ```
+#
+# + agentId - Target agent (workflow) ID
+# + return - The in-flight updates (empty when the agent is idle), or an error
+public isolated function getPendingAgentUpdates(string agentId)
+        returns PendingAgentUpdate[]|error = @java:Method {
+    'class: "io.ballerina.lib.workflow.runtime.nativeimpl.WorkflowNative",
+    name: "getPendingAgentUpdates"
+} external;
+
 # Waits for a workflow to complete and returns its result.
 #
 # ```ballerina

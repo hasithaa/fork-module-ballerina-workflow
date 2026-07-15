@@ -109,6 +109,12 @@ public final class WorkflowWorkerNative {
      * agents. Args layout: eventName (String), payload (Object); the update result is the agent's turn response.
      */
     public static final String AGENT_UPDATE_NAME = "agentUpdate";
+
+    /**
+     * Query returning the agent updates that were accepted but whose turn has not completed yet
+     * ({@code [{updateId, eventName}, ...]}). Lets clients rediscover in-flight requests after a crash.
+     */
+    public static final String PENDING_AGENT_UPDATES_QUERY = "pendingAgentUpdates";
     /**
      * Temporal workflow type used for all built-in manual retry task child workflows. Prefixed with {@code retrytask-}
      * so internal workflows are clearly separated from user-defined ones and can be identified via a simple STARTS_WITH
@@ -1369,6 +1375,10 @@ public final class WorkflowWorkerNative {
         // The agent's native context state; set when the AgentContext is created. Used by the
         // update handler's closing fast-path and the failure backstop that settles updates.
         private AgentContextNative.AgentContextInfo agentContextInfo = null;
+        // Accepted-but-unanswered agent updates (updateId -> eventName). Workflow code is
+        // single-threaded, so no synchronization is needed; insertion order is preserved for
+        // stable client-side listings.
+        private final Map<String, String> pendingAgentUpdates = new java.util.LinkedHashMap<>();
         // Per-workflow-instance service object (created fresh for each workflow execution including replays)
         // This ensures isolation between workflow instances and proper state management
         private BObject serviceObject;
@@ -1476,10 +1486,21 @@ public final class WorkflowWorkerNative {
                             return info.finalResponse();
                         }
 
-                        io.temporal.workflow.CompletablePromise<Object> responder = Workflow.newPromise();
-                        signalWrapper.recordUpdate(eventName, payload, responder);
-                        Workflow.await(responder::isCompleted);
-                        return responder.get();
+                        String updateId = Workflow.getCurrentUpdateInfo()
+                                .map(io.temporal.workflow.UpdateInfo::getUpdateId).orElse("");
+                        if (!updateId.isEmpty()) {
+                            this.pendingAgentUpdates.put(updateId, eventName);
+                        }
+                        try {
+                            io.temporal.workflow.CompletablePromise<Object> responder = Workflow.newPromise();
+                            signalWrapper.recordUpdate(eventName, payload, responder);
+                            Workflow.await(responder::isCompleted);
+                            return responder.get();
+                        } finally {
+                            if (!updateId.isEmpty()) {
+                                this.pendingAgentUpdates.remove(updateId);
+                            }
+                        }
                     }
                                      );
             LOGGER.debug("[JWorkflowAdapter] Dynamic update handler registered");
@@ -1488,6 +1509,14 @@ public final class WorkflowWorkerNative {
             Workflow.registerListener(
                     (io.temporal.workflow.DynamicQueryHandler) (queryName, encodedArgs) -> {
                         LOGGER.debug("[JWorkflowAdapter] Query received: {}", queryName);
+
+                        // Framework-owned query: in-flight agent updates for crash-recovery check-back.
+                        if (PENDING_AGENT_UPDATES_QUERY.equals(queryName)) {
+                            List<Map<String, String>> pending = new ArrayList<>();
+                            this.pendingAgentUpdates.forEach((id, event) ->
+                                    pending.add(Map.of("updateId", id, "eventName", event)));
+                            return pending;
+                        }
 
                         try {
                             // Use the workflow's current ServiceObject instance
