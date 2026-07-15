@@ -103,6 +103,9 @@ public final class AgentContextNative {
         private Long eventTimeoutMillis = null;
         private long maxEventWaits = 50;
         private long eventWaitCount = 0;
+        // Approval policy for gated tools (configured via ctx.buildAndRun approval config).
+        private String[] approvalUserRoles = new String[0];
+        private Long approvalTimeoutMillis = null;
         // The responder of the updateAgent request whose message the agent most recently
         // consumed; completed with the next recorded response (the turn's answer).
         private CompletablePromise<Object> pendingResponder = null;
@@ -145,11 +148,20 @@ public final class AgentContextNative {
      *                     {@code name} may be overridden at registration); {@code null} for other kinds
      * @param bindings     for activity tools, registration-time fixed arguments with client objects already converted
      *                     to {@code "connection:<name>"} markers; {@code null} when absent or for other kinds
+     * @param requiresApproval when {@code true}, a PRE_RUN review activity gates the tool before it runs
+     * @param retryPolicy  the activity tool's failure policy: {@code null} (NoRetry), an AutoRetry {@code BMap}, or
+     *                     the {@code "MANUAL_RETRY"} {@code BString}; {@code null} for non-activity tools
      */
     private record ToolMeta(String name, String description, Map<String, Object> schema, String kind,
-                            String activityName, Map<String, Object> bindings) {
+                            String activityName, Map<String, Object> bindings, boolean requiresApproval,
+                            Object retryPolicy) {
         ToolMeta(String name, String description, Map<String, Object> schema, String kind) {
-            this(name, description, schema, kind, null, null);
+            this(name, description, schema, kind, null, null, false, null);
+        }
+
+        ToolMeta(String name, String description, Map<String, Object> schema, String kind,
+                 String activityName, Map<String, Object> bindings) {
+            this(name, description, schema, kind, activityName, bindings, false, null);
         }
     }
 
@@ -194,6 +206,79 @@ public final class AgentContextNative {
     }
 
     /**
+     * Stores the approval policy (roles allowed to decide a review, and an optional decision timeout) used when a
+     * gated tool creates a PRE_RUN review activity.
+     *
+     * @param handle    the agent context handle
+     * @param userRoles a BString or BString[] of roles permitted to decide
+     * @param timeout   a {@code time:Duration} map, or null to wait indefinitely
+     * @return null on success, or a Ballerina error
+     */
+    @SuppressWarnings("unchecked")
+    public static Object setAgentApproval(BHandle handle, Object userRoles, Object timeout) {
+        try {
+            AgentContextInfo info = (AgentContextInfo) handle.getValue();
+            List<String> roles = new ArrayList<>();
+            if (userRoles instanceof BString roleStr) {
+                roles.add(roleStr.getValue());
+            } else if (userRoles instanceof io.ballerina.runtime.api.values.BArray roleArr) {
+                for (int i = 0; i < roleArr.size(); i++) {
+                    roles.add(roleArr.get(i).toString());
+                }
+            }
+            info.approvalUserRoles = roles.toArray(new String[0]);
+            info.approvalTimeoutMillis = timeout instanceof BMap
+                    ? WorkflowContextNative.computeTimeoutMillis((BMap<BString, Object>) timeout) : null;
+            return null;
+        } catch (Exception e) {
+            return ErrorCreator.createError(StringUtils.fromString(
+                    "Failed to configure agent approval: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Backs {@code awaitAgentToolReview}: starts a PRE_RUN review activity for a gated tool and blocks until a human
+     * decides. Runs inside the agent workflow, so it is replay-safe. Returns the decision as a JSON string
+     * ({@code {"action": "...", "input"?: {...}, "feedback"?: "..."}}).
+     *
+     * @param handle   the agent context handle
+     * @param toolName the advertised tool name (mapped to the underlying activity name when applicable)
+     * @param argsJson the model-proposed arguments as a JSON string (shown to the reviewer)
+     * @return the decision JSON string, or a Ballerina error
+     */
+    @SuppressWarnings("unchecked")
+    public static Object awaitToolReview(BHandle handle, BString toolName, BString argsJson) {
+        try {
+            AgentContextInfo info = (AgentContextInfo) handle.getValue();
+            String name = toolName.getValue();
+            // For an activity tool, review under the underlying activity's qualified name so the
+            // reviewer/inbox sees the real activity; other tools review under the tool name.
+            String activityName = name;
+            for (ToolMeta tool : info.tools) {
+                if (KIND_ACTIVITY.equals(tool.kind()) && tool.name().equals(name) && tool.activityName() != null) {
+                    activityName = tool.activityName();
+                    break;
+                }
+            }
+            String qualifiedName = Workflow.getInfo().getWorkflowType() + "." + activityName;
+
+            Object parsedArgs = JsonUtils.parse(argsJson.getValue());
+            Map<String, Object> argsMap = new LinkedHashMap<>();
+            Object javaArgs = TypesUtil.convertBallerinaToJavaType(parsedArgs);
+            if (javaArgs instanceof Map<?, ?> m) {
+                argsMap.putAll((Map<String, Object>) m);
+            }
+
+            Map<String, Object> decision = WorkflowContextNative.startReviewActivity(
+                    "PRE_RUN", qualifiedName, argsMap, "", info.approvalUserRoles, info.approvalTimeoutMillis);
+            return StringUtils.fromString(TypesUtil.toJsonString(decision));
+        } catch (Exception e) {
+            return ErrorCreator.createError(StringUtils.fromString(
+                    "Failed to obtain review decision for tool '" + toolName.getValue() + "': " + e.getMessage()));
+        }
+    }
+
+    /**
      * Records a {@code @workflow:Activity} tool: derives its name and parameter JSON schema so the loop can advertise
      * it to the model. The function pointer itself is registered as a Temporal activity at module init (by the
      * compiler plugin), so only metadata is stored here.
@@ -213,7 +298,8 @@ public final class AgentContextNative {
      */
     @SuppressWarnings("unchecked")
     public static Object recordActivityTool(BHandle handle, BFunctionPointer fn, Object nameArg,
-                                            Object descriptionArg, Object bindingsArg) {
+                                            Object descriptionArg, Object bindingsArg,
+                                            boolean requiresApproval, Object retryPolicy) {
         try {
             AgentContextInfo info = (AgentContextInfo) handle.getValue();
             String activityName = fn.getType().getName();
@@ -232,7 +318,10 @@ public final class AgentContextNative {
             }
             Set<String> boundNames = bindings == null ? Set.of() : bindings.keySet();
             Map<String, Object> schema = parameterSchemaOf(fn, boundNames, activityName);
-            info.tools.add(new ToolMeta(toolName, description, schema, KIND_ACTIVITY, activityName, bindings));
+            // NoRetry arrives as nil; AutoRetry as a BMap; ManualRetry as the "MANUAL_RETRY" BString.
+            Object policy = retryPolicy instanceof BMap || retryPolicy instanceof BString ? retryPolicy : null;
+            info.tools.add(new ToolMeta(toolName, description, schema, KIND_ACTIVITY, activityName, bindings,
+                    requiresApproval, policy));
             return null;
         } catch (Exception e) {
             return ErrorCreator.createError(StringUtils.fromString(
@@ -253,7 +342,7 @@ public final class AgentContextNative {
      * @return null on success, or a Ballerina error
      */
     public static Object recordAiTool(BHandle handle, BFunctionPointer fn, BString name, BString description,
-                                      Object parametersJson) {
+                                      Object parametersJson, boolean requiresApproval) {
         try {
             AgentContextInfo info = (AgentContextInfo) handle.getValue();
             Map<String, Object> schema;
@@ -262,7 +351,8 @@ public final class AgentContextNative {
             } else {
                 schema = parameterSchemaOf(fn);
             }
-            info.tools.add(new ToolMeta(name.getValue(), description.getValue(), schema, KIND_AI_TOOL));
+            info.tools.add(new ToolMeta(name.getValue(), description.getValue(), schema, KIND_AI_TOOL,
+                    null, null, requiresApproval, null));
             WorkflowWorkerNative.putAgentTool(info.workflowType, name.getValue(), fn);
             return null;
         } catch (Exception e) {
@@ -323,7 +413,7 @@ public final class AgentContextNative {
         AgentContextInfo info = (AgentContextInfo) handle.getValue();
         List<Object> defs = new ArrayList<>();
         for (ToolMeta tool : info.tools) {
-            defs.add(toolDef(tool.name(), tool.description(), tool.schema(), tool.kind()));
+            defs.add(toolDef(tool.name(), tool.description(), tool.schema(), tool.kind(), tool.requiresApproval()));
         }
         if (info.eventNames != null) {
             for (String eventName : info.eventNames) {
@@ -357,11 +447,17 @@ public final class AgentContextNative {
 
     private static Map<String, Object> toolDef(String name, String description, Map<String, Object> schema,
                                                String kind) {
+        return toolDef(name, description, schema, kind, false);
+    }
+
+    private static Map<String, Object> toolDef(String name, String description, Map<String, Object> schema,
+                                               String kind, boolean requiresApproval) {
         Map<String, Object> def = new LinkedHashMap<>();
         def.put("name", name);
         def.put("description", description);
         def.put("parameters", schema);
         def.put("kind", kind);
+        def.put("requiresApproval", requiresApproval);
         return def;
     }
 
@@ -677,6 +773,7 @@ public final class AgentContextNative {
                                           BTypedesc td) {
         String toolName = toolNameB.getValue();
         String activityName = toolName;
+        Object retryPolicy = null;
         Map<String, Object> namedArgs = argsToJavaMap(args);
         AgentContextInfo info = (AgentContextInfo) handle.getValue();
         for (ToolMeta tool : info.tools) {
@@ -687,10 +784,11 @@ public final class AgentContextNative {
                 if (tool.bindings() != null) {
                     namedArgs.putAll(tool.bindings());
                 }
+                retryPolicy = tool.retryPolicy();
                 break;
             }
         }
-        return executeActivity(activityName, namedArgs, td);
+        return executeActivity(activityName, namedArgs, td, retryPolicy);
     }
 
     private static Map<String, Object> argsToJavaMap(BMap<BString, Object> args) {
@@ -702,38 +800,70 @@ public final class AgentContextNative {
     }
 
     private static Object executeActivity(String activityName, Map<String, Object> namedArgs, BTypedesc td) {
-        try {
-            String workflowType = Workflow.getInfo().getWorkflowType();
-            String fullActivityName = workflowType + "." + activityName;
+        return executeActivity(activityName, namedArgs, td, null);
+    }
 
-            Map<String, Object> callConfig = new HashMap<>();
-            callConfig.put(CALL_CONFIG_MARKER, true);
-            callConfig.put(RETRY_ON_ERROR_KEY, false);
+    /**
+     * Runs a registered agent activity durably, applying its retry policy: {@code null} → single attempt (failure
+     * reported to the model), an AutoRetry {@code BMap} → Temporal backoff retries, or the {@code "MANUAL_RETRY"}
+     * sentinel → a rerun loop that creates a review activity on each failure (a human decides to rerun, rerun with
+     * edited input, or fail — the AI cannot decide a manual retry itself).
+     */
+    @SuppressWarnings("unchecked")
+    private static Object executeActivity(String activityName, Map<String, Object> namedArgs, BTypedesc td,
+                                          Object retryPolicy) {
+        String workflowType = Workflow.getInfo().getWorkflowType();
+        String fullActivityName = workflowType + "." + activityName;
+        boolean manualRetry = retryPolicy instanceof BString s && "MANUAL_RETRY".equals(s.getValue());
+        boolean autoRetry = retryPolicy instanceof BMap;
 
-            ActivityOptions options =
-                    ActivityOptions.newBuilder()
-                            .setStartToCloseTimeout(Duration.ofMinutes(5))
-                            .setRetryOptions(RetryOptions.newBuilder()
-                                    .setMaximumAttempts(1).build())
-                            .build();
-            io.temporal.workflow.ActivityStub stub = Workflow.newUntypedActivityStub(options);
-            Object result = stub.execute(fullActivityName, Object.class, new Object[]{namedArgs, callConfig});
+        Map<String, Object> callConfig = new HashMap<>();
+        callConfig.put(CALL_CONFIG_MARKER, true);
+        callConfig.put(RETRY_ON_ERROR_KEY, autoRetry);
 
-            Object ballerinaResult = TypesUtil.convertJavaToBallerinaType(result);
-            return TypesUtil.cloneWithType(ballerinaResult, td.getDescribingType());
-        } catch (ActivityFailure e) {
-            Throwable cause = e.getCause();
-            String errorMsg;
-            if (cause instanceof ApplicationFailure appFailure) {
-                errorMsg = appFailure.getOriginalMessage();
-            } else {
-                errorMsg = cause != null ? cause.getMessage() : e.getMessage();
+        RetryOptions retryOptions = autoRetry
+                ? WorkflowContextNative.buildPerCallRetryOptions((BMap<BString, Object>) retryPolicy)
+                : RetryOptions.newBuilder().setMaximumAttempts(1).build();
+        ActivityOptions options = ActivityOptions.newBuilder()
+                .setStartToCloseTimeout(Duration.ofMinutes(5))
+                .setRetryOptions(retryOptions)
+                .build();
+        io.temporal.workflow.ActivityStub stub = Workflow.newUntypedActivityStub(options);
+
+        Map<String, Object> currentArgs = namedArgs;
+        while (true) {
+            try {
+                Object result = stub.execute(fullActivityName, Object.class, new Object[]{currentArgs, callConfig});
+                Object ballerinaResult = TypesUtil.convertJavaToBallerinaType(result);
+                return TypesUtil.cloneWithType(ballerinaResult, td.getDescribingType());
+            } catch (ActivityFailure e) {
+                Throwable cause = e.getCause();
+                String errorMsg = cause instanceof ApplicationFailure appFailure
+                        ? appFailure.getOriginalMessage()
+                        : (cause != null ? cause.getMessage() : e.getMessage());
+                if (!manualRetry) {
+                    return ErrorCreator.createError(StringUtils.fromString(errorMsg));
+                }
+                // Manual retry: a human reviews the failure and decides.
+                Map<String, Object> decision = WorkflowContextNative.startReviewActivity(
+                        "ON_FAILURE", fullActivityName, currentArgs, errorMsg, new String[0], null);
+                String action = decision.containsKey("action") ? String.valueOf(decision.get("action")) : "reject";
+                if ("proceed".equals(action)) {
+                    continue;
+                }
+                if ("proceed-with-input".equals(action) && decision.get("input") instanceof Map<?, ?> in) {
+                    currentArgs = (Map<String, Object>) in;
+                    continue;
+                }
+                Object feedback = decision.get("feedback");
+                String msg = feedback instanceof String fb && !fb.isBlank()
+                        ? errorMsg + " (reviewer: " + fb + ")" : errorMsg;
+                return ErrorCreator.createError(StringUtils.fromString(msg));
+            } catch (NonDeterministicException | TemporalFailure e) {
+                throw e;
+            } catch (Exception e) {
+                return ErrorCreator.createError(StringUtils.fromString("Agent activity failed: " + e.getMessage()));
             }
-            return ErrorCreator.createError(StringUtils.fromString(errorMsg));
-        } catch (NonDeterministicException | TemporalFailure e) {
-            throw e;
-        } catch (Exception e) {
-            return ErrorCreator.createError(StringUtils.fromString("Agent activity failed: " + e.getMessage()));
         }
     }
 

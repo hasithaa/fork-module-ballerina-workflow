@@ -104,10 +104,12 @@ public type AgentChatMessage AgentSystemMessage|AgentUserMessage|AgentAssistantM
 isolated function runAgentLoop(handle ctxHandle, string agentName, AgentRunConfig config, string prompt,
         AgentToolDef[] toolDefs) returns error? {
     map<string> toolKinds = {};
+    map<boolean> toolGated = {};
     boolean conversational = false;
     boolean hasChatEvent = false;
     foreach AgentToolDef def in toolDefs {
         toolKinds[def.name] = def.kind;
+        toolGated[def.name] = def.requiresApproval;
         if def.kind == "end" {
             conversational = true; // the endConversation tool is advertised under MULTI_EVENT
         }
@@ -189,7 +191,7 @@ isolated function runAgentLoop(handle ctxHandle, string agentName, AgentRunConfi
                     return;
                 }
                 string output = check dispatchAgentTool(ctxHandle, agentName, call, toolKinds[call.name],
-                        autoContinue);
+                        autoContinue, toolGated[call.name] ?: false);
                 AgentFunctionMessage functionMessage = {name: call.name, content: output};
                 string? callId = call.id;
                 if callId is string {
@@ -222,7 +224,7 @@ isolated function runAgentLoop(handle ctxHandle, string agentName, AgentRunConfi
 // Tool failures are fed back as text so the model can recover; only
 // infrastructure errors propagate.
 isolated function dispatchAgentTool(handle ctxHandle, string agentName, AgentFunctionCall call, string? kind,
-        boolean autoContinue) returns string|error {
+        boolean autoContinue, boolean requiresApproval = false) returns string|error {
     if kind is () {
         return string `Error: unknown tool '${call.name}'`;
     }
@@ -241,6 +243,30 @@ isolated function dispatchAgentTool(handle ctxHandle, string agentName, AgentFun
     if callArgs is map<json> {
         foreach [string, json] [name, value] in callArgs.entries() {
             args[name] = value;
+        }
+    }
+
+    // Gated capability: create a PRE_RUN review activity and suspend durably until a
+    // human decides. On reject the model is told why (so it re-plans); on proceed the
+    // tool runs, optionally with arguments the reviewer edited.
+    if requiresApproval && (kind == "activity" || kind == "aitool") {
+        string decisionJson = check awaitAgentToolReview(ctxHandle, call.name, args.toJson().toJsonString());
+        json decision = check decisionJson.fromJsonString();
+        string action = check decision.action;
+        if action == "reject" {
+            json feedbackJson = check decision.feedback;
+            string feedback = feedbackJson is string && feedbackJson != "" ? feedbackJson : "no reason given";
+            return string `The human reviewer rejected calling '${call.name}'. Reason: ${feedback}. ` +
+                    "Do not retry it; consider an alternative or ask the user how to proceed.";
+        }
+        if action == "proceed-with-input" {
+            json edited = check decision.input;
+            if edited is map<json> {
+                args = {};
+                foreach [string, json] [name, value] in edited.entries() {
+                    args[name] = value;
+                }
+            }
         }
     }
 

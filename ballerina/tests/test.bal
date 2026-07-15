@@ -901,7 +901,7 @@ function testManualRetryWorkflowCreatesRetryTask() returns error? {
     runtime:sleep(2);
 
     // A pending retry task should have been created for this parent workflow.
-    management:RetryTaskSummary[]|error pendingTasks = management:listPendingRetryTasks(workflowId);
+    management:ReviewActivitySummary[]|error pendingTasks = management:listPendingReviewActivities(workflowId);
     if pendingTasks is error {
         return; // Server not reachable – skip.
     }
@@ -909,7 +909,7 @@ function testManualRetryWorkflowCreatesRetryTask() returns error? {
     test:assertTrue(pendingTasks.length() >= 1,
             "Should have at least one pending retry task, got " + pendingTasks.length().toString());
 
-    management:RetryTaskSummary task = pendingTasks[0];
+    management:ReviewActivitySummary task = pendingTasks[0];
     test:assertTrue(task.taskId.startsWith("retrytask-"),
             "Task ID should start with 'retrytask-', got: " + task.taskId);
     test:assertEquals(task.parentWorkflowId, workflowId, "parentWorkflowId should match");
@@ -919,7 +919,7 @@ function testManualRetryWorkflowCreatesRetryTask() returns error? {
 }
 
 @test:Config {groups: ["unit"]}
-function testManualRetryTaskInfoContainsCorrectMetadata() returns error? {
+function testManualReviewActivityInfoContainsCorrectMetadata() returns error? {
     map<function> activities = {"failingActivityForRetry": failingActivityForRetry};
     _ = check wfInternal:registerWorkflow(workflowWithManualRetry,
             "workflow-manual-retry-info-test", activities);
@@ -932,18 +932,18 @@ function testManualRetryTaskInfoContainsCorrectMetadata() returns error? {
     string workflowId = runResult;
     runtime:sleep(2);
 
-    management:RetryTaskSummary[]|error pendingTasks = management:listPendingRetryTasks(workflowId);
+    management:ReviewActivitySummary[]|error pendingTasks = management:listPendingReviewActivities(workflowId);
     if pendingTasks is error || pendingTasks.length() == 0 {
         return;
     }
 
     string taskId = pendingTasks[0].taskId;
-    management:RetryTaskInfo|error infoResult = management:getRetryTaskInfo(taskId);
+    management:ReviewActivityInfo|error infoResult = management:getReviewActivityInfo(taskId);
     if infoResult is error {
         return;
     }
 
-    management:RetryTaskInfo info = infoResult;
+    management:ReviewActivityInfo info = infoResult;
     test:assertEquals(info.taskId, taskId, "taskId should match");
     test:assertEquals(info.parentWorkflowId, workflowId, "parentWorkflowId should match");
     test:assertTrue(info.errorMessage.includes("Transient failure"),
@@ -970,19 +970,19 @@ function testCompleteRetryTaskWithRetry() returns error? {
     string workflowId = runResult;
     runtime:sleep(2);
 
-    management:RetryTaskSummary[]|error tasks1 = management:listPendingRetryTasks(workflowId);
+    management:ReviewActivitySummary[]|error tasks1 = management:listPendingReviewActivities(workflowId);
     if tasks1 is error || tasks1.length() == 0 {
         return;
     }
 
     // Complete the first retry task with action="retry".
-    error? completeResult = management:completeRetryTask(
-            tasks1[0].taskId, {action: "retry"});
-    test:assertTrue(completeResult is (), "completeRetryTask should succeed");
+    error? completeResult = management:completeReviewActivity(
+            tasks1[0].taskId, {action: "proceed"});
+    test:assertTrue(completeResult is (), "completeReviewActivity should succeed");
 
     // After retrying, the activity fails again → another retry task is created.
     runtime:sleep(2);
-    management:RetryTaskSummary[]|error tasks2 = management:listPendingRetryTasks(workflowId);
+    management:ReviewActivitySummary[]|error tasks2 = management:listPendingReviewActivities(workflowId);
     if tasks2 is error {
         return;
     }
@@ -1006,13 +1006,13 @@ function testCompleteRetryTaskWithFail() returns error? {
     string workflowId = runResult;
     runtime:sleep(2);
 
-    management:RetryTaskSummary[]|error tasks = management:listPendingRetryTasks(workflowId);
+    management:ReviewActivitySummary[]|error tasks = management:listPendingReviewActivities(workflowId);
     if tasks is error || tasks.length() == 0 {
         return;
     }
 
-    error? completeResult = management:completeRetryTask(tasks[0].taskId, {action: "fail"});
-    test:assertTrue(completeResult is (), "completeRetryTask with fail should succeed");
+    error? completeResult = management:completeReviewActivity(tasks[0].taskId, {action: "reject"});
+    test:assertTrue(completeResult is (), "completeReviewActivity with fail should succeed");
 
     // The workflow should now be FAILED.
     anydata|error wfResult = getWorkflowResult(workflowId, 10);
@@ -1041,17 +1041,17 @@ function testCompleteRetryTaskWithRetryWithInput() returns error? {
     string workflowId = runResult;
     runtime:sleep(2);
 
-    management:RetryTaskSummary[]|error tasks = management:listPendingRetryTasks(workflowId);
+    management:ReviewActivitySummary[]|error tasks = management:listPendingReviewActivities(workflowId);
     if tasks is error || tasks.length() == 0 {
         return;
     }
 
     // Send retry-with-input decision — signal should be accepted without error.
-    error? completeResult = management:completeRetryTask(tasks[0].taskId, {
-        action: "retry-with-input",
+    error? completeResult = management:completeReviewActivity(tasks[0].taskId, {
+        action: "proceed-with-input",
         input: {"orderId": "ORD-MR-005-CORRECTED"}
     });
-    test:assertTrue(completeResult is (), "completeRetryTask with retry-with-input should succeed");
+    test:assertTrue(completeResult is (), "completeReviewActivity with retry-with-input should succeed");
 }
 
 @test:Config {groups: ["unit"]}
@@ -1069,16 +1069,16 @@ function testCompleteRetryTaskUnauthorizedRole() returns error? {
     string workflowId = runResult;
     runtime:sleep(2);
 
-    management:RetryTaskSummary[]|error tasks = management:listPendingRetryTasks(workflowId);
+    management:ReviewActivitySummary[]|error tasks = management:listPendingReviewActivities(workflowId);
     if tasks is error || tasks.length() == 0 {
         return;
     }
 
     // "guest" is not in the permitted roles → should be rejected.
-    error? completeResult = management:completeRetryTask(
-            tasks[0].taskId, {action: "retry"}, callerRoles = ["guest"]);
+    error? completeResult = management:completeReviewActivity(
+            tasks[0].taskId, {action: "proceed"}, callerRoles = ["guest"]);
     test:assertTrue(completeResult is error,
-            "completeRetryTask with unauthorized role should fail");
+            "completeReviewActivity with unauthorized role should fail");
     if completeResult is error {
         test:assertTrue(
             completeResult.message().toLowerAscii().includes("unauthorized") ||
@@ -1100,17 +1100,17 @@ function testListAllRetryTasksReturnsCreatedTask() returns error? {
     }
     runtime:sleep(2);
 
-    management:RetryTaskSummary[]|error allTasks = management:listAllRetryTasks();
+    management:ReviewActivitySummary[]|error allTasks = management:listAllReviewActivities();
     if allTasks is error {
         return;
     }
 
     // At least the task we just created should be visible.
     test:assertTrue(allTasks.length() >= 1,
-            "listAllRetryTasks should return at least the task we created");
+            "listAllReviewActivities should return at least the task we created");
 
     // Every returned task ID must start with the retrytask- prefix.
-    foreach management:RetryTaskSummary t in allTasks {
+    foreach management:ReviewActivitySummary t in allTasks {
         test:assertTrue(t.taskId.startsWith("retrytask-"),
                 "All returned tasks should have retrytask- prefix, got: " + t.taskId);
     }
@@ -1119,12 +1119,12 @@ function testListAllRetryTasksReturnsCreatedTask() returns error? {
 @test:Config {groups: ["unit"]}
 function testListAllRetryTasksStatusFilter() returns error? {
     // Filter by RUNNING (= pending) should only return pending tasks.
-    management:RetryTaskSummary[]|error runningTasks = management:listAllRetryTasks(status = "RUNNING");
+    management:ReviewActivitySummary[]|error runningTasks = management:listAllReviewActivities(status = "RUNNING");
     if runningTasks is error {
         return;
     }
 
-    foreach management:RetryTaskSummary t in runningTasks {
+    foreach management:ReviewActivitySummary t in runningTasks {
         test:assertEquals(t.status, "RUNNING",
                 "All tasks returned with status=RUNNING filter should be RUNNING, got: " + t.status);
     }

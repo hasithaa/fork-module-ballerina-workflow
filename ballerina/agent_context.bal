@@ -54,6 +54,22 @@ public type AgentRunConfig record {|
     # the agent (backstop for open-ended conversations)
     @display {label: "Maximum Event Waits"}
     int maxEventWaits = 50;
+
+    # Approval policy for capabilities registered with `requiresApproval = true`.
+    # When such a capability is about to run, a review activity is created and the
+    # agent suspends durably until a human decides
+    @display {label: "Approval"}
+    ApprovalConfig approval = {};
+|};
+
+# Approval policy for gated agent capabilities.
+#
+# + userRoles - Role(s) permitted to decide the review. Defaults to `"manager"`
+# + timeout - Maximum time to wait for a decision. On timeout the model is told
+#             the review timed out so it can wrap up. Omit to wait indefinitely
+public type ApprovalConfig record {|
+    string|string[] userRoles = "manager";
+    time:Duration? timeout = ();
 |};
 
 # How a durable agent consumes its update-channel requests and data events.
@@ -118,10 +134,19 @@ public client class AgentContext {
     # + bindings - Arguments fixed at registration, keyed by parameter name.
     #              Bound client objects are transported as `"connection:<name>"`
     #              markers and resolved on the executing worker
+    # + requiresApproval - When `true`, the tool is gated: before the agent runs it,
+    #              a review activity is created and the agent suspends durably until
+    #              a human proceeds (optionally editing the arguments) or rejects
+    # + retryPolicy - Failure behaviour: `NoRetry` (report the failure to the model),
+    #              `AutoRetry` (durable backoff retries), or `ManualRetry` (create a
+    #              review activity on failure so a human decides to rerun or fail)
     # + return - An error if the tool cannot be registered, otherwise nil
     public isolated function registerActivity(function activity, string? name = (),
-            string? description = (), map<anydata|object {}>? bindings = ()) returns error? {
-        return recordActivityTool(self.nativeContext, activity, name, description, bindings);
+            string? description = (), map<anydata|object {}>? bindings = (),
+            boolean requiresApproval = false,
+            AutoRetry|ManualRetry|NoRetry retryPolicy = NoRetry) returns error? {
+        return recordActivityTool(self.nativeContext, activity, name, description, bindings,
+                requiresApproval, retryPolicy);
     }
 
     # Registers an AI tool with the agent. Accepts an `ai:ToolConfig` value, a
@@ -132,23 +157,40 @@ public client class AgentContext {
     # `ai:Context` injection to `ai:executeTool`.
     #
     # + tool - The tool to register
+    # + requiresApproval - When `true`, every tool in this registration is gated:
+    #            before the agent runs it, a review activity is created and the agent
+    #            suspends durably until a human proceeds or rejects. `gatedTools`
+    #            narrows this to specific tool names (for a toolkit / MCP server)
+    # + gatedTools - When set, only these tool names require approval (the rest run
+    #            freely). Use for a `BaseToolKit`/MCP server whose tools you do not
+    #            control; ignored when `requiresApproval` is `false`
     # + return - An error if the tool cannot be registered (e.g. a function
     #            missing the `@ai:AgentTool` annotation), otherwise nil
-    public isolated function registerAgentTool(ai:BaseToolKit|ai:ToolConfig|ai:FunctionTool tool)
-            returns error? {
+    public isolated function registerAgentTool(ai:BaseToolKit|ai:ToolConfig|ai:FunctionTool tool,
+            boolean requiresApproval = false, string[]? gatedTools = ()) returns error? {
         if tool is ai:BaseToolKit {
             foreach ai:ToolConfig config in tool.getTools() {
-                check self.recordToolConfig(config);
+                check self.recordToolConfig(config, self.isGated(config.name, requiresApproval, gatedTools));
             }
         } else if tool is ai:ToolConfig {
-            check self.recordToolConfig(tool);
+            check self.recordToolConfig(tool, self.isGated(tool.name, requiresApproval, gatedTools));
         } else {
             ai:ToolConfig[] configs = ai:getToolConfigs([tool]);
             if configs.length() == 0 {
                 return error("Agent tool functions must be annotated with @ai:AgentTool");
             }
-            check self.recordToolConfig(configs[0]);
+            check self.recordToolConfig(configs[0], self.isGated(configs[0].name, requiresApproval, gatedTools));
         }
+    }
+
+    // A tool is gated when approval is requested and either no name filter is given
+    // (the whole registration is gated) or the tool's name is in the filter.
+    private isolated function isGated(string toolName, boolean requiresApproval, string[]? gatedTools)
+            returns boolean {
+        if !requiresApproval {
+            return false;
+        }
+        return gatedTools is () || gatedTools.indexOf(toolName) != ();
     }
 
     # Declares a named two-way update channel for the agent. `workflow:updateAgent`
@@ -166,10 +208,11 @@ public client class AgentContext {
         return registerAgentUpdateEvent(self.nativeContext, name, requestType, responseType);
     }
 
-    private isolated function recordToolConfig(ai:ToolConfig config) returns error? {
+    private isolated function recordToolConfig(ai:ToolConfig config, boolean requiresApproval = false)
+            returns error? {
         map<json>? parameters = config.parameters;
         return recordAiTool(self.nativeContext, config.caller, config.name, config.description,
-                parameters is () ? () : parameters.toJsonString());
+                parameters is () ? () : parameters.toJsonString(), requiresApproval);
     }
 
     # Registers a human task as an agent tool. This is the durable-agent
@@ -210,6 +253,7 @@ public client class AgentContext {
             *AgentRunConfig config) returns error? {
         check setAgentInteraction(self.nativeContext, config.interaction, config.eventTimeout,
                 config.maxEventWaits);
+        check setAgentApproval(self.nativeContext, config.approval.userRoles, config.approval.timeout);
         setAgentModelProvider(self.nativeContext, config.model);
         check registerAgentModelForContext(self.nativeContext);
         string agentName = getAgentWorkflowType(self.nativeContext);
@@ -226,12 +270,14 @@ public client class AgentContext {
 }
 
 // Internal shape of a registered tool: the LLM-facing definition plus the
-// dispatch kind ("activity", "aitool", "humantask", or "event:<name>").
+// dispatch kind ("activity", "aitool", "humantask", or "event:<name>") and
+// whether the tool is gated (a review activity is created before it runs).
 type AgentToolDef record {|
     string name;
     string description;
     map<json> parameters?;
     string kind;
+    boolean requiresApproval = false;
 |};
 
 // ============================================================================
@@ -239,15 +285,31 @@ type AgentToolDef record {|
 // ============================================================================
 
 isolated function recordActivityTool(handle nativeContext, function tool, string? name,
-        string? description, map<anydata|object {}>? bindings) returns error? = @java:Method {
+        string? description, map<anydata|object {}>? bindings, boolean requiresApproval,
+        AutoRetry|ManualRetry|NoRetry retryPolicy) returns error? = @java:Method {
     'class: "io.ballerina.lib.workflow.context.AgentContextNative",
     name: "recordActivityTool"
 } external;
 
 isolated function recordAiTool(handle nativeContext, function tool, string name, string description,
-        string? parametersJson) returns error? = @java:Method {
+        string? parametersJson, boolean requiresApproval) returns error? = @java:Method {
     'class: "io.ballerina.lib.workflow.context.AgentContextNative",
     name: "recordAiTool"
+} external;
+
+// Starts a PRE_RUN review activity for a gated tool and blocks until a human decides.
+// Returns the decision as JSON: {"action": "proceed"|"proceed-with-input"|"reject",
+// "input"?: {...}, "feedback"?: "..."}.
+isolated function awaitAgentToolReview(handle nativeContext, string toolName, string argsJson)
+        returns string|error = @java:Method {
+    'class: "io.ballerina.lib.workflow.context.AgentContextNative",
+    name: "awaitToolReview"
+} external;
+
+isolated function setAgentApproval(handle nativeContext, string|string[] userRoles, time:Duration? timeout)
+        returns error? = @java:Method {
+    'class: "io.ballerina.lib.workflow.context.AgentContextNative",
+    name: "setAgentApproval"
 } external;
 
 isolated function recordHumanTaskTool(handle nativeContext, string taskName, string|string[] userRoles,

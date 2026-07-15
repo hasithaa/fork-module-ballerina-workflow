@@ -1011,7 +1011,7 @@ final http:InterceptableService mgmtService = @http:ServiceConfig {
 
     // ── Retry Tasks — List & Detail ───────────────────────────────────────────
 
-    # Lists manual retry tasks with optional filters and pagination.
+    # Lists review activities with optional filters and pagination.
     # + userId - Optional caller identity from the `x-user-id` header.
     # + userRoles - Optional comma-separated roles from the `x-user-roles` header.
     # + status - Filter by task status (e.g. `PENDING`, `COMPLETED`).
@@ -1023,8 +1023,8 @@ final http:InterceptableService mgmtService = @http:ServiceConfig {
     # + startTimeTo - Optional ISO-8601 upper bound on task start time.
     # + closeTimeFrom - Optional ISO-8601 lower bound on task close time.
     # + closeTimeTo - Optional ISO-8601 upper bound on task close time.
-    # + return - Paginated retry tasks as JSON, or an internal server error.
-    resource isolated function get retry\-tasks(
+    # + return - Paginated review activities as JSON, or an internal server error.
+    resource isolated function get review\-activities(
             @http:Header {name: "x-user-id"} string? userId,
             @http:Header {name: "x-user-roles"} string? userRoles,
             string? status = (),
@@ -1037,60 +1037,61 @@ final http:InterceptableService mgmtService = @http:ServiceConfig {
             string? closeTimeFrom = (),
             string? closeTimeTo = ())
             returns json|http:InternalServerError {
-        RetryTaskSummary[]|error all = listAllRetryTasks(status,
+        ReviewActivitySummary[]|error all = listAllReviewActivities(status,
                 startTimeFrom, startTimeTo, closeTimeFrom, closeTimeTo);
         if all is error {
-            return <http:InternalServerError>{body: errorBody("Failed to list retry tasks: " + all.message())};
+            return <http:InternalServerError>{
+                body: errorBody("Failed to list review activities: " + all.message())};
         }
-        RetryTaskSummary[] filtered = all
+        ReviewActivitySummary[] filtered = all
             .filter(t => parentWorkflowId is () || t.parentWorkflowId == parentWorkflowId)
             .filter(t => taskName is () || t.taskName == taskName);
-        return paginateRetryTasks(filtered, clampLimit('limit, maxPageSize), pageToken).toJson();
+        return paginateReviewActivities(filtered, clampLimit('limit, maxPageSize), pageToken).toJson();
     }
 
-    # Returns detailed info for a single retry task.
-    # + taskId - The retry task workflow ID.
+    # Returns detailed info for a single review activity.
+    # + taskId - The review activity workflow ID.
     # + userId - Optional caller identity from the `x-user-id` header.
     # + userRoles - Optional comma-separated roles from the `x-user-roles` header.
-    # + return - Retry task detail as JSON, a not-found error, or an internal server error.
-    resource isolated function get retry\-tasks/[string taskId](
+    # + return - Review activity detail as JSON, a not-found error, or an internal server error.
+    resource isolated function get review\-activities/[string taskId](
             @http:Header {name: "x-user-id"} string? userId,
             @http:Header {name: "x-user-roles"} string? userRoles)
             returns json|http:NotFound|http:InternalServerError {
-        RetryTaskInfo|error info = getRetryTaskInfo(taskId);
+        ReviewActivityInfo|error info = getReviewActivityInfo(taskId);
         if info is error {
             string msg = info.message();
             return msg.includes("not found") || msg.includes("NOT_FOUND")
-                ? <http:NotFound>{body: errorBody("Retry task not found: " + taskId)}
+                ? <http:NotFound>{body: errorBody("Review activity not found: " + taskId)}
                 : <http:InternalServerError>{body: errorBody(msg)};
         }
         return info.toJson();
     }
 
-    // ── Retry Tasks — Decisions ───────────────────────────────────────────────
+    // ── Review Activities — Decisions ──────────────────────────────────────────
 
-    # Retries the failed activity with the original input.
-    # + taskId - The retry task workflow ID.
+    # Proceeds: runs the gated activity, or reruns the failed one, with the original input.
+    # + taskId - The review activity workflow ID.
     # + userId - Optional caller identity from the `x-user-id` header.
     # + userRoles - Optional comma-separated roles from the `x-user-roles` header.
-    # + return - Retry decision info as JSON, or a not-found, forbidden, conflict, or internal server error.
-    resource isolated function post retry\-tasks/[string taskId]/'retry(
+    # + return - Review decision info as JSON, or a not-found, forbidden, conflict, or internal server error.
+    resource isolated function post review\-activities/[string taskId]/'proceed(
             @http:Header {name: "x-user-id"} string? userId,
             @http:Header {name: "x-user-roles"} string? userRoles)
             returns json|http:NotFound|http:Forbidden|http:Conflict|http:InternalServerError {
         [string, string...]? callerRoles = parseRolesHeader(userRoles);
-        error? err = completeRetryTask(taskId, {action: "retry"}, callerRoles, userId);
-        if err is error { return retryTaskErrorResponse(err); }
-        return buildRetryDecisionResponse("retry", userId).toJson();
+        error? err = completeReviewActivity(taskId, {action: "proceed"}, callerRoles, userId);
+        if err is error { return reviewActivityErrorResponse(err); }
+        return buildReviewDecisionResponse("proceed", userId).toJson();
     }
 
-    # Retries the failed activity with modified input.
-    # + taskId - The retry task workflow ID.
+    # Proceeds with modified input: runs the gated/failed activity with the replacement arguments.
+    # + taskId - The review activity workflow ID.
     # + userId - Optional caller identity from the `x-user-id` header.
     # + userRoles - Optional comma-separated roles from the `x-user-roles` header.
     # + body - Request body containing the replacement `input` object.
-    # + return - Retry decision info as JSON, or a bad request, not-found, forbidden, conflict, or internal server error.
-    resource isolated function post retry\-tasks/[string taskId]/retry\-with\-input(
+    # + return - Review decision info as JSON, or a bad request, not-found, forbidden, conflict, or internal server error.
+    resource isolated function post review\-activities/[string taskId]/proceed\-with\-input(
             @http:Header {name: "x-user-id"} string? userId,
             @http:Header {name: "x-user-roles"} string? userRoles,
             @http:Payload map<json> body)
@@ -1099,26 +1100,31 @@ final http:InterceptableService mgmtService = @http:ServiceConfig {
             return <http:BadRequest>{body: errorBody("input must be a JSON object")};
         }
         [string, string...]? callerRoles = parseRolesHeader(userRoles);
-        error? err = completeRetryTask(taskId,
-                {action: "retry-with-input", input: <map<anydata>>body["input"]},
+        error? err = completeReviewActivity(taskId,
+                {action: "proceed-with-input", input: <map<anydata>>body["input"]},
                 callerRoles, userId);
-        if err is error { return retryTaskErrorResponse(err); }
-        return buildRetryDecisionResponse("retry-with-input", userId).toJson();
+        if err is error { return reviewActivityErrorResponse(err); }
+        return buildReviewDecisionResponse("proceed-with-input", userId).toJson();
     }
 
-    # Permanently fails the activity (cancels further retries).
-    # + taskId - The retry task workflow ID.
+    # Rejects: skips the gated activity, or permanently fails the failed one. Optional `feedback`
+    # in the body is relayed to the caller (for a durable agent, to the model so it can re-plan).
+    # + taskId - The review activity workflow ID.
     # + userId - Optional caller identity from the `x-user-id` header.
     # + userRoles - Optional comma-separated roles from the `x-user-roles` header.
-    # + return - Retry decision info as JSON, or a not-found, forbidden, conflict, or internal server error.
-    resource isolated function post retry\-tasks/[string taskId]/'fail(
+    # + body - Optional request body containing a `feedback` string.
+    # + return - Review decision info as JSON, or a not-found, forbidden, conflict, or internal server error.
+    resource isolated function post review\-activities/[string taskId]/'reject(
             @http:Header {name: "x-user-id"} string? userId,
-            @http:Header {name: "x-user-roles"} string? userRoles)
+            @http:Header {name: "x-user-roles"} string? userRoles,
+            @http:Payload map<json> body = {})
             returns json|http:NotFound|http:Forbidden|http:Conflict|http:InternalServerError {
         [string, string...]? callerRoles = parseRolesHeader(userRoles);
-        error? err = completeRetryTask(taskId, {action: "fail"}, callerRoles, userId);
-        if err is error { return retryTaskErrorResponse(err); }
-        return buildRetryDecisionResponse("fail", userId).toJson();
+        string? feedback = body["feedback"] is string ? <string>body["feedback"] : ();
+        error? err = completeReviewActivity(taskId, {action: "reject", feedback: feedback},
+                callerRoles, userId);
+        if err is error { return reviewActivityErrorResponse(err); }
+        return buildReviewDecisionResponse("reject", userId).toJson();
     }
 };
 
@@ -1131,12 +1137,12 @@ isolated function buildCompletionResponse(string? userId) returns CompletionInfo
     return {success: true, completedBy: userId ?: "unknown", completedAt: time:utcToString(now)};
 }
 
-# Builds a `RetryDecisionInfo` record stamped with the current UTC time and the
+# Builds a `ReviewDecisionInfo` record stamped with the current UTC time and the
 # caller's user ID (falls back to `"unknown"` when the header is absent).
-# + decision - The retry decision taken: `"retry"`, `"retry-with-input"`, or `"fail"`.
+# + decision - The review decision taken: `"proceed"`, `"proceed-with-input"`, or `"reject"`.
 # + userId - Optional caller identity; used as the `decidedBy` field.
-# + return - A `RetryDecisionInfo` record with `success`, `decision`, `decidedBy`, and `decidedAt` fields.
-isolated function buildRetryDecisionResponse(string decision, string? userId) returns RetryDecisionInfo {
+# + return - A `ReviewDecisionInfo` record with `success`, `decision`, `decidedBy`, and `decidedAt` fields.
+isolated function buildReviewDecisionResponse(string decision, string? userId) returns ReviewDecisionInfo {
     time:Utc now = time:utcNow();
     return {success: true, decision: decision, decidedBy: userId ?: "unknown", decidedAt: time:utcToString(now)};
 }
@@ -1206,17 +1212,17 @@ isolated function paginateHumanTasks(HumanTaskSummary[] items, int 'limit, strin
     return {items: pageItems, nextPageToken: nextToken, hasMore: hasMore};
 }
 
-isolated function paginateRetryTasks(RetryTaskSummary[] items, int 'limit, string? pageToken)
-        returns RetryTaskPage {
-    RetryTaskSummary[] sorted = from RetryTaskSummary t in items
+isolated function paginateReviewActivities(ReviewActivitySummary[] items, int 'limit, string? pageToken)
+        returns ReviewActivityPage {
+    ReviewActivitySummary[] sorted = from ReviewActivitySummary t in items
         order by t.startTime ascending, t.taskId ascending select t;
-    RetryTaskSummary[] remaining = sorted;
+    ReviewActivitySummary[] remaining = sorted;
     if pageToken is string {
         [string, string] cursor = decodeCursorToken(pageToken);
         string cursorTime = cursor[0];
         string cursorId = cursor[1];
         if cursorTime != "" {
-            remaining = from RetryTaskSummary t in sorted
+            remaining = from ReviewActivitySummary t in sorted
                 where t.startTime > cursorTime
                     || (t.startTime == cursorTime && t.taskId > cursorId)
                 select t;
@@ -1224,10 +1230,10 @@ isolated function paginateRetryTasks(RetryTaskSummary[] items, int 'limit, strin
     }
     int count = remaining.length();
     boolean hasMore = count > 'limit;
-    RetryTaskSummary[] pageItems = hasMore ? remaining.slice(0, 'limit) : remaining;
+    ReviewActivitySummary[] pageItems = hasMore ? remaining.slice(0, 'limit) : remaining;
     string? nextToken = ();
     if hasMore {
-        RetryTaskSummary last = pageItems[pageItems.length() - 1];
+        ReviewActivitySummary last = pageItems[pageItems.length() - 1];
         nextToken = encodeCursorToken(last.startTime, last.taskId);
     }
     return {items: pageItems, nextPageToken: nextToken, hasMore: hasMore};
@@ -1266,7 +1272,7 @@ isolated function humanTaskErrorResponse(error err)
     return <http:InternalServerError>{body: errorBody(msg)};
 }
 
-isolated function retryTaskErrorResponse(error err)
+isolated function reviewActivityErrorResponse(error err)
         returns http:NotFound|http:Forbidden|http:Conflict|http:InternalServerError {
     string msg = err.message();
     if msg.includes("not found") || msg.includes("NOT_FOUND") {

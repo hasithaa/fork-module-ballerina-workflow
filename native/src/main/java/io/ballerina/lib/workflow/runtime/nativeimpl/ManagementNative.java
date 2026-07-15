@@ -877,16 +877,20 @@ public final class ManagementNative {
                 return validationError;
             }
 
-            // Convert RetryDecision BMap → serializable Java map
+            // Convert ReviewDecision BMap → serializable Java map
             Map<String, Object> javaDecision = new LinkedHashMap<>();
             Object actionVal = decision.get(StringUtils.fromString("action"));
-            javaDecision.put("action", actionVal != null ? actionVal.toString() : "fail");
+            javaDecision.put("action", actionVal != null ? actionVal.toString() : "reject");
 
             Object inputVal = decision.get(StringUtils.fromString("input"));
             if (inputVal != null) {
                 javaDecision.put("input", TypesUtil.convertBallerinaToJavaType(inputVal));
             }
-            // Embed audit fields so the history scan in getRetryTaskInfo can retrieve them
+            Object feedbackVal = decision.get(StringUtils.fromString("feedback"));
+            if (feedbackVal instanceof BString fb) {
+                javaDecision.put("feedback", fb.getValue());
+            }
+            // Embed audit fields so the history scan in getReviewActivityInfo can retrieve them
             javaDecision.put("decidedBy", userId instanceof BString bs ? bs.getValue() : "unknown");
             javaDecision.put("decidedAt", Instant.now().toString());
 
@@ -905,7 +909,8 @@ public final class ManagementNative {
     }
 
     /**
-     * Validates that {@code taskWorkflowId} is a running RETRY_TASK workflow and optionally checks that at least one of
+     * Validates that {@code taskWorkflowId} is a running REVIEW_ACTIVITY workflow and optionally checks that at least
+     * one of
      * the caller's roles appears in the task's {@code userRoles}.
      *
      * @return {@code null} if all checks pass, or a Ballerina error
@@ -935,7 +940,7 @@ public final class ManagementNative {
 
             // workflowKind check
             String workflowKind = decodeMemoString(dc, memoFields, "workflowKind", null);
-            if (!"RETRY_TASK".equals(workflowKind)) {
+            if (!"REVIEW_ACTIVITY".equals(workflowKind)) {
                 return ErrorCreator.createError(StringUtils.fromString(
                         "Invalid task: '" + taskWorkflowId + "' is not a retry task workflow (workflowKind=" +
                                 workflowKind + ")"));
@@ -981,7 +986,7 @@ public final class ManagementNative {
      * Scans the parent workflow's event history for child retry task workflows and returns them as
      * {@code RetryTaskSummary} records sorted alphabetically by task name.
      * <p>
-     * Child workflow ID format: {@code retrytask-{parentId}-{taskName}-{uuid}} where UUID is always 36 characters.
+     * Child workflow ID format: {@code reviewactivity-{parentId}-{taskName}-{uuid}} where UUID is always 36 characters.
      *
      * @param parentWorkflowId the parent workflow ID
      * @return a Ballerina {@code RetryTaskSummary[]} or an error
@@ -1018,14 +1023,14 @@ public final class ManagementNative {
                     if (event.getEventType() == EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED) {
                         var attrs = event.getStartChildWorkflowExecutionInitiatedEventAttributes();
                         String childId = attrs.getWorkflowId();
-                        if (childId.startsWith("retrytask-")) {
+                        if (childId.startsWith("reviewactivity-")) {
                             String taskName = decodeMemoString(dc, attrs.getMemo().getFieldsMap(), "taskName", childId);
                             childIdToTaskName.put(childId, taskName);
                             byTaskName.computeIfAbsent(taskName, k -> new ArrayList<>()).add(childId);
                         }
                     } else {
                         String completedChildId = getTerminalChildWorkflowId(event);
-                        if (completedChildId != null && completedChildId.startsWith("retrytask-")) {
+                        if (completedChildId != null && completedChildId.startsWith("reviewactivity-")) {
                             String taskName = childIdToTaskName.get(completedChildId);
                             if (taskName != null) {
                                 List<String> ids = byTaskName.get(taskName);
@@ -1043,7 +1048,7 @@ public final class ManagementNative {
             } while (!nextPageToken.isEmpty());
 
             RecordType summaryType = (RecordType) ValueCreator.createRecordValue(ModuleUtils.getManagementModule(),
-                                                                                 "RetryTaskSummary").getType();
+                                                                                 "ReviewActivitySummary").getType();
             BArray result = ValueCreator.createArrayValue(TypeCreator.createArrayType(summaryType));
 
             for (Map.Entry<String, List<String>> entry : byTaskName.entrySet()) {
@@ -1062,7 +1067,7 @@ public final class ManagementNative {
 
     /**
      * Lists all manual retry task instances via Temporal's visibility API. Filters executions whose workflow ID starts
-     * with {@code retrytask-}.
+     * with {@code reviewactivity-}.
      *
      * @param status optional status filter
      * @return a Ballerina {@code RetryTaskSummary[]} or an error
@@ -1089,7 +1094,7 @@ public final class ManagementNative {
             String query = String.join(" AND ", clauses);
 
             RecordType summaryType = (RecordType) ValueCreator.createRecordValue(ModuleUtils.getManagementModule(),
-                                                                                 "RetryTaskSummary").getType();
+                                                                                 "ReviewActivitySummary").getType();
             BArray result = ValueCreator.createArrayValue(TypeCreator.createArrayType(summaryType));
 
             ByteString pageToken = ByteString.EMPTY;
@@ -1111,7 +1116,7 @@ public final class ManagementNative {
 
                 for (WorkflowExecutionInfo wfInfo : response.getExecutionsList()) {
                     String wfId = wfInfo.getExecution().getWorkflowId();
-                    if (!wfId.startsWith("retrytask-")) {
+                    if (!wfId.startsWith("reviewactivity-")) {
                         continue;
                     }
                     result.append(toRetryTaskSummaryRecord(client, wfInfo));
@@ -1163,6 +1168,8 @@ public final class ManagementNative {
             String parentId = decodeMemoString(dc, memoFields, "parentWorkflowId", "");
             String errorMessage = decodeMemoString(dc, memoFields, "errorMessage", "");
             String createdAt = decodeMemoString(dc, memoFields, "createdAt", "");
+            // Older review activities (created before the trigger field) are all failure-driven.
+            String trigger = decodeMemoString(dc, memoFields, "trigger", "ON_FAILURE");
 
             String[] userRolesArr = new String[0];
             try {
@@ -1194,11 +1201,12 @@ public final class ManagementNative {
             }
 
             BMap<BString, Object> record = ValueCreator.createRecordValue(ModuleUtils.getManagementModule(),
-                                                                          "RetryTaskInfo");
+                                                                          "ReviewActivityInfo");
             record.put(StringUtils.fromString("taskId"), StringUtils.fromString(taskIdStr));
             record.put(StringUtils.fromString("taskName"), StringUtils.fromString(taskName));
             record.put(StringUtils.fromString("activityName"), StringUtils.fromString(activityName));
             record.put(StringUtils.fromString("parentWorkflowId"), StringUtils.fromString(parentId));
+            record.put(StringUtils.fromString("trigger"), StringUtils.fromString(trigger));
             record.put(StringUtils.fromString("status"), StringUtils.fromString(statusStr));
             record.put(StringUtils.fromString("startTime"), StringUtils.fromString(startTime));
             record.put(StringUtils.fromString("closeTime"),
@@ -1250,11 +1258,12 @@ public final class ManagementNative {
         } catch (Exception e) {
             // Fallback: minimal record with the info we already have
             BMap<BString, Object> record = ValueCreator.createRecordValue(ModuleUtils.getManagementModule(),
-                                                                          "RetryTaskSummary");
+                                                                          "ReviewActivitySummary");
             record.put(StringUtils.fromString("taskId"), StringUtils.fromString(taskId));
             record.put(StringUtils.fromString("taskName"), StringUtils.fromString(fallbackTaskName));
             record.put(StringUtils.fromString("activityName"), StringUtils.fromString(""));
             record.put(StringUtils.fromString("parentWorkflowId"), StringUtils.fromString(""));
+            record.put(StringUtils.fromString("trigger"), StringUtils.fromString("ON_FAILURE"));
             record.put(StringUtils.fromString("status"), StringUtils.fromString("UNKNOWN"));
             record.put(StringUtils.fromString("startTime"), StringUtils.fromString(""));
             record.put(StringUtils.fromString("closeTime"), null);
@@ -1277,13 +1286,15 @@ public final class ManagementNative {
         String taskName = decodeMemoString(dc, memoFields, "taskName", "");
         String activityName = decodeMemoString(dc, memoFields, "activityName", "");
         String parentId = decodeMemoString(dc, memoFields, "parentWorkflowId", "");
+        String trigger = decodeMemoString(dc, memoFields, "trigger", "ON_FAILURE");
 
         BMap<BString, Object> record = ValueCreator.createRecordValue(ModuleUtils.getManagementModule(),
-                                                                      "RetryTaskSummary");
+                                                                      "ReviewActivitySummary");
         record.put(StringUtils.fromString("taskId"), StringUtils.fromString(wfId));
         record.put(StringUtils.fromString("taskName"), StringUtils.fromString(taskName));
         record.put(StringUtils.fromString("activityName"), StringUtils.fromString(activityName));
         record.put(StringUtils.fromString("parentWorkflowId"), StringUtils.fromString(parentId));
+        record.put(StringUtils.fromString("trigger"), StringUtils.fromString(trigger));
         record.put(StringUtils.fromString("status"), StringUtils.fromString(convertStatus(wfInfo.getStatus())));
 
         Timestamp st = wfInfo.getStartTime();
@@ -1411,7 +1422,7 @@ public final class ManagementNative {
 
     /**
      * Lists workflow instances via Temporal's visibility API with optional filters and pagination. Automatically
-     * excludes humantask- and retrytask- child workflows.
+     * excludes humantask- and reviewactivity- child workflows.
      *
      * @param status       optional status filter BString (RUNNING, COMPLETED, FAILED, …)
      * @param workflowType optional workflow type filter BString
@@ -1433,7 +1444,7 @@ public final class ManagementNative {
 
             // Build Temporal visibility query.
             // User workflow types are registered with the "workflow-" prefix so a simple
-            // STARTS_WITH clause filters out internal humantask-* and retrytask-* children
+            // STARTS_WITH clause filters out internal humantask-* and reviewactivity-* children
             // without needing the NOT operator (unsupported on standard visibility stores).
             List<String> clauses = new ArrayList<>();
 
@@ -1809,10 +1820,10 @@ public final class ManagementNative {
                         String childId = attrs.getWorkflowId();
                         String childType = attrs.getWorkflowType().getName();
                         String nodeType = childNodeType(childId);
-                        // For retrytask- children the instance ID no longer encodes the task name;
+                        // For reviewactivity- children the instance ID no longer encodes the task name;
                         // read it from the memo instead. Human tasks use shortTaskName() which
                         // parses the "humantask-workflowDef.taskName" WorkflowType correctly.
-                        String nodeName = childId.startsWith("retrytask-") ? decodeMemoString(dc, attrs
+                        String nodeName = childId.startsWith("reviewactivity-") ? decodeMemoString(dc, attrs
                                 .getMemo()
                                 .getFieldsMap(), "taskName", childType) : shortTaskName(childType, childId);
                         var node = newNode(eid, nodeName, nodeType, ts);
@@ -2075,8 +2086,8 @@ public final class ManagementNative {
         if (workflowId.startsWith("humantask-")) {
             return "HUMAN_TASK";
         }
-        if (workflowId.startsWith("retrytask-")) {
-            return "RETRY_TASK";
+        if (workflowId.startsWith("reviewactivity-")) {
+            return "REVIEW_ACTIVITY";
         }
         return "CHILD_WORKFLOW";
     }

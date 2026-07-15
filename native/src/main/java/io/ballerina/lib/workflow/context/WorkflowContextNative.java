@@ -205,13 +205,13 @@ public final class WorkflowContextNative {
             Map<String, Object> decision = callBuiltinRetryTask(fullActivityName, currentArgs, lastErrorMsg,
                                                                 workflowType);
 
-            String action = decision.containsKey("action") ? String.valueOf(decision.get("action")) : "fail";
+            String action = decision.containsKey("action") ? String.valueOf(decision.get("action")) : "reject";
 
             switch (action) {
-                case "retry" -> {
+                case "proceed" -> {
                     // Re-run with the same arguments
                 }
-                case "retry-with-input" -> {
+                case "proceed-with-input" -> {
                     // Replace args with the new input map provided by the human
                     Object newInput = decision.get("input");
                     if (newInput instanceof Map<?, ?> inputMap) {
@@ -220,40 +220,55 @@ public final class WorkflowContextNative {
                     // else: keep existing args (safety fallback)
                 }
                 default -> {
-                    // "fail" or any unknown action — surface the original error
-                    return ErrorCreator.createError(StringUtils.fromString(lastErrorMsg != null ? lastErrorMsg :
-                                                                           "Activity failed and manual retry decision" +
-                                                                                   " was 'fail'"));
+                    // "reject" or any unknown action — surface the original error, appending the
+                    // reviewer's feedback when present.
+                    Object feedback = decision.get("feedback");
+                    String base = lastErrorMsg != null ? lastErrorMsg
+                            : "Activity failed and the review decision was 'reject'";
+                    String message = feedback instanceof String fb && !fb.isBlank()
+                            ? base + " (reviewer: " + fb + ")" : base;
+                    return ErrorCreator.createError(StringUtils.fromString(message));
                 }
             }
         }
     }
 
     /**
-     * Starts a built-in RetryTask child workflow and blocks until a human sends a {@code "taskDecision"} signal.
-     * Returns the signal payload map ({@code action}, optionally {@code input}).
+     * Starts a built-in review-activity child workflow and blocks until a human sends a {@code "taskDecision"}
+     * signal. Returns the signal payload map ({@code action}, optionally {@code input}/{@code feedback}).
+     * <p>Used for the on-failure manual-retry path (via {@link #callBuiltinRetryTask}) and, from
+     * {@code AgentContextNative}, for the pre-run approval gate.
+     *
+     * @param trigger          {@code "PRE_RUN"} (approval gate) or {@code "ON_FAILURE"} (rerun decision)
+     * @param fullActivityName the qualified activity name (also used as the task name)
+     * @param activityArgs     the proposed (or last-attempted) arguments, shown to the reviewer
+     * @param errorMessage     the failure message for ON_FAILURE, or empty/null for PRE_RUN
+     * @param userRoles        roles permitted to decide (empty → any role)
+     * @param timeoutMillis    max wait for a decision, or null to wait indefinitely
+     * @return the decision map
      */
     @SuppressWarnings("unchecked")
-    private static Map<String, Object> callBuiltinRetryTask(String fullActivityName, Map<String, Object> activityArgs,
-                                                            String errorMessage, String workflowType) {
-
-        // Task name is derived from the activity name (already qualified with workflow type)
+    static Map<String, Object> startReviewActivity(String trigger, String fullActivityName,
+                                                   Map<String, Object> activityArgs, String errorMessage,
+                                                   String[] userRoles, Long timeoutMillis) {
         String qualifiedTaskName = fullActivityName;
-
         String parentWorkflowId = Workflow.getInfo().getWorkflowId();
-        String retryTaskId = "retrytask-" + Workflow.randomUUID();
+        String reviewId = "reviewactivity-" + Workflow.randomUUID();
 
-        // Ensure the built-in retry task workflow type is registered
         WorkflowWorkerNative.ensureRetryTaskRegistered();
+
+        String[] roles = userRoles != null ? userRoles : new String[0];
 
         // Memo — readable without fetching full history
         Map<String, Object> memo = new HashMap<>();
-        memo.put("workflowKind", "RETRY_TASK");
+        memo.put("workflowKind", "REVIEW_ACTIVITY");
+        memo.put("trigger", trigger);
         memo.put("activityName", fullActivityName);
         memo.put("taskName", qualifiedTaskName);
         memo.put("parentWorkflowId", parentWorkflowId);
         memo.put("errorMessage", errorMessage != null ? errorMessage : "");
         memo.put("activityArgs", activityArgs);
+        memo.put("userRoles", roles);
         memo.put("createdAt", java.time.Instant.ofEpochMilli(Workflow.currentTimeMillis()).toString());
 
         // Input passed into the child workflow's execute()
@@ -264,22 +279,38 @@ public final class WorkflowContextNative {
         inputs.put("errorMessage", errorMessage != null ? errorMessage : "");
         inputs.put("activityArgs", activityArgs);
 
-        io.temporal.workflow.ChildWorkflowOptions childOptions =
-                io.temporal.workflow.ChildWorkflowOptions.newBuilder().setWorkflowId(retryTaskId).setParentClosePolicy(
-                        io.temporal.api.enums.v1.ParentClosePolicy.PARENT_CLOSE_POLICY_TERMINATE).setMemo(memo).build();
+        io.temporal.workflow.ChildWorkflowOptions.Builder optsBuilder =
+                io.temporal.workflow.ChildWorkflowOptions.newBuilder().setWorkflowId(reviewId).setParentClosePolicy(
+                        io.temporal.api.enums.v1.ParentClosePolicy.PARENT_CLOSE_POLICY_TERMINATE).setMemo(memo);
+        if (timeoutMillis != null && timeoutMillis > 0) {
+            optsBuilder.setWorkflowExecutionTimeout(java.time.Duration.ofMillis(timeoutMillis));
+        }
 
         io.temporal.workflow.ChildWorkflowStub childStub = Workflow.newUntypedChildWorkflowStub(
-                WorkflowWorkerNative.RETRYTASK_WORKFLOW_TYPE, childOptions);
+                WorkflowWorkerNative.RETRYTASK_WORKFLOW_TYPE, optsBuilder.build());
 
-        Object rawResult = childStub.execute(Object.class, inputs);
-
-        if (rawResult instanceof Map<?, ?> resultMap) {
-            return (Map<String, Object>) resultMap;
+        try {
+            Object rawResult = childStub.execute(Object.class, inputs);
+            if (rawResult instanceof Map<?, ?> resultMap) {
+                return (Map<String, Object>) resultMap;
+            }
+        } catch (io.temporal.failure.ChildWorkflowFailure e) {
+            // Timed out (or otherwise ended) without a decision — treat as reject and say so.
+            Map<String, Object> timedOut = new HashMap<>();
+            timedOut.put("action", "reject");
+            timedOut.put("feedback", "the review timed out before a human decided");
+            return timedOut;
         }
-        // Fallback: treat any unexpected result as "fail"
+        // Fallback: treat any unexpected result as reject
         Map<String, Object> failDecision = new HashMap<>();
-        failDecision.put("action", "fail");
+        failDecision.put("action", "reject");
         return failDecision;
+    }
+
+    // On-failure manual-retry review (the ManualRetry policy). Delegates to the shared starter.
+    private static Map<String, Object> callBuiltinRetryTask(String fullActivityName, Map<String, Object> activityArgs,
+                                                            String errorMessage, String workflowType) {
+        return startReviewActivity("ON_FAILURE", fullActivityName, activityArgs, errorMessage, new String[0], null);
     }
 
     /**
@@ -289,7 +320,7 @@ public final class WorkflowContextNative {
      * @param autoRetryMap the AutoRetry BMap passed as retryPolicy
      * @return configured RetryOptions
      */
-    private static io.temporal.common.RetryOptions buildPerCallRetryOptions(BMap<BString, Object> autoRetryMap) {
+    static io.temporal.common.RetryOptions buildPerCallRetryOptions(BMap<BString, Object> autoRetryMap) {
         io.temporal.common.RetryOptions.Builder builder = io.temporal.common.RetryOptions.newBuilder();
 
         // maxRetries → maximumAttempts (maxRetries=0 means 1 total attempt, no retries)

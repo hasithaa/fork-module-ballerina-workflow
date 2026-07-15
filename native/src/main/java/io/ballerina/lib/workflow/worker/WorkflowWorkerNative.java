@@ -101,7 +101,7 @@ public final class WorkflowWorkerNative {
     /**
      * Prefix applied to all user-defined workflow types registered with Temporal. Allows
      * {@code WorkflowType STARTS_WITH 'workflow-'} queries to exclude internal child workflow types (humantask-*,
-     * retrytask-*) without needing the NOT operator.
+     * reviewactivity-*) without needing the NOT operator.
      */
     public static final String WORKFLOW_TYPE_PREFIX = "workflow-";
     /**
@@ -116,7 +116,8 @@ public final class WorkflowWorkerNative {
      */
     public static final String PENDING_AGENT_UPDATES_QUERY = "pendingAgentUpdates";
     /**
-     * Temporal workflow type used for all built-in manual retry task child workflows. Prefixed with {@code retrytask-}
+     * Temporal workflow type used for all built-in review activity child workflows. Prefixed with
+     * {@code reviewactivity-}
      * so internal workflows are clearly separated from user-defined ones and can be identified via a simple STARTS_WITH
      * check.
      */
@@ -2045,9 +2046,9 @@ public final class WorkflowWorkerNative {
             if (decision instanceof Map<?, ?>) {
                 return decision;
             }
-            // Fallback: treat any unexpected payload as "fail"
+            // Fallback: treat any unexpected payload as "reject"
             Map<String, Object> failDecision = new HashMap<>();
-            failDecision.put("action", "fail");
+            failDecision.put("action", "reject");
             return failDecision;
         }
     }
