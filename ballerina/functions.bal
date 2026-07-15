@@ -90,6 +90,57 @@ public isolated function updateAgent(function agentFunction, string agentId, str
     name: "updateAgent"
 } external;
 
+# Sends a request to a running durable agent without waiting for the answer.
+# Returns as soon as the request is durably accepted by the workflow server,
+# with an update ID for fetching the answer later via `getAgentUpdateResult` —
+# from this or any other process.
+#
+# Prefer this over the blocking `updateAgent` whenever the turn may take long,
+# e.g. when the agent escalates to a human task: no thread or connection is
+# held while the agent is suspended, and neither the request nor the answer is
+# lost if the caller crashes.
+#
+# ```ballerina
+# string updateId = check workflow:updateAgentAsync(orderAgent, agentId, "chat", "Expedite my order");
+# ```
+#
+# + agentFunction - The agent function (must have `@workflow:DurableAgent`)
+# + agentId - Target agent (workflow) ID (from `runDurableAgent`)
+# + eventName - The update channel registered by the agent
+# + data - The request payload
+# + return - The update ID to check back with, or an error
+public isolated function updateAgentAsync(function agentFunction, string agentId, string eventName,
+        anydata data) returns string|error = @java:Method {
+    'class: "io.ballerina.lib.workflow.runtime.nativeimpl.WorkflowNative",
+    name: "updateAgentAsync"
+} external;
+
+# Fetches the agent's answer for a request sent with `updateAgentAsync`. Waits
+# up to `timeoutSeconds`; when the agent has not finished the turn yet (e.g. it
+# is suspended on a human task) a `workflow:UpdatePendingError` is returned and
+# the caller should check back later with the same update ID. The answer is
+# read from the workflow history, so it remains retrievable after crashes and
+# from other processes.
+#
+# ```ballerina
+# string|error answer = workflow:getAgentUpdateResult(agentId, updateId);
+# if answer is workflow:UpdatePendingError {
+#     // still working - check back later
+# }
+# ```
+#
+# + agentId - Target agent (workflow) ID
+# + updateId - The update ID returned by `updateAgentAsync`
+# + timeoutSeconds - How long to wait before reporting the update as pending
+# + T - Expected response type (inferred from context)
+# + return - The agent's answer, a `workflow:UpdatePendingError` when the turn
+#            is still in progress, or an error
+public isolated function getAgentUpdateResult(string agentId, string updateId,
+        decimal timeoutSeconds = 30, typedesc<anydata> T = <>) returns T|error = @java:Method {
+    'class: "io.ballerina.lib.workflow.runtime.nativeimpl.WorkflowNative",
+    name: "getAgentUpdateResult"
+} external;
+
 # Waits for a workflow to complete and returns its result.
 #
 # ```ballerina
