@@ -178,25 +178,26 @@ public enum WorkflowDiagnostic {
                     + "contextually expected type '%s' of this 'callActivity' call",
             DiagnosticSeverity.ERROR),
     WORKFLOW_138("WORKFLOW_138",
-            "@DurableAgent cannot be combined with @Workflow or @Activity on the same function",
+            "@DurableAgenticWorkflow cannot be combined with @Workflow or @Activity on the same function",
             DiagnosticSeverity.ERROR),
     WORKFLOW_139("WORKFLOW_139",
-            "a @DurableAgent function must not declare an events parameter; declare update channels "
+            "a @DurableAgenticWorkflow function must not declare an events parameter; declare update channels "
                     + "imperatively via ctx.registerUpdateEvents(name, requestType) instead",
             DiagnosticSeverity.ERROR),
     WORKFLOW_140("WORKFLOW_140",
-            "buildAndRun() must be the last statement of the @DurableAgent function and cannot appear "
+            "buildAndRunAgent() must be the last statement of the @DurableAgenticWorkflow function and cannot appear "
                     + "inside conditional or loop blocks",
             DiagnosticSeverity.ERROR),
     WORKFLOW_141("WORKFLOW_141",
-            "@DurableAgent function must have a function body; an external body is not allowed",
+            "@DurableAgenticWorkflow function must have a function body; an external body is not allowed",
             DiagnosticSeverity.ERROR),
     WORKFLOW_142("WORKFLOW_142",
-            "@DurableAgent function signature must be '(workflow:AgentContext ctx, InputType input)' "
+            "@DurableAgenticWorkflow function signature must be "
+                    + "'(workflow:AgenticWorkflowContext ctx, InputType input)' "
                     + "where the input is a subtype of 'anydata'",
             DiagnosticSeverity.ERROR),
     WORKFLOW_143("WORKFLOW_143",
-            "@DurableAgent function return type must be 'error?'",
+            "@DurableAgenticWorkflow function return type must be 'error?'",
             DiagnosticSeverity.ERROR),
     WORKFLOW_144("WORKFLOW_144",
             "Direct AI calls are not allowed inside a workflow: LLM responses are non-deterministic and "

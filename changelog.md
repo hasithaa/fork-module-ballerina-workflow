@@ -8,21 +8,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
-- Added **durable AI agents** (`@workflow:DurableAgent`): an LLM agent that runs as a
+- Added **durable AI agents** (`@workflow:DurableAgenticWorkflow`): an LLM agent that runs as a
   Temporal-backed workflow, so its reasoning loop, tool calls, and multi-turn
   conversations are journaled and survive worker crashes and restarts. The agent
-  function receives a `workflow:AgentContext` and registers its capabilities
+  function receives a `workflow:AgenticWorkflowContext` and registers its capabilities
   imperatively — `registerActivity` (a `@workflow:Activity`, optionally partially
   applied via `bindings` so built-in activities like `activity:callRestAPI` work
   as-is; `requiresApproval` and `retryPolicy` gate or retry it), `registerAgentTool`
   (an `ai:BaseToolKit`/`ai:ToolConfig`/`@ai:AgentTool`), `registerHumanTask`, and
   `registerUpdateEvents` (two-way channels) — then hands control to the durable
-  ReAct loop with a terminal `buildAndRun`. Started with `workflow:runDurableAgent`
+  ReAct loop with a terminal `buildAndRunAgent`. Started with `workflow:runDurableAgent`
   and driven with `workflow:updateAgent` (blocking) or `workflow:updateAgentAsync`
   + `workflow:getAgentUpdateResult`/`getPendingAgentUpdates` (non-blocking, crash-safe
   check-back). Gated capabilities and manual retries surface as `PRE_RUN` /
   `ON_FAILURE` review activities. Adds compiler-plugin validation for agent signatures,
-  terminal `buildAndRun`, and a ban on direct AI model/agent calls inside workflow
+  terminal `buildAndRunAgent`, and a ban on direct AI model/agent calls inside workflow
   and agent bodies (`WORKFLOW_138`–`WORKFLOW_144`).
 - Renamed the management "retry task" concept to **review activity**
   ([#8906](https://github.com/ballerina-platform/ballerina-library/issues/8906)): one

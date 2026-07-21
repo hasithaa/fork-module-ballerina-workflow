@@ -1,9 +1,9 @@
 # Durable AI Agent — Conversational Order Processing
 
-Demonstrates a durable AI agent written with the imperative `workflow:AgentContext` API,
+Demonstrates a durable AI agent written with the imperative `workflow:AgenticWorkflowContext` API,
 powered by the **WSO2 default model provider** (`ai:getDefaultModelProvider()`).
 
-The `@workflow:DurableAgent` function receives an `AgentContext`, registers its tools
+The `@workflow:DurableAgenticWorkflow` function receives an `AgenticWorkflowContext`, registers its tools
 (`@workflow:Activity` functions) imperatively, configures the `MULTI_EVENT` interaction pattern,
 and hands control to the durable ReAct loop via `ctx.runDurableAgent(query, systemPrompt = ..., model = ...)` —
 the same configuration shape as a regular `ai:Agent`.

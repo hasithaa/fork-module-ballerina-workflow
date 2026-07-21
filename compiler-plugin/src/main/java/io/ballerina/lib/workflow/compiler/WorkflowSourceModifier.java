@@ -104,7 +104,7 @@ public class WorkflowSourceModifier implements ModifierTask<SourceModifierContex
                     agent.workflowPrefix() + ":" + WorkflowConstants.GENERATE_ACTIVITY);
             activityMap.put(WorkflowConstants.EXECUTE_AGENT_TOOL_ACTIVITY,
                     agent.workflowPrefix() + ":" + WorkflowConstants.EXECUTE_AGENT_TOOL_ACTIVITY);
-            // Human tasks registered on the AgentContext reuse the same qualified
+            // Human tasks registered on the AgenticWorkflowContext reuse the same qualified
             // "<functionName>.<taskName>" init registration as awaitHumanTask call sites.
             allProcessInfos.add(new ProcessFunctionInfo(agent.functionName(), activityMap,
                     agent.humanTaskNames()));

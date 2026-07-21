@@ -15,7 +15,7 @@
 // under the License.
 
 // ============================================================================
-// Durable AI agent workflows (imperative AgentContext API) — exercised through
+// Durable AI agent workflows (imperative AgenticWorkflowContext API) — exercised through
 // the REAL compiler-plugin codegen path against the shared Temporal dev server.
 // The model is a scripted mock ai:ModelProvider so no credentials are needed.
 // ============================================================================
@@ -78,10 +78,10 @@ final AgentMockModelProvider agentMockModel = new;
 # + ctx - The agent context
 # + input - The agent input
 # + return - An error if the agent fails
-@workflow:DurableAgent
-function stockCheckAgent(workflow:AgentContext ctx, AgentStockInput input) returns error? {
+@workflow:DurableAgenticWorkflow
+function stockCheckAgent(workflow:AgenticWorkflowContext ctx, AgentStockInput input) returns error? {
     check ctx.registerActivity(agentCheckStock);
-    check ctx.buildAndRun(input.request,
+    check ctx.buildAndRunAgent(input.request,
             systemPrompt = {role: "", instructions: "You are an inventory assistant. Use agentCheckStock for availability."},
             model = agentMockModel);
 }
@@ -91,11 +91,11 @@ function stockCheckAgent(workflow:AgentContext ctx, AgentStockInput input) retur
 # + ctx - The agent context
 # + input - The agent input
 # + return - An error if the agent fails
-@workflow:DurableAgent
-function chatDrivenStockAgent(workflow:AgentContext ctx, AgentStockInput input) returns error? {
+@workflow:DurableAgenticWorkflow
+function chatDrivenStockAgent(workflow:AgenticWorkflowContext ctx, AgentStockInput input) returns error? {
     check ctx.registerActivity(agentCheckStock);
     check ctx.registerUpdateEvents("chat", string);
-    check ctx.buildAndRun(systemPrompt = {role: "", instructions: "You are an inventory assistant. Use agentCheckStock for availability."},
+    check ctx.buildAndRunAgent(systemPrompt = {role: "", instructions: "You are an inventory assistant. Use agentCheckStock for availability."},
             model = agentMockModel);
 }
 
@@ -151,10 +151,10 @@ final ConversationMockModelProvider conversationMockModel = new;
 # + ctx - The agent context
 # + input - The agent input
 # + return - An error if the agent fails
-@workflow:DurableAgent
-function conversationalStockAgent(workflow:AgentContext ctx, AgentStockInput input) returns error? {
+@workflow:DurableAgenticWorkflow
+function conversationalStockAgent(workflow:AgenticWorkflowContext ctx, AgentStockInput input) returns error? {
     check ctx.registerUpdateEvents("chat", string);
-    check ctx.buildAndRun(input.request,
+    check ctx.buildAndRunAgent(input.request,
             systemPrompt = {role: "", instructions: "Chat with the user until they say bye."},
             model = conversationMockModel, interaction = workflow:MULTI_EVENT, eventTimeout = {minutes: 5});
 }

@@ -124,7 +124,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
             validateActivityFunction(functionNode, context);
         }
 
-        // Check if function has @DurableAgent annotation
+        // Check if function has @DurableAgenticWorkflow annotation
         if (hasAnnotation(functionNode, semanticModel, WorkflowConstants.AGENT_ANNOTATION)) {
             if (hasAnnotation(functionNode, semanticModel, WorkflowConstants.PROCESS_ANNOTATION)
                     || hasAnnotation(functionNode, semanticModel, WorkflowConstants.ACTIVITY_ANNOTATION)) {
@@ -1043,14 +1043,14 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
     }
 
     // =========================================================================
-    // @DurableAgent function validation
+    // @DurableAgenticWorkflow function validation
     // =========================================================================
 
     /**
-     * Validates a {@code @workflow:DurableAgent} function.
+     * Validates a {@code @workflow:DurableAgenticWorkflow} function.
      * <ul>
      *   <li>WORKFLOW_141 — must have a body (not {@code = external})</li>
-     *   <li>WORKFLOW_142 — signature must be {@code (workflow:AgentContext ctx, InputRecord input,
+     *   <li>WORKFLOW_142 — signature must be {@code (workflow:AgenticWorkflowContext ctx, InputRecord input,
      *       EventsRecord events?)} with input a subtype of anydata</li>
      *   <li>WORKFLOW_132 — the events parameter, when present, must be an all-{@code future} record</li>
      *   <li>WORKFLOW_143 — return type must be {@code error?}</li>
@@ -1070,7 +1070,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
         }
         FunctionTypeSymbol typeSymbol = ((FunctionSymbol) symbolOpt.get()).typeDescriptor();
 
-        // Signature: exactly (AgentContext ctx, InputRecord input). Update channels are
+        // Signature: exactly (AgenticWorkflowContext ctx, InputRecord input). Update channels are
         // declared imperatively via ctx.registerUpdateEvents, not in the signature.
         List<ParameterSymbol> params = typeSymbol.params().orElse(List.of());
         if (params.size() == 3 && isValidEventsType(params.get(2).typeDescriptor())) {
@@ -1081,7 +1081,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
             reportDiagnostic(context, functionNode, WorkflowDiagnostic.WORKFLOW_142);
         }
 
-        // buildAndRun() is terminal: it must be the last top-level statement of the body.
+        // buildAndRunAgent() is terminal: it must be the last top-level statement of the body.
         validateBuildAndRunPlacement(functionNode, context);
 
         // Return type: error? (no value).
@@ -1092,7 +1092,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
     }
 
     /**
-     * Validates that every {@code buildAndRun()} call inside the agent function is the final
+     * Validates that every {@code buildAndRunAgent()} call inside the agent function is the final
      * top-level statement of the function body — never nested in conditionals or loops, and
      * never followed by further statements.
      */
@@ -1136,7 +1136,7 @@ public class WorkflowValidatorTask implements AnalysisTask<SyntaxNodeAnalysisCon
     }
 
     /**
-     * Returns true when the type is the {@code workflow:AgentContext} object type.
+     * Returns true when the type is the {@code workflow:AgenticWorkflowContext} object type.
      */
     private boolean isAgentContextType(TypeSymbol typeSymbol) {
         TypeSymbol resolved = WorkflowPluginUtils.resolveTypeReference(typeSymbol);

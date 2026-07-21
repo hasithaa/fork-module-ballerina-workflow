@@ -60,8 +60,8 @@ public final class EventExtractor {
 
     // Context type name for identifying workflow context parameter
     private static final String CONTEXT_TYPE_NAME = "Context";
-    // AgentContext type name for identifying a durable agent's context parameter
-    private static final String AGENT_CONTEXT_TYPE_NAME = "AgentContext";
+    // AgenticWorkflowContext type name for identifying a durable agent's context parameter
+    private static final String AGENT_CONTEXT_TYPE_NAME = "AgenticWorkflowContext";
 
     private EventExtractor() {
         // Utility class, prevent instantiation
@@ -438,17 +438,17 @@ public final class EventExtractor {
         if (type == null) {
             return false;
         }
-        // Check by type name - Context / AgentContext are object types from the workflow module.
+        // Check by type name - Context / AgenticWorkflowContext are object types from the workflow module.
         // Both occupy the leading "context" parameter slot for arg alignment purposes.
         String typeName = type.getName();
         return CONTEXT_TYPE_NAME.equals(typeName) || AGENT_CONTEXT_TYPE_NAME.equals(typeName);
     }
 
     /**
-     * Checks whether the function's first parameter is a {@code workflow:AgentContext}.
+     * Checks whether the function's first parameter is a {@code workflow:AgenticWorkflowContext}.
      *
      * @param processFunction the function pointer
-     * @return true if the first parameter is AgentContext
+     * @return true if the first parameter is AgenticWorkflowContext
      */
     public static boolean hasAgentContextParameter(BFunctionPointer processFunction) {
         if (processFunction == null) {

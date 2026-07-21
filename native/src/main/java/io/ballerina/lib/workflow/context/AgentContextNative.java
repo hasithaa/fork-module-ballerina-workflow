@@ -51,7 +51,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Native implementations backing the {@code workflow:AgentContext} client class and the durable agent loop.
+ * Native implementations backing the {@code workflow:AgenticWorkflowContext} client class and the durable agent loop.
  * <p>
  * The imperative agent body registers capabilities on the context — workflow activities
  * ({@link #recordActivityTool}), AI tools ({@link #recordAiTool}), and human tasks
@@ -103,7 +103,7 @@ public final class AgentContextNative {
         private Long eventTimeoutMillis = null;
         private long maxEventWaits = 50;
         private long eventWaitCount = 0;
-        // Approval policy for gated tools (configured via ctx.buildAndRun approval config).
+        // Approval policy for gated tools (configured via ctx.buildAndRunAgent approval config).
         private String[] approvalUserRoles = new String[0];
         private Long approvalTimeoutMillis = null;
         // The responder of the updateAgent request whose message the agent most recently

@@ -844,7 +844,7 @@ public class WorkflowCompilerPluginTest {
                 "Expected message to contain '" + substring + "' but got: " + diagnostic.message());
     }
 
-    // ===== @DurableAgent (imperative) test cases =====
+    // ===== @DurableAgenticWorkflow (imperative) test cases =====
     //
     // These fixtures deliberately do NOT import ballerina/ai: the ai compiler
     // plugin needs swagger-core, which is not on the BuildProject test harness
@@ -859,7 +859,7 @@ public class WorkflowCompilerPluginTest {
         // workflow with its tools + built-in llmChat/generate activities, compiling cleanly.
         DiagnosticResult diagnosticResult = getDiagnosticResult("valid_agent_basic");
         Assert.assertEquals(diagnosticResult.errorCount(), 0,
-                "Expected no errors for a valid @DurableAgent. Errors: "
+                "Expected no errors for a valid @DurableAgenticWorkflow. Errors: "
                         + getDiagnosticMessages(diagnosticResult));
     }
 
@@ -877,7 +877,7 @@ public class WorkflowCompilerPluginTest {
 
     @Test(groups = "invalid")
     public void testInvalidAgentEventsShape() {
-        // Declaring an events parameter on a @DurableAgent is forbidden: update
+        // Declaring an events parameter on a @DurableAgenticWorkflow is forbidden: update
         // channels are registered imperatively via ctx.registerUpdateEvents.
         DiagnosticResult diagnosticResult = getValidationDiagnosticResult("invalid_agent_events_shape");
         assertDiagnosticContains(diagnosticResult, WorkflowDiagnostic.WORKFLOW_139);

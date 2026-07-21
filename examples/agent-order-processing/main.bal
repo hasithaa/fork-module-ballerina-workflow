@@ -40,11 +40,11 @@ function checkInventory(string item) returns string|error {
 // pattern the model answers each turn and then durably re-arms the chat wait —
 // suspending for hours or days without holding a thread — until the user says
 // goodbye (or the safety timeout/wait-cap kicks in).
-@workflow:DurableAgent
-function orderAgent(workflow:AgentContext durableAgentContext, OrderRequest req) returns error? {
+@workflow:DurableAgenticWorkflow
+function orderAgent(workflow:AgenticWorkflowContext durableAgentContext, OrderRequest req) returns error? {
     check durableAgentContext.registerActivity(checkInventory);
     check durableAgentContext.registerUpdateEvents("chat", string);
-    check durableAgentContext.buildAndRun(req.userPrompt,
+    check durableAgentContext.buildAndRunAgent(req.userPrompt,
             systemPrompt = {
                 role: string `You are the assistant for order ${req.orderId}.`,
                 instructions: string `Use the checkInventory tool to answer product availability questions.

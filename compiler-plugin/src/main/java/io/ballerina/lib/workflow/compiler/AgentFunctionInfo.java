@@ -25,14 +25,15 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Holds information about a {@code @workflow:DurableAgent} function, collected during the code-modifier analysis phase
+ * Holds information about a {@code @workflow:DurableAgenticWorkflow} function, collected during the code-modifier
+  * analysis phase
  * and consumed by {@link WorkflowSourceModifier} to emit the agent's registrations at module init on every worker: its
  * workflow (with activity tools plus the built-in {@code llmChat}/{@code generate}/{@code executeAgentTool}
  * activities), its AI tool function pointers, and its human task types.
  *
  * @param functionName     the name of the agent function
  * @param workflowPrefix   the import prefix through which {@code ballerina/workflow} is referenced (from the
- *                         {@code @<prefix>:DurableAgent} annotation), used to qualify the built-in activities
+ *                         {@code @<prefix>:DurableAgenticWorkflow} annotation), used to qualify the built-in activities
  * @param activityToolRefs map of tool simple name to source reference, from {@code ctx.registerActivity(...)}
  *                         call sites
  * @param aiToolRefs       source references of function tools from {@code ctx.runDurableAgent(..., tools = [...])}

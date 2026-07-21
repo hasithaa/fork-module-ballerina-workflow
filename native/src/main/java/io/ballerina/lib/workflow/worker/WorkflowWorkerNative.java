@@ -222,12 +222,12 @@ public final class WorkflowWorkerNative {
     private static final Map<String, BObject> CONNECTION_REGISTRY = new ConcurrentHashMap<>();
     // Maps an agent's workflow type (e.g. {@code workflow-processOrderAgent}) to the
     // ai:ModelProvider client used by its LLM activities. Populated at runtime by
-    // AgentContext.runDurableAgent.
+    // AgenticWorkflowContext.runDurableAgent.
     private static final Map<String, BObject> AGENT_MODEL_REGISTRY = new ConcurrentHashMap<>();
     // Maps "<agent workflow type>.<tool name>" to the AI tool function pointer invoked by the
     // built-in executeAgentTool activity wrapper. Populated at module init by the
     // compiler-plugin-emitted `wfInternal:registerAgentTool(...)` calls (so every worker has
-    // the pointer) and again at runtime by AgentContext.registerTools (covers dynamically
+    // the pointer) and again at runtime by AgenticWorkflowContext.registerTools (covers dynamically
     // constructed ai:ToolConfig values on the worker that runs the agent body).
     private static final Map<String, BFunctionPointer> AGENT_TOOL_REGISTRY = new ConcurrentHashMap<>();
     // Flags for singleton state
@@ -1122,7 +1122,8 @@ public final class WorkflowWorkerNative {
 
     /**
      * Registers the {@code ai:ModelProvider} client used by an agent workflow's built-in LLM activities. Called at
-     * runtime from {@code AgentContext.runDurableAgent} (via {@code AgentContextNative.registerModel}) with the agent's
+     * runtime from {@code AgenticWorkflowContext.runDurableAgent} (via {@code AgentContextNative.registerModel})
+      * with the agent's
      * full workflow type as the key.
      *
      * @param workflowType the agent's full workflow type (already {@code workflow-}-prefixed)
@@ -1152,7 +1153,7 @@ public final class WorkflowWorkerNative {
 
     /**
      * Stores an AI tool function pointer under the agent's full workflow type. Called at runtime by
-     * {@code AgentContext.registerTools}.
+     * {@code AgenticWorkflowContext.registerTools}.
      *
      * @param workflowType the agent's full workflow type (already {@code workflow-}-prefixed)
      * @param toolName     the tool's advertised name
@@ -1414,7 +1415,7 @@ public final class WorkflowWorkerNative {
         // agent; read by the dynamic update handler (also on the workflow thread) to reject
         // updateAgent calls targeting non-agent workflows.
         private boolean agentWorkflow = false;
-        // The agent's native context state; set when the AgentContext is created. Used by the
+        // The agent's native context state; set when the AgenticWorkflowContext is created. Used by the
         // update handler's closing fast-path and the failure backstop that settles updates.
         private AgentContextNative.AgentContextInfo agentContextInfo = null;
         // Accepted-but-unanswered agent updates (updateId -> eventName). Workflow code is
@@ -1528,7 +1529,7 @@ public final class WorkflowWorkerNative {
                         }
                         if (!this.agentWorkflow) {
                             throw io.temporal.failure.ApplicationFailure.newNonRetryableFailure(
-                                    "updateAgent is only supported for @workflow:DurableAgent workflows",
+                                    "updateAgent is only supported for @workflow:DurableAgenticWorkflow workflows",
                                     "error");
                         }
                         String eventName = encodedArgs.get(0, String.class);
@@ -1690,7 +1691,7 @@ public final class WorkflowWorkerNative {
                 // Extract workflow arguments from EncodedValues
                 Object[] workflowArgs = extractWorkflowArguments(args);
 
-                // Check if the process function expects a Context / AgentContext parameter
+                // Check if the process function expects a Context / AgenticWorkflowContext parameter
                 boolean hasContext = EventExtractor.hasContextParameter(processFunction);
                 boolean hasAgentContext = EventExtractor.hasAgentContextParameter(processFunction);
                 this.agentWorkflow = hasAgentContext;
@@ -1726,7 +1727,7 @@ public final class WorkflowWorkerNative {
                 // Build arguments array with Context and Events as needed
                 List<Object> argsList = new ArrayList<>();
 
-                // Add Context / AgentContext as first argument if needed
+                // Add Context / AgenticWorkflowContext as first argument if needed
                 if (hasAgentContext) {
                     argsList.add(createAgentContext(processFunction));
                 } else if (hasContext) {
@@ -1971,12 +1972,13 @@ public final class WorkflowWorkerNative {
         }
 
         /**
-         * Creates a Ballerina {@code AgentContext} object for a durable agent workflow. The native handle carries the
+         * Creates a Ballerina {@code AgenticWorkflowContext} object for a durable agent workflow. The native handle
+          * carries the
          * workflow identity, this instance's signal wrapper, and the declared event names so the agent loop can
          * register tools, wait for events, and run durably.
          *
          * @param processFunction the agent function pointer (used to extract declared event names)
-         * @return the AgentContext BObject
+         * @return the AgenticWorkflowContext BObject
          */
         private BObject createAgentContext(BFunctionPointer processFunction) {
             if (workflowModule == null) {
@@ -1996,7 +1998,7 @@ public final class WorkflowWorkerNative {
                             signalWrapper, new HashSet<>());
             this.agentContextInfo = agentInfo;
             Object nativeContextHandle = ValueCreator.createHandleValue(agentInfo);
-            return ValueCreator.createObjectValue(workflowModule, "AgentContext", nativeContextHandle);
+            return ValueCreator.createObjectValue(workflowModule, "AgenticWorkflowContext", nativeContextHandle);
         }
 
         /**

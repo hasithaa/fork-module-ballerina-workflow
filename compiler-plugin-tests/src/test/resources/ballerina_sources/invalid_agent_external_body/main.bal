@@ -26,5 +26,5 @@ function checkInventory(string item) returns boolean|error {
     return item.length() > 0;
 }
 
-@workflow:DurableAgent
-function orderAgent(workflow:AgentContext ctx, OrderRequest req) returns error? = external;
+@workflow:DurableAgenticWorkflow
+function orderAgent(workflow:AgenticWorkflowContext ctx, OrderRequest req) returns error? = external;

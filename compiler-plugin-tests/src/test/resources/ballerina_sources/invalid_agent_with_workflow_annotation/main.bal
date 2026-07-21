@@ -27,6 +27,6 @@ function checkInventory(string item) returns boolean|error {
 }
 
 @workflow:Workflow
-@workflow:DurableAgent
-function orderAgent(workflow:AgentContext ctx, OrderRequest req) returns error? {
+@workflow:DurableAgenticWorkflow
+function orderAgent(workflow:AgenticWorkflowContext ctx, OrderRequest req) returns error? {
 }

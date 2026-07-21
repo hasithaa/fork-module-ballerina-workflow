@@ -49,15 +49,15 @@ function checkInventory(string item) returns string|error {
 // human task — a durable sub-workflow — and suspends (for hours or days,
 // without holding a thread) until a manager completes it, then reports the
 // decision back to the user.
-@workflow:DurableAgent
-function orderAgent(workflow:AgentContext durableAgentContext, OrderRequest req) returns error? {
+@workflow:DurableAgenticWorkflow
+function orderAgent(workflow:AgenticWorkflowContext durableAgentContext, OrderRequest req) returns error? {
     check durableAgentContext.registerActivity(checkInventory);
     check durableAgentContext.registerUpdateEvents("chat", string);
     check durableAgentContext.registerHumanTask("approveExpedite", "MANAGER", ExpediteApproval,
             title = "Approve expedited shipping",
             description = "Requests a manager's approval to expedite the order's shipping. "
                 + "Pass the order id and the customer's reason as fields.");
-    check durableAgentContext.buildAndRun(req.userPrompt,
+    check durableAgentContext.buildAndRunAgent(req.userPrompt,
             systemPrompt = {
                 role: string `You are the assistant for order ${req.orderId}.`,
                 instructions: string `Use the checkInventory tool for product availability questions.

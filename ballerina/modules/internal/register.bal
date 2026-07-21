@@ -85,10 +85,10 @@ public isolated function registerConnection(string name, object {} connection)
 #
 # This is an **internal** function used by the compiler plugin. It is emitted at
 # module init time for every function reference found in a
-# `ctx.registerTools([...])` call inside a `@workflow:DurableAgent` body. The
+# `ctx.registerTools([...])` call inside a `@workflow:DurableAgenticWorkflow` body. The
 # tool's advertised name is derived from its `@ai:AgentTool` annotation (falling
 # back to the function name), matching the runtime normalization performed by
-# `AgentContext.registerTools`.
+# `AgenticWorkflowContext.registerTools`.
 #
 # + agentName - The agent's registered workflow name
 # + tool - The `@ai:AgentTool` function to register

@@ -20,7 +20,7 @@ import ballerina/time;
 
 # Configuration for a durable agent run: the agent's identity (system prompt),
 # its model, and reasoning limits. Tools, activities, human tasks, and update
-# channels are registered on the context before `buildAndRun`.
+# channels are registered on the context before `buildAndRunAgent`.
 public type AgentRunConfig record {|
     # The system prompt assigned to the agent
     @display {label: "System Prompt"}
@@ -83,12 +83,12 @@ public enum AgentInteractionPattern {
 }
 
 # The execution context for a durable AI agent. Injected as the first parameter
-# of a `@workflow:DurableAgent` function.
+# of a `@workflow:DurableAgenticWorkflow` function.
 #
 # Unlike `workflow:Context`, this context deliberately does not expose
 # `callActivity`, `sleep`, or `awaitHumanTask`. Instead, capabilities are
 # registered on the context and the agent decides when to use them inside the
-# durable ReAct loop driven by `buildAndRun`:
+# durable ReAct loop driven by `buildAndRunAgent`:
 #
 # - `registerActivity` — a `@workflow:Activity` function becomes a tool that runs
 #   as a durable Temporal activity
@@ -99,13 +99,13 @@ public enum AgentInteractionPattern {
 #   person completes it
 # - `registerUpdateEvents` — declares a named two-way update channel (request and
 #   optional response types); `workflow:updateAgent` drives it from outside
-# - `buildAndRun` — builds the agent from everything registered above and hands
+# - `buildAndRunAgent` — builds the agent from everything registered above and hands
 #   control to the durable ReAct loop; must be the last statement of the agent
-public client class AgentContext {
+public client class AgenticWorkflowContext {
     private handle nativeContext;
 
     # Creates an agent context wrapping the native handle. Called by the workflow
-    # runtime; do not instantiate `AgentContext` directly.
+    # runtime; do not instantiate `AgenticWorkflowContext` directly.
     # + nativeContext - Native agent context handle from the workflow engine
     public isolated function init(handle nativeContext) {
         self.nativeContext = nativeContext;
@@ -241,7 +241,7 @@ public client class AgentContext {
     # Builds the agent from everything registered on this context (activities, AI
     # tools, human tasks, update channels) and hands control to the durable ReAct
     # loop. This is a terminal operation: it must be the last statement of the
-    # `@workflow:DurableAgent` function (enforced by the compiler plugin). Every
+    # `@workflow:DurableAgenticWorkflow` function (enforced by the compiler plugin). Every
     # LLM call and tool call is executed durably, so the agent survives worker
     # crashes and can suspend for days waiting on human tasks or updates.
     #
@@ -249,7 +249,7 @@ public client class AgentContext {
     #           first `chat` update channel request
     # + config - The agent configuration (system prompt, model, limits)
     # + return - An error if the agent fails, otherwise nil
-    public isolated function buildAndRun(@display {label: "Query"} string query = "",
+    public isolated function buildAndRunAgent(@display {label: "Query"} string query = "",
             *AgentRunConfig config) returns error? {
         check setAgentInteraction(self.nativeContext, config.interaction, config.eventTimeout,
                 config.maxEventWaits);
@@ -281,7 +281,7 @@ type AgentToolDef record {|
 |};
 
 // ============================================================================
-// Native bindings for AgentContext
+// Native bindings for AgenticWorkflowContext
 // ============================================================================
 
 isolated function recordActivityTool(handle nativeContext, function tool, string? name,
