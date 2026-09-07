@@ -1109,9 +1109,16 @@ public final class ManagementNative {
                 LOGGER.debug("Could not decode userRoles from memo for '{}': {}", taskWorkflowId, e.getMessage());
             }
             // The decision's audit entry names the review, its parent, and who was allowed to decide it.
+            Object activityArgs;
+            try {
+                Payload argsPl = memoFields.get("activityArgs");
+                activityArgs = argsPl == null ? null : dc.fromPayload(argsPl, Object.class, Object.class);
+            } catch (Exception e) {
+                activityArgs = null; // the audit entry goes without the reviewed arguments
+            }
             TaskMemo memo = new TaskMemo(decodeMemoString(dc, memoFields, "taskName", null),
                                          decodeMemoString(dc, memoFields, "parentWorkflowId", null),
-                                         allowedRoles.stream().sorted().toList());
+                                         allowedRoles.stream().sorted().toList(), activityArgs);
 
             if (callerRolesArray == null || allowedRoles.isEmpty()) {
                 return memo;

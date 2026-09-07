@@ -107,7 +107,8 @@ const string UNKNOWN_TASK_NAME = "unknown";
 # (`workflow.task.action`) and on which task; the audit entry adds the task's name, its
 # parent workflow and the roles it allowed, once the runtime has confirmed them, and
 # whether the decision was accepted or refused. A refused decision is recorded too. The
-# decision's content joins both only when `captureHumanTaskContent` is on.
+# decision's content — what the person was shown and what they submitted — joins both
+# unless `captureHumanTaskContent` is off.
 #
 # The audit entry is written whether or not tracing or metrics are enabled: it is the
 # governance record, not telemetry.
@@ -120,6 +121,7 @@ public isolated distinct class TaskDecisionSpan {
     private string? userId = ();
     private string[] & readonly userRoles = [];
     private string? contentJson = ();
+    private string? taskInputJson = ();
     private string? taskName = ();
     private string? parentWorkflowId = ();
     private string[] & readonly assignedRoles = [];
@@ -156,26 +158,25 @@ public isolated distinct class TaskDecisionSpan {
     }
 
     # Records what the person submitted — the completion result, the rejection reason and
-    # details, or the review decision's input and feedback. Recorded only when
-    # `captureHumanTaskContent` is on; otherwise this is a no-op.
+    # details, or the review decision's input and feedback. A no-op when
+    # `captureHumanTaskContent` is off.
     #
     # + content - The submitted value
     public isolated function addContent(anydata content) {
         if !captureHumanTaskContent {
             return;
         }
-        string text = content.toJsonString();
-        if text.length() > MAX_CONTENT_CHARS {
-            text = text.substring(0, MAX_CONTENT_CHARS) + "…";
-        }
+        string text = boundedJson(content);
         lock {
             self.contentJson = text;
         }
         self.baseSpan.addTag(TASK_CONTENT, text);
     }
 
-    # Records what the runtime confirmed about the task when it accepted the decision:
-    # its declared name, its parent workflow and the roles it allowed to decide it.
+    # Records what the runtime confirmed about the task when it accepted the decision: its
+    # declared name, its parent workflow, the roles it allowed to decide it, and — unless
+    # `captureHumanTaskContent` is off — what the person was shown: the human task's input,
+    # or the arguments of the activity under review.
     #
     # + receipt - The receipt the runtime returned for the accepted decision
     public isolated function addTaskDetails(map<anydata> receipt) {
@@ -185,13 +186,19 @@ public isolated distinct class TaskDecisionSpan {
         string[] & readonly allowed = (roles is anydata[])
             ? (from anydata role in roles where role is string select role).cloneReadOnly()
             : [];
+        string? shown = (captureHumanTaskContent && receipt.hasKey("taskInput"))
+            ? boundedJson(receipt["taskInput"]) : ();
         lock {
             self.taskName = (name is string) ? name : ();
             self.parentWorkflowId = (parent is string) ? parent : ();
             self.assignedRoles = allowed;
+            self.taskInputJson = shown;
         }
         if name is string {
             self.baseSpan.addTag(TASK_NAME, name);
+        }
+        if shown is string {
+            self.baseSpan.addTag(TASK_INPUT, shown);
         }
     }
 
@@ -207,6 +214,7 @@ public isolated distinct class TaskDecisionSpan {
         string? userId;
         string[] & readonly userRoles;
         string? contentJson;
+        string? taskInputJson;
         string? taskName;
         string? parentWorkflowId;
         string[] & readonly assignedRoles;
@@ -214,6 +222,7 @@ public isolated distinct class TaskDecisionSpan {
             userId = self.userId;
             userRoles = self.userRoles;
             contentJson = self.contentJson;
+            taskInputJson = self.taskInputJson;
             taskName = self.taskName;
             parentWorkflowId = self.parentWorkflowId;
             assignedRoles = self.assignedRoles;
@@ -225,14 +234,21 @@ public isolated distinct class TaskDecisionSpan {
             log:printInfo(string `${subject} decision ${outcome}`, taskKind = self.kind, taskId = self.taskId,
                     taskName = taskName, parentWorkflowId = parentWorkflowId, action = self.action,
                     outcome = outcome, userId = userId, userRoles = userRoles, assignedRoles = assignedRoles,
-                    decidedAt = nowText(), content = contentJson);
+                    decidedAt = nowText(), taskInput = taskInputJson, content = contentJson);
         } else {
             log:printWarn(string `${subject} decision ${outcome}`, 'error = err, taskKind = self.kind,
                     taskId = self.taskId, taskName = taskName, parentWorkflowId = parentWorkflowId,
                     action = self.action, outcome = outcome, userId = userId, userRoles = userRoles,
-                    assignedRoles = assignedRoles, decidedAt = nowText(), content = contentJson);
+                    assignedRoles = assignedRoles, decidedAt = nowText(), taskInput = taskInputJson,
+                    content = contentJson);
         }
     }
+}
+
+# A value as JSON, cut at `MAX_CONTENT_CHARS` so one oversized payload cannot flood a span or a line.
+isolated function boundedJson(anydata value) returns string {
+    string text = value.toJsonString();
+    return text.length() > MAX_CONTENT_CHARS ? text.substring(0, MAX_CONTENT_CHARS) + "…" : text;
 }
 
 # Represents a tracing span for starting a durable agent instance.

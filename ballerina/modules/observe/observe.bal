@@ -19,24 +19,25 @@ import ballerina/log;
 import ballerina/observe;
 import ballerina/time;
 
-# Whether the value a person submits when deciding a task — the completion result, the
-# rejection reason and details, or the review decision's input and feedback — is recorded
-# on the decision's span and in its audit log entry. Who decided, in which roles, what they
-# decided, when, and whether the decision was accepted are always recorded; this switch
-# governs only the submitted content.
+# Whether a decision on a task carries its content: what the person was shown (the human
+# task's input, or the arguments of the activity under review) and what they submitted (the
+# completion result, the rejection reason and details, or the review decision's input and
+# feedback), on the decision's span and in its audit log entry. Who decided, in which roles,
+# what they decided, when, and whether it was accepted are always recorded; this switch
+# governs only the content.
 #
-# Off by default. Telemetry sinks are read more widely and retained on different terms
-# than the workflow store, and OpenTelemetry's conventions make content capture opt-in
-# for the same reason. Turn it on when the audit trail must carry the decision itself.
-configurable boolean captureHumanTaskContent = false;
+# On by default, as `ai.observe` records prompt and completion content: the engine already
+# persists this data for the run, and telemetry retention retires it on its own schedule.
+# Turn it off where the content itself must not leave the workflow store.
+configurable boolean captureHumanTaskContent = true;
 
 # Whether every activity execution attempt logs its arguments and its result (or error)
 # to the worker's module log, beside the attempt's outcome and duration.
 #
-# Off by default, for the same reason as `captureHumanTaskContent`: an activity's
-# arguments and result are the workflow's business data. Turn it on to follow what each
-# step received and produced from the logs alone. Long values are truncated.
-configurable boolean captureActivityContent = false;
+# On by default, for the same reason as `captureHumanTaskContent`. Turn it off where an
+# activity's arguments or results must not leave the workflow store. Long values are
+# truncated.
+configurable boolean captureActivityContent = true;
 
 function init() {
     configureContentCapture(captureActivityContent);
@@ -64,6 +65,7 @@ enum WorkflowTagNames {
     REVIEW_ACTIVITY_ID = "workflow.review_activity.id",
     TASK_NAME = "workflow.task.name",
     TASK_ACTION = "workflow.task.action",
+    TASK_INPUT = "workflow.task.input",
     TASK_CONTENT = "workflow.task.content",
     USER_ID = "user.id",
     USER_ROLES = "user.roles",

@@ -1174,7 +1174,8 @@ public final class WorkflowNative {
             // The decision's audit entry names the task, its parent, and who was allowed to decide it.
             TaskMemo memo = new TaskMemo(decodeMemoText(dc, memoFields, "taskName"),
                                          decodeMemoText(dc, memoFields, "parentWorkflowId"),
-                                         allowedRoles.stream().sorted().toList());
+                                         allowedRoles.stream().sorted().toList(),
+                                         decodeMemoValue(dc, memoFields, "taskInput"));
 
             if (callerRolesArray == null || allowedRoles.isEmpty()) {
                 // No caller roles to check, or no roles configured on the task — nothing to enforce.
@@ -1204,6 +1205,20 @@ public final class WorkflowNative {
         try {
             io.temporal.api.common.v1.Payload payload = fields.get(key);
             return payload == null ? null : dc.fromPayload(payload, String.class, String.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * One structured field of a task's memo as decoded Java values, or {@code null} when it is absent or cannot
+     * be decoded.
+     */
+    private static Object decodeMemoValue(io.temporal.common.converter.DataConverter dc,
+                                          Map<String, io.temporal.api.common.v1.Payload> fields, String key) {
+        try {
+            io.temporal.api.common.v1.Payload payload = fields.get(key);
+            return payload == null ? null : dc.fromPayload(payload, Object.class, Object.class);
         } catch (Exception e) {
             return null;
         }

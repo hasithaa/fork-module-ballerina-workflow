@@ -18,6 +18,7 @@
 
 package io.ballerina.lib.workflow.runtime.nativeimpl;
 
+import io.ballerina.lib.workflow.utils.TypesUtil;
 import io.ballerina.runtime.api.creators.TypeCreator;
 import io.ballerina.runtime.api.creators.ValueCreator;
 import io.ballerina.runtime.api.types.PredefinedTypes;
@@ -37,13 +38,16 @@ import java.util.List;
  * @param taskName         the task's declared, workflow-qualified name; {@code null} when the memo lacks it
  * @param parentWorkflowId the workflow that created the task; {@code null} when the memo lacks it
  * @param assignedRoles    the roles allowed to decide the task, in a stable order; empty when none are set
+ * @param taskInput        what the person was shown — the human task's input, or the arguments of the activity
+ *                         under review — as decoded Java values; {@code null} when the memo lacks it
  * @since 0.9.0
  */
-record TaskMemo(String taskName, String parentWorkflowId, List<String> assignedRoles) {
+record TaskMemo(String taskName, String parentWorkflowId, List<String> assignedRoles, Object taskInput) {
 
     /**
      * The receipt returned to Ballerina: a {@code map<anydata>} with {@code taskName} and
-     * {@code parentWorkflowId} (present only when known) and {@code assignedRoles} as a {@code string[]}.
+     * {@code parentWorkflowId} and {@code taskInput} (each present only when known) and {@code assignedRoles}
+     * as a {@code string[]}.
      *
      * @return the receipt map
      */
@@ -55,6 +59,9 @@ record TaskMemo(String taskName, String parentWorkflowId, List<String> assignedR
         }
         if (parentWorkflowId != null) {
             receipt.put(StringUtils.fromString("parentWorkflowId"), StringUtils.fromString(parentWorkflowId));
+        }
+        if (taskInput != null) {
+            receipt.put(StringUtils.fromString("taskInput"), TypesUtil.convertJavaToBallerinaType(taskInput));
         }
         BArray roles = ValueCreator.createArrayValue(TypeCreator.createArrayType(PredefinedTypes.TYPE_STRING));
         for (String role : assignedRoles) {

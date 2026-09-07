@@ -70,7 +70,7 @@ function testTaskDecisionSpansAuditWithoutTracing() {
     accepted.addDecider("alice", ["FINANCE_APPROVER"]);
     accepted.addContent({approved: true, comment: "LGTM"});
     accepted.addTaskDetails({taskName: "expenseFlow.approve", parentWorkflowId: "wf-1",
-                             assignedRoles: ["FINANCE_APPROVER", "CFO"]});
+                             assignedRoles: ["FINANCE_APPROVER", "CFO"], taskInput: {amount: 1200, currency: "USD"}});
     accepted.close();
 
     observe:TaskDecisionSpan anonymous = observe:createHumanTaskDecisionSpan("humantask-wf-1-approve-y", "fail");
@@ -88,11 +88,11 @@ function testTaskDecisionSpansAuditWithoutTracing() {
 @test:Config {
     groups: ["observe"]
 }
-function testContentCaptureIsOffByDefault() {
-    test:assertFalse(observe:isHumanTaskContentCaptured(),
-            "a decision's content must stay out of telemetry unless the deployment asks for it");
-    test:assertFalse(observe:isActivityContentCaptured(),
-            "activity arguments and results must stay out of the log unless the deployment asks for it");
+function testContentCaptureIsOnByDefault() {
+    test:assertTrue(observe:isHumanTaskContentCaptured(),
+            "a decision's content is recorded unless the deployment switches it off, as ai.observe does");
+    test:assertTrue(observe:isActivityContentCaptured(),
+            "activity arguments and results are logged unless the deployment switches it off");
 }
 
 @test:Config {

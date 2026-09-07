@@ -232,14 +232,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
     whether it was accepted), a `TaskDecisionSpan` carrying the same on `user.id`,
     `user.roles` and `workflow.task.action`, and one count in `workflow_task_decisions_total`.
     A refused decision is recorded as `outcome = denied`. None of this is switchable.
-  - **Content capture is opt-in.** `[ballerina.workflow.observe]` gains
-    `captureHumanTaskContent` — the submitted result, rejection details or review input join
-    the decision's span and audit entry — and `captureActivityContent` — every activity
-    attempt logs its arguments and result. Both default to `false`: the engine already
-    persists this data, telemetry sinks are read more widely and retained on other terms,
-    and OpenTelemetry's conventions make content capture opt-in for the same reason.
-  The integration tests run with observability and both content switches enabled and
-  assert the emitted metrics, spans and decision records.
+  - **Content is recorded too, and can be switched off.** `[ballerina.workflow.observe]`
+    gains `captureHumanTaskContent` — what the person was shown (the task's input, or the
+    reviewed activity's arguments) and what they submitted join the decision's span and
+    audit entry — and `captureActivityContent` — every activity attempt logs its arguments
+    and result. Both default to `true`, as `ai.observe` records content: the engine already
+    persists this data for the run and telemetry retention retires its copy. Turn one off
+    where that content must not leave the workflow store.
+  The integration tests run with observability enabled and assert the emitted metrics,
+  spans and decision records, content included.
   See `docs/proposals/observability-integration.md` for the design.
 
 - **`bal build --export-openapi` exports the management REST API's OpenAPI description**

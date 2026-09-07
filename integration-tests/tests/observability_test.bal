@@ -143,9 +143,13 @@ function testHumanTaskDecisionTelemetry() returns error? {
         if wfobserve:isHumanTaskContentCaptured() {
             test:assertEquals(accepted.tags["workflow.task.content"], "{\"approved\":true}",
                     "with content capture on, the span should carry the submitted result");
+            test:assertEquals(accepted.tags["workflow.task.input"], "{\"name\":\"decision\"}",
+                    "with content capture on, the span should carry what the approver was shown");
         } else {
             test:assertFalse(accepted.tags.hasKey("workflow.task.content"),
                     "with content capture off, the submitted result must stay off the span");
+            test:assertFalse(accepted.tags.hasKey("workflow.task.input"),
+                    "with content capture off, the task input must stay off the span");
         }
 
         mock:Span denied = check findDecisionSpan("complete_human_task", "workflow.human_task.id", taskId, "mallory");
@@ -181,8 +185,13 @@ function testReviewActivityDecisionTelemetry() returns error? {
             string content = span.tags["workflow.task.content"] ?: "";
             test:assertTrue(content.includes("\"mode\":\"ok\""),
                     "with content capture on, the span should carry the reviewer's input, got '" + content + "'");
+            string reviewed = span.tags["workflow.task.input"] ?: "";
+            test:assertTrue(reviewed.includes("\"mode\":\"fail\""),
+                    "with content capture on, the span should carry the reviewed activity's arguments, got '"
+                    + reviewed + "'");
         } else {
             test:assertFalse(span.tags.hasKey("workflow.task.content"));
+            test:assertFalse(span.tags.hasKey("workflow.task.input"));
         }
     }
 }
