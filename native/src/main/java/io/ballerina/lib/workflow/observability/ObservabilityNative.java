@@ -27,7 +27,7 @@ import io.temporal.workflow.Workflow;
 /**
  * Native implementations backing the {@code workflow.observe} Ballerina submodule.
  *
- * @since 0.9.0
+ * @since 0.9.1
  */
 public final class ObservabilityNative {
 

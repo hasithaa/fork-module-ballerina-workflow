@@ -40,7 +40,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>
  * Recording must never affect workflow execution: every method swallows and logs unexpected errors.
  *
- * @since 0.9.0
+ * @since 0.9.1
  */
 public final class WorkflowMetrics {
 

@@ -36,7 +36,7 @@ import java.util.Map;
  * never affects execution: whatever cannot be rendered is logged as its {@code toString}, and any
  * failure here is swallowed.
  *
- * @since 0.9.0
+ * @since 0.9.1
  */
 public final class ActivityContentLog {
 

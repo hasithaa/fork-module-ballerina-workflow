@@ -40,7 +40,7 @@ import java.util.List;
  * @param assignedRoles    the roles allowed to decide the task, in a stable order; empty when none are set
  * @param taskInput        what the person was shown — the human task's input, or the arguments of the activity
  *                         under review — as decoded Java values; {@code null} when the memo lacks it
- * @since 0.9.0
+ * @since 0.9.1
  */
 record TaskMemo(String taskName, String parentWorkflowId, List<String> assignedRoles, Object taskInput) {
 
