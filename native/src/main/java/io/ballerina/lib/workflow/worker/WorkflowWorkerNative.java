@@ -22,6 +22,7 @@ import io.ballerina.lib.workflow.ModuleUtils;
 import io.ballerina.lib.workflow.context.AgentContextNative;
 import io.ballerina.lib.workflow.context.SignalAwaitWrapper;
 import io.ballerina.lib.workflow.context.WorkflowContextNative;
+import io.ballerina.lib.workflow.observability.ActivityContentLog;
 import io.ballerina.lib.workflow.observability.WorkflowMetrics;
 import io.ballerina.lib.workflow.registry.EventInfo;
 import io.ballerina.lib.workflow.runtime.WorkflowRuntime;
@@ -2868,17 +2869,20 @@ public final class WorkflowWorkerNative {
 
         @Override
         public Object execute(EncodedValues args) {
-            String executingActivityType =
-                    io.temporal.activity.Activity.getExecutionContext().getInfo().getActivityType();
+            io.temporal.activity.ActivityInfo info =
+                    io.temporal.activity.Activity.getExecutionContext().getInfo();
+            String executingActivityType = info.getActivityType();
             long startNanos = System.nanoTime();
             try {
                 Object result = executeInternal(args);
-                WorkflowMetrics.recordActivityExecution(executingActivityType,
-                        (System.nanoTime() - startNanos) / 1_000_000, false);
+                long durationMillis = (System.nanoTime() - startNanos) / 1_000_000;
+                WorkflowMetrics.recordActivityExecution(executingActivityType, durationMillis, false);
+                ActivityContentLog.record(info, args, durationMillis, result, null);
                 return result;
             } catch (Exception e) {
-                WorkflowMetrics.recordActivityExecution(executingActivityType,
-                        (System.nanoTime() - startNanos) / 1_000_000, true);
+                long durationMillis = (System.nanoTime() - startNanos) / 1_000_000;
+                WorkflowMetrics.recordActivityExecution(executingActivityType, durationMillis, true);
+                ActivityContentLog.record(info, args, durationMillis, null, e);
                 throw e;
             }
         }

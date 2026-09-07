@@ -57,14 +57,72 @@ A new exported submodule `workflow.observe` provides typed span classes over
 | `StartWorkflowSpan` | `workflow:run` | `workflow.type`, `workflow.instance.id` |
 | `SendDataSpan` | `workflow:sendData` | `workflow.instance.id`, `workflow.data.name` |
 | `GetWorkflowResultSpan` | `workflow:getWorkflowResult` | `workflow.instance.id` |
-| `CompleteHumanTaskSpan` | `workflow:completeHumanTask` | `workflow.human_task.id` |
+| `TaskDecisionSpan` | `completeHumanTask`, `management:failHumanTask` | `workflow.human_task.id`, `workflow.task.action`, `workflow.task.name`, `user.id`, `user.roles` |
+| `TaskDecisionSpan` | `management:completeReviewActivity` | `workflow.review_activity.id`, `workflow.task.action`, `workflow.task.name`, `user.id`, `user.roles` |
 | `StartAgentSpan` | `DurableAgent.run` | `gen_ai.agent.name`, `workflow.instance.id` |
-| `SendAgentEventSpan` | `DurableAgent.sendEvent` | `gen_ai.agent.name`, `workflow.instance.id`, `workflow.event.name` |
+| `SendAgentEventSpan` | `DurableAgent.sendData` | `gen_ai.agent.name`, `workflow.instance.id`, `workflow.event.name` |
 
 Every span carries `workflow.operation.name` and `span.type = workflow` (mirroring
 `span.type = ai` in the AI module), and closes with error status via
 `observe:finishSpanWithError` on failure. Agent spans reuse the OpenTelemetry GenAI
-attribute `gen_ai.agent.name` so agent traces correlate with `ai.observe` spans.
+attribute `gen_ai.agent.name` so agent traces correlate with `ai.observe` spans; decision
+spans reuse the OpenTelemetry `user.id` and `user.roles` attributes for who decided.
+
+### Governance: every decision a person makes is recorded
+
+A human task or a review activity is where a person enters the workflow, and governance
+asks four things of that moment: who acted, in which capacity, what they decided, and
+when. The module answers them at the one place every path converges — the runtime natives
+behind `completeHumanTask`, `failHumanTask` and `completeReviewActivity`, whether reached
+through the root module, `workflow.management`, the REST service or `executeCommand`.
+
+On a decision the native validates the task and, instead of returning nothing, hands back
+a **receipt**: the task's declared name, the workflow that created it, and the roles it
+allowed to decide it, all read from the memo it already fetched to validate. The Ballerina
+wrapper turns the call into one `TaskDecisionSpan`, which on close writes three things:
+
+- an **audit entry** through `ballerina/log` — `taskKind`, `taskId`, `taskName`,
+  `parentWorkflowId`, `action`, `outcome`, `userId`, `userRoles` (as presented by the
+  caller), `assignedRoles` (as declared on the task), `decidedAt`. Written at `INFO` for an
+  accepted decision and `WARN` for a refused one, with the refusal's error attached;
+- the span above, so the decision sits in the caller's request trace;
+- one increment of `workflow_task_decisions_total`.
+
+A **refused** decision — wrong role, task no longer running, task not found — is recorded
+too, as `outcome = denied`: an audit trail that only shows what succeeded is half a trail.
+A refused decision never resolved the task, so its entry carries what the caller presented
+and no task name.
+
+The audit entry goes through `ballerina/log` deliberately, not the worker's Java log: it is
+the governance record, so it must land where the application's logs land, in the format
+and at the level `[ballerina.log]` configures, and it is written whether or not tracing or
+metrics are enabled. Logs are the right primary carrier for an audit event: traces are
+sampled and metrics are aggregates, and neither may drop or merge a decision.
+
+### Content capture is opt-in
+
+None of the above records what the person *submitted*. That is governed by two switches
+under `[ballerina.workflow.observe]`, both `false` by default:
+
+| Switch | What it adds | Where |
+|---|---|---|
+| `captureHumanTaskContent` | the completion result, the rejection reason and details, or the review decision's input and feedback, as JSON | `workflow.task.content` on the decision span and `content` on its audit entry |
+| `captureActivityContent` | every activity execution attempt's arguments and result (or error), as JSON | one `INFO` line per attempt in the worker's module log, beside the attempt's outcome and duration |
+
+Values longer than 8192 characters are cut. The activity line is a worker-side Java log —
+the stream the module's activity-failure warnings already use — because activity threads
+are outside any Ballerina strand.
+
+Off by default is the deliberate choice, and it is the call the user of this module makes
+on the workflow store itself: everything a workflow handles is persisted by the engine, so
+the module's standing advice is to keep sensitive data out of inputs, arguments and results
+altogether. Telemetry is a second copy of that data in sinks that are typically read more
+widely (a Grafana or Kibana login rather than a Temporal namespace grant) and retained on
+their own schedule. OpenTelemetry's GenAI conventions make the same choice for message
+content — capture is opt-in — for the same reason. The in-house precedent goes the other
+way: `ai.observe` records prompt and completion content on its spans unconditionally, with
+no switch at all. This module does not follow it; a deployment that wants the content asks
+for it, once, in configuration.
 
 Spans are recorded only when **both** hold:
 
@@ -96,6 +154,7 @@ New Relic metric extensions publish from. All recording is gated on
 | `workflow_activity_executions_total` | counter | `activity_type`, `status` | activity adapter, per attempt |
 | `workflow_activity_duration_seconds` | gauge (summary) | `activity_type`, `status` | activity adapter, wall clock |
 | `workflow_data_events_sent_total` | counter | `data_name` | client-side data delivery |
+| `workflow_task_decisions_total` | counter | `task_kind`, `task_name`, `action`, `outcome` | every decision on a human task or review activity, accepted or refused |
 
 Placement rationale — every execution funnels through two dynamic adapters in the
 wrapper layer, so instrumenting them covers everything with two hooks:
@@ -111,8 +170,10 @@ wrapper layer, so instrumenting them covers everything with two hooks:
   dispatch, since agent steps execute as activities. Activity attempts are never
   replayed, so each record is a real execution; retries appear as multiple attempts.
 
-Tag cardinality is bounded by construction: tags are workflow/activity **types** and
-declared event names (compile-time sets), never instance IDs.
+Tag cardinality is bounded by construction: tags are workflow/activity **types**, declared
+event names and declared task names (compile-time sets), and closed vocabularies for actions
+and outcomes — never instance IDs, and never who decided; that lives on the span and the
+audit entry, where it belongs.
 
 ### What is deliberately out of scope (this iteration)
 
@@ -149,8 +210,16 @@ tracingEnabled = true
 tracingProvider = "jaeger"
 ```
 
-No workflow-module configuration is required; the standard Ballerina observability
-switches control everything.
+No workflow-module configuration is required for spans, metrics or the decision audit
+entries; the standard Ballerina observability switches control the first two, and the audit
+entries follow `[ballerina.log]`. The two content switches are off unless asked for:
+
+```toml
+# Config.toml
+[ballerina.workflow.observe]
+captureHumanTaskContent = true    # the decision's submitted value on its span and audit entry
+captureActivityContent = true     # each activity attempt's arguments and result in the worker log
+```
 
 ## Known artifact
 
@@ -173,8 +242,14 @@ observation hooks and is left for a future iteration.
   dev server. They assert the six `workflow_*` metrics with expected tags for completed
   and failed runs (`testWorkflowMetricsEmission`, `testWorkflowFailureMetricsEmission`)
   and the `start_workflow`/`send_data`/`get_workflow_result` spans tagged with the
-  instance ID (`testWorkflowSpanEmission`). The full pre-existing integration suite also
-  runs with observability enabled, so it doubles as a regression check that
-  instrumentation never disturbs execution.
+  instance ID (`testWorkflowSpanEmission`). `testHumanTaskDecisionTelemetry` refuses a
+  decision from the wrong role and then accepts one, and asserts both are counted
+  (`outcome = denied` and `accepted`) and both leave a span naming the decider, their
+  roles and the action — with the submitted result on the span exactly when
+  `captureHumanTaskContent` is on. `testReviewActivityDecisionTelemetry` does the same for
+  a `proceed-with-input` review decision. The integration config turns both content
+  switches on, so the capture paths run under the whole suite. The full pre-existing
+  integration suite also runs with observability enabled, so it doubles as a regression
+  check that instrumentation never disturbs execution.
 - With observability off (the default for all existing users), every new code path
   reduces to a flag check.

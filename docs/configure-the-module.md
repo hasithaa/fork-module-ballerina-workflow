@@ -138,6 +138,35 @@ activityRetryMaximumAttempts = 3
 | `activityRetryMaximumInterval` | `0` | Maximum delay between retries (0 = no limit) |
 | `activityRetryMaximumAttempts` | `1` | Maximum number of retry attempts (1 = no retries) |
 
+### Observability
+
+The module plugs into Ballerina's observability pipeline: build with
+`observabilityIncluded = true` and switch on metrics and tracing under `[ballerina.observe]`
+as for any Ballerina program. Every decision a person makes on a human task or a review
+activity is also written to the log as an audit entry — who decided, in which roles, what,
+on which task, when, and whether it was accepted — whether or not observability is enabled.
+
+What those records *contain* is governed under `[ballerina.workflow.observe]`:
+
+```toml
+[ballerina.workflow.observe]
+captureHumanTaskContent = false
+captureActivityContent = false
+```
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `captureHumanTaskContent` | `false` | Record the value a person submits when deciding a task — the completion result, the rejection reason and details, or the review decision's input and feedback — on the decision's span and audit entry. Who decided, what and when are recorded regardless |
+| `captureActivityContent` | `false` | Log every activity execution attempt's arguments and result (or error) to the worker's log, beside its outcome and duration. Long values are truncated |
+
+Both default to off. Everything a workflow handles is already persisted by the engine, so
+the module's standing advice is to keep sensitive data out of workflow inputs, activity
+arguments and task results altogether. Telemetry adds a second copy in sinks that are
+usually read more widely and retained on different terms than the workflow store, which is
+why the copy is opt-in — the same call OpenTelemetry's conventions make for message content.
+Turn a switch on when the audit trail has to carry the decision itself, or when following a
+step's inputs and outputs from the logs is worth the exposure.
+
 ## What's Next
 
 - [Get Started](get-started.md) — Set up and run your first workflow

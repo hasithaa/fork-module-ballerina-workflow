@@ -57,3 +57,34 @@ type ObservabilityEvents record {|
 function observabilityFailingFlow(workflow:Context ctx) returns error? {
     return error("observability failure scenario");
 }
+
+# The decision a person submits on the observability approval task.
+#
+# + approved - Whether the request was approved
+type ObsDecision record {|
+    boolean approved;
+|};
+
+@workflow:Activity
+function obsRecoverableStep(string mode) returns string|error {
+    if mode == "fail" {
+        return error("observability step failed on purpose");
+    }
+    return "obs:recovered:" + mode;
+}
+
+# Pauses on a human task, so a decision on that task — and its telemetry — can be observed.
+@workflow:Workflow
+function observabilityApprovalFlow(workflow:Context ctx, ObservabilityInput input) returns string|error {
+    ObsDecision decision = check ctx->awaitHumanTask("obsApprove", {name: input.name},
+            userRoles = "OBS_APPROVER", title = "Observe this approval");
+    return decision.approved ? "obs:approved" : "obs:declined";
+}
+
+# Fails its one step so a reviewer's decision on it — and its telemetry — can be observed.
+@workflow:Workflow
+function observabilityReviewFlow(workflow:Context ctx, ObservabilityInput input) returns string|error {
+    string recovered = check ctx->callActivity(obsRecoverableStep, {mode: input.name},
+            retryPolicy = {userRoles: "OBS_REVIEWER"});
+    return recovered;
+}

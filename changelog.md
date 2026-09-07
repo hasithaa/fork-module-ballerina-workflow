@@ -210,6 +210,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Added
 
+- **Observability integration at the durable-engine wrapper layer**, plugged into the
+  standard Ballerina observability pipeline (`observabilityIncluded = true`):
+  - Tracing: a new exported `workflow.observe` submodule records client-side spans for
+    `run`, `sendData`, `getWorkflowResult`, the three task decisions, `DurableAgent.run` and
+    `DurableAgent.sendData`, nesting into the caller's existing request trace. Spans are
+    suppressed inside workflow bodies (replay safety) and record structural identifiers —
+    and, on a decision, who made it.
+  - Metrics: `workflow_starts_total`, `workflow_completions_total`,
+    `workflow_duration_seconds`, `workflow_activity_executions_total`,
+    `workflow_activity_duration_seconds`, `workflow_data_events_sent_total` and
+    `workflow_task_decisions_total`, recorded replay-safely in the workflow/activity
+    adapters and published through the configured metrics reporter. Durable agent LLM
+    turns and tool dispatches are covered as activity executions; agent runner, human-task
+    and review-activity child workflows as workflow completions, each distinguishable by
+    type tags.
+  - **Every decision a person makes on a task is recorded.** Completing or rejecting a
+    human task and deciding a review activity — through the root module, `management`, the
+    REST service or `executeCommand` — each write a `ballerina/log` audit entry (task, parent
+    workflow, action, who decided and in which roles, the roles the task allowed, when, and
+    whether it was accepted), a `TaskDecisionSpan` carrying the same on `user.id`,
+    `user.roles` and `workflow.task.action`, and one count in `workflow_task_decisions_total`.
+    A refused decision is recorded as `outcome = denied`. None of this is switchable.
+  - **Content capture is opt-in.** `[ballerina.workflow.observe]` gains
+    `captureHumanTaskContent` — the submitted result, rejection details or review input join
+    the decision's span and audit entry — and `captureActivityContent` — every activity
+    attempt logs its arguments and result. Both default to `false`: the engine already
+    persists this data, telemetry sinks are read more widely and retained on other terms,
+    and OpenTelemetry's conventions make content capture opt-in for the same reason.
+  The integration tests run with observability and both content switches enabled and
+  assert the emitted metrics, spans and decision records.
+  See `docs/proposals/observability-integration.md` for the design.
+
 - **`bal build --export-openapi` exports the management REST API's OpenAPI description**
   into `target/openapi/workflow_management_openapi.yaml`, beside the specs of the package's
   own services. The management service is a library-owned service object on a
@@ -515,24 +547,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [0.8.0] - 2026-07-24
 
 ### Added
-
-- Observability integration at the durable-engine wrapper layer, plugged into the
-  standard Ballerina observability pipeline (`observabilityIncluded = true`):
-  - Tracing: a new exported `workflow.observe` submodule records client-side spans for
-    `run`, `sendData`, `getWorkflowResult`, `completeHumanTask`, `DurableAgent.run`, and
-    `DurableAgent.sendEvent`, nesting into the caller's existing request trace. Spans are
-    suppressed inside workflow bodies (replay safety) and record only structural
-    identifiers — never business payloads.
-  - Metrics: `workflow_starts_total`, `workflow_completions_total`,
-    `workflow_duration_seconds`, `workflow_activity_executions_total`,
-    `workflow_activity_duration_seconds`, and `workflow_data_events_sent_total`,
-    recorded replay-safely in the workflow/activity adapters and published through the
-    configured metrics reporter. Durable agent LLM turns and tool dispatches are covered
-    as activity executions; agent runner, human-task, and review-activity child workflows
-    as workflow completions, each distinguishable by type tags.
-  The integration tests now run with observability enabled (Prometheus reporter + mock
-  tracer) and assert the emitted metrics and spans.
-  See `docs/proposals/observability-integration.md` for the design.
 
 - Data-event waits are now visible: a workflow blocked on `wait dataEvents.<name>`
   publishes the awaited event names to the execution memo (`wfWaitingEvents`),

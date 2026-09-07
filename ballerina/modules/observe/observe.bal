@@ -17,15 +17,56 @@
 import ballerina/jballerina.java;
 import ballerina/log;
 import ballerina/observe;
+import ballerina/time;
 
-// Tag names attached to workflow tracing spans. Only identifiers and
-// declared names are recorded — never business payloads.
+# Whether the value a person submits when deciding a task — the completion result, the
+# rejection reason and details, or the review decision's input and feedback — is recorded
+# on the decision's span and in its audit log entry. Who decided, in which roles, what they
+# decided, when, and whether the decision was accepted are always recorded; this switch
+# governs only the submitted content.
+#
+# Off by default. Telemetry sinks are read more widely and retained on different terms
+# than the workflow store, and OpenTelemetry's conventions make content capture opt-in
+# for the same reason. Turn it on when the audit trail must carry the decision itself.
+configurable boolean captureHumanTaskContent = false;
+
+# Whether every activity execution attempt logs its arguments and its result (or error)
+# to the worker's module log, beside the attempt's outcome and duration.
+#
+# Off by default, for the same reason as `captureHumanTaskContent`: an activity's
+# arguments and result are the workflow's business data. Turn it on to follow what each
+# step received and produced from the logs alone. Long values are truncated.
+configurable boolean captureActivityContent = false;
+
+function init() {
+    configureContentCapture(captureActivityContent);
+}
+
+# Reports whether decision content is recorded on task-decision spans and audit entries.
+#
+# + return - The value of `captureHumanTaskContent`
+public isolated function isHumanTaskContentCaptured() returns boolean => captureHumanTaskContent;
+
+# Reports whether activity executions log their arguments and results.
+#
+# + return - The value of `captureActivityContent`
+public isolated function isActivityContentCaptured() returns boolean => captureActivityContent;
+
+// Tag names attached to workflow tracing spans. Identifiers, declared names and — for a
+// decision on a task — who made it. A decision's content is recorded only when
+// `captureHumanTaskContent` is on; nothing else carries business payloads.
 enum WorkflowTagNames {
     OPERATION_NAME = "workflow.operation.name",
     WORKFLOW_TYPE = "workflow.type",
     INSTANCE_ID = "workflow.instance.id",
     DATA_NAME = "workflow.data.name",
     HUMAN_TASK_ID = "workflow.human_task.id",
+    REVIEW_ACTIVITY_ID = "workflow.review_activity.id",
+    TASK_NAME = "workflow.task.name",
+    TASK_ACTION = "workflow.task.action",
+    TASK_CONTENT = "workflow.task.content",
+    USER_ID = "user.id",
+    USER_ROLES = "user.roles",
     AGENT_NAME = "gen_ai.agent.name",
     EVENT_NAME = "workflow.event.name"
 }
@@ -36,6 +77,8 @@ enum Operations {
     SEND_DATA = "send_data",
     GET_WORKFLOW_RESULT = "get_workflow_result",
     COMPLETE_HUMAN_TASK = "complete_human_task",
+    FAIL_HUMAN_TASK = "fail_human_task",
+    COMPLETE_REVIEW_ACTIVITY = "complete_review_activity",
     START_AGENT = "start_agent",
     SEND_AGENT_EVENT = "send_agent_event"
 }
@@ -119,6 +162,11 @@ isolated function addOtherTags(string key, string value, int spanId) {
     }
 }
 
+# The current time as an RFC 3339 string, for audit entries.
+#
+# + return - The current UTC time
+isolated function nowText() returns string => time:utcToString(time:utcNow());
+
 # Checks whether the current call is executing inside a workflow body.
 #
 # + return - `true` when called from within a workflow execution context
@@ -134,4 +182,26 @@ isolated function isInsideWorkflowContext() returns boolean = @java:Method {
 public isolated function workflowTypeNameOf(function processFunction) returns string = @java:Method {
     'class: "io.ballerina.lib.workflow.observability.ObservabilityNative",
     name: "workflowTypeNameOf"
+} external;
+
+# Hands the worker-side content-capture switch to the runtime, which reads it on the
+# activity threads where Ballerina configurables are out of reach.
+#
+# + activityContent - Whether activity executions log their arguments and results
+isolated function configureContentCapture(boolean activityContent) = @java:Method {
+    'class: "io.ballerina.lib.workflow.observability.ObservabilityNative",
+    name: "configureContentCapture"
+} external;
+
+# Counts one decision on a task in the runtime's metric registry.
+#
+# + taskKind - `HUMAN_TASK` or `REVIEW_ACTIVITY`
+# + taskName - The task's declared name, or `unknown` when the decision was refused before
+#              the task was resolved
+# + action - What was decided
+# + outcome - `accepted` or `denied`
+isolated function recordTaskDecisionMetric(string taskKind, string taskName, string action,
+        string outcome) = @java:Method {
+    'class: "io.ballerina.lib.workflow.observability.ObservabilityNative",
+    name: "recordTaskDecisionMetric"
 } external;

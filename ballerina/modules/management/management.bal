@@ -16,6 +16,8 @@
 
 import ballerina/jballerina.java;
 
+import workflow.observe;
+
 // Captures this submodule's reference so native code can create records in this
 // module. This module is a pure Ballerina API: it opens no port and starts no
 // service. The management HTTP API lives in `ballerina/workflow.management.rest`,
@@ -238,8 +240,25 @@ public isolated function getHumanTaskInfo(string taskId) returns HumanTaskInfo|e
 # + userId - Optional user identifier stored in the audit trail (from `x-user-id` header)
 # + return - An error if the task cannot be found, is already completed, or the caller is unauthorized
 public isolated function completeHumanTask(string taskWorkflowId, anydata result,
-        [string, string...]? callerRoles = (), string? userId = ()) returns error? = @java:Method {
-    'class: "io.ballerina.lib.workflow.runtime.nativeimpl.ManagementNative"
+        [string, string...]? callerRoles = (), string? userId = ()) returns error? {
+    observe:TaskDecisionSpan span = observe:createHumanTaskDecisionSpan(taskWorkflowId, "complete");
+    span.addDecider(userId, callerRoles);
+    span.addContent(result);
+    map<anydata>|error receipt = completeHumanTaskNative(taskWorkflowId, result, callerRoles, userId);
+    if receipt is error {
+        span.close(receipt);
+        return receipt;
+    }
+    span.addTaskDetails(receipt);
+    span.close();
+}
+
+// On success the runtime hands back what it confirmed about the task — its declared name, its
+// parent workflow and the roles allowed to decide it — for the decision's audit entry.
+isolated function completeHumanTaskNative(string taskWorkflowId, anydata result,
+        [string, string...]? callerRoles, string? userId) returns map<anydata>|error = @java:Method {
+    'class: "io.ballerina.lib.workflow.runtime.nativeimpl.ManagementNative",
+    name: "completeHumanTask"
 } external;
 
 # Fails (rejects) a pending human task with a reason and optional structured details.
@@ -260,7 +279,21 @@ public isolated function completeHumanTask(string taskWorkflowId, anydata result
 # + return - An error if the task cannot be found, is already completed, or the caller is unauthorized
 public isolated function failHumanTask(string taskWorkflowId, string reason,
         map<json>? details = (), [string, string...]? callerRoles = (),
-        string? userId = ()) returns error? = @java:Method {
+        string? userId = ()) returns error? {
+    observe:TaskDecisionSpan span = observe:createHumanTaskDecisionSpan(taskWorkflowId, "fail");
+    span.addDecider(userId, callerRoles);
+    span.addContent({reason, details});
+    map<anydata>|error receipt = failHumanTaskNative(taskWorkflowId, reason, details, callerRoles, userId);
+    if receipt is error {
+        span.close(receipt);
+        return receipt;
+    }
+    span.addTaskDetails(receipt);
+    span.close();
+}
+
+isolated function failHumanTaskNative(string taskWorkflowId, string reason, map<json>? details,
+        [string, string...]? callerRoles, string? userId) returns map<anydata>|error = @java:Method {
     'class: "io.ballerina.lib.workflow.runtime.nativeimpl.WorkflowNative",
     name: "failHumanTask"
 } external;
@@ -302,7 +335,21 @@ public isolated function failHumanTask(string taskWorkflowId, string reason,
 # + userId - Optional user identifier stored in the audit trail (from `x-user-id` header)
 # + return - An error if the task cannot be found, is already completed, or the caller is unauthorized
 public isolated function completeReviewActivity(string taskWorkflowId, ReviewDecision decision,
-        [string, string...]? callerRoles = (), string? userId = ()) returns error? = @java:Method {
+        [string, string...]? callerRoles = (), string? userId = ()) returns error? {
+    observe:TaskDecisionSpan span = observe:createReviewActivityDecisionSpan(taskWorkflowId, decision.action);
+    span.addDecider(userId, callerRoles);
+    span.addContent({input: decision.input, feedback: decision.feedback});
+    map<anydata>|error receipt = completeReviewActivityNative(taskWorkflowId, decision, callerRoles, userId);
+    if receipt is error {
+        span.close(receipt);
+        return receipt;
+    }
+    span.addTaskDetails(receipt);
+    span.close();
+}
+
+isolated function completeReviewActivityNative(string taskWorkflowId, ReviewDecision decision,
+        [string, string...]? callerRoles, string? userId) returns map<anydata>|error = @java:Method {
     'class: "io.ballerina.lib.workflow.runtime.nativeimpl.ManagementNative",
     name: "completeReviewActivity"
 } external;

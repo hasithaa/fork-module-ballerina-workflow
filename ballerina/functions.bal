@@ -131,14 +131,22 @@ isolated function getWorkflowResultNative(string workflowId, int timeoutSeconds)
 # + return - An error if the task cannot be found, is already completed, or the caller is unauthorized
 public isolated function completeHumanTask(string taskWorkflowId, anydata result,
         [string, string...]? callerRoles = (), string? userId = ()) returns error? {
-    observe:CompleteHumanTaskSpan span = observe:createCompleteHumanTaskSpan(taskWorkflowId);
-    error? completionResult = completeHumanTaskNative(taskWorkflowId, result, callerRoles, userId);
-    span.close(completionResult);
-    return completionResult;
+    observe:TaskDecisionSpan span = observe:createHumanTaskDecisionSpan(taskWorkflowId, "complete");
+    span.addDecider(userId, callerRoles);
+    span.addContent(result);
+    map<anydata>|error receipt = completeHumanTaskNative(taskWorkflowId, result, callerRoles, userId);
+    if receipt is error {
+        span.close(receipt);
+        return receipt;
+    }
+    span.addTaskDetails(receipt);
+    span.close();
 }
 
+// On success the runtime hands back what it confirmed about the task — its declared name, its
+// parent workflow and the roles allowed to decide it — for the decision's audit entry.
 isolated function completeHumanTaskNative(string taskWorkflowId, anydata result,
-        [string, string...]? callerRoles, string? userId) returns error? = @java:Method {
+        [string, string...]? callerRoles, string? userId) returns map<anydata>|error = @java:Method {
     'class: "io.ballerina.lib.workflow.runtime.nativeimpl.WorkflowNative",
     name: "completeHumanTask"
 } external;

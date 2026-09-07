@@ -58,8 +58,41 @@ function testDataAndResultSpansNoOpWhenTracingDisabled() {
     observe:GetWorkflowResultSpan resultSpan = observe:createGetWorkflowResultSpan("wf-instance-1");
     resultSpan.close(error("timed out"));
 
-    observe:CompleteHumanTaskSpan taskSpan = observe:createCompleteHumanTaskSpan("humantask-wf-1-approve-x");
-    taskSpan.close();
+}
+
+@test:Config {
+    groups: ["observe"]
+}
+function testTaskDecisionSpansAuditWithoutTracing() {
+    // Tracing is off, so the span itself is a no-op — but the decision's audit entry and its
+    // metric leg still run, and must survive every shape of input.
+    observe:TaskDecisionSpan accepted = observe:createHumanTaskDecisionSpan("humantask-wf-1-approve-x", "complete");
+    accepted.addDecider("alice", ["FINANCE_APPROVER"]);
+    accepted.addContent({approved: true, comment: "LGTM"});
+    accepted.addTaskDetails({taskName: "expenseFlow.approve", parentWorkflowId: "wf-1",
+                             assignedRoles: ["FINANCE_APPROVER", "CFO"]});
+    accepted.close();
+
+    observe:TaskDecisionSpan anonymous = observe:createHumanTaskDecisionSpan("humantask-wf-1-approve-y", "fail");
+    anonymous.addDecider((), ());
+    anonymous.addContent({reason: "incomplete", details: ()});
+    anonymous.close(error("Unauthorized: caller does not have a required role"));
+
+    observe:TaskDecisionSpan review = observe:createReviewActivityDecisionSpan("review-1", "proceed-with-input");
+    review.addDecider("bob", ["OPS"]);
+    review.addContent({input: {orderId: "NEW-1"}, feedback: ()});
+    review.addTaskDetails({});
+    review.close();
+}
+
+@test:Config {
+    groups: ["observe"]
+}
+function testContentCaptureIsOffByDefault() {
+    test:assertFalse(observe:isHumanTaskContentCaptured(),
+            "a decision's content must stay out of telemetry unless the deployment asks for it");
+    test:assertFalse(observe:isActivityContentCaptured(),
+            "activity arguments and results must stay out of the log unless the deployment asks for it");
 }
 
 @test:Config {

@@ -968,7 +968,7 @@ public final class ManagementNative {
      * @param taskWorkflowId the Temporal workflow ID of the human task child workflow
      * @param result         the value to return to the waiting workflow
      * @param callerRoles    optional caller roles for authorization enforcement
-     * @return {@code null} on success, or a Ballerina error
+     * @return the task's receipt on success, or a Ballerina error — see {@code WorkflowNative.completeHumanTask}
      */
     public static Object completeHumanTask(BString taskWorkflowId, Object result, Object callerRoles, Object userId) {
         return WorkflowNative.completeHumanTask(taskWorkflowId, result, callerRoles, userId);
@@ -985,7 +985,8 @@ public final class ManagementNative {
      * @param taskWorkflowId the Temporal workflow ID of the retry task child workflow
      * @param decision       the {@code ReviewDecision} BMap ({@code action} + optional {@code input})
      * @param callerRoles    optional caller roles for authorization enforcement
-     * @return {@code null} on success, or a Ballerina error
+     * @return the review's receipt — its {@code taskName}, {@code parentWorkflowId} and {@code assignedRoles}, for
+     *         the decision's audit entry — on success, or a Ballerina error
      */
     @SuppressWarnings("unchecked")
     public static Object completeReviewActivity(BString taskWorkflowId, BMap<BString, Object> decision,
@@ -999,10 +1000,10 @@ public final class ManagementNative {
 
             // Validate workflowKind and optionally enforce caller roles
             BArray callerRolesArray = (callerRoles instanceof BArray ba) ? ba : null;
-            Object validationError = validateReviewActivityAndRoles(client, taskWorkflowId.getValue(),
+            Object validation = validateReviewActivityAndRoles(client, taskWorkflowId.getValue(),
                     callerRolesArray);
-            if (validationError != null) {
-                return validationError;
+            if (!(validation instanceof TaskMemo memo)) {
+                return validation;
             }
 
             // Convert ReviewDecision BMap → serializable Java map
@@ -1030,7 +1031,7 @@ public final class ManagementNative {
                         "Failed to complete retry task: task '" + taskWorkflowId.getValue() +
                                 "' was no longer running when signal was delivered"));
             }
-            return null;
+            return memo.toReceipt();
         } catch (Exception e) {
             return ErrorCreator.createError(StringUtils.fromString("Failed to complete retry task: " + e.getMessage()));
         }
@@ -1042,7 +1043,8 @@ public final class ManagementNative {
      * one of
      * the caller's roles appears in the task's {@code userRoles}.
      *
-     * @return {@code null} if all checks pass, or a Ballerina error
+     * @return the review's {@link TaskMemo} — its declared name, parent workflow and allowed roles — if all
+     *         checks pass, or a Ballerina error
      */
     @SuppressWarnings("unchecked")
     private static Object validateReviewActivityAndRoles(WorkflowClient client, String taskWorkflowId,
@@ -1091,10 +1093,6 @@ public final class ManagementNative {
                                 workflowKind + ")"));
             }
 
-            if (callerRolesArray == null) {
-                return null;
-            }
-
             Set<String> allowedRoles = new HashSet<>();
             try {
                 Payload rolesPl = memoFields.get("userRoles");
@@ -1103,17 +1101,25 @@ public final class ManagementNative {
                     allowedRoles.addAll(Arrays.asList(rolesArr));
                 }
             } catch (Exception e) {
-                return ErrorCreator.createError(StringUtils.fromString(
-                        "Failed to decode task roles for '" + taskWorkflowId + "': " + e.getMessage()));
+                if (callerRolesArray != null) {
+                    return ErrorCreator.createError(StringUtils.fromString(
+                            "Failed to decode task roles for '" + taskWorkflowId + "': " + e.getMessage()));
+                }
+                // Nothing to enforce against, so an unreadable role list only costs the audit entry its roles.
+                LOGGER.debug("Could not decode userRoles from memo for '{}': {}", taskWorkflowId, e.getMessage());
             }
+            // The decision's audit entry names the review, its parent, and who was allowed to decide it.
+            TaskMemo memo = new TaskMemo(decodeMemoString(dc, memoFields, "taskName", null),
+                                         decodeMemoString(dc, memoFields, "parentWorkflowId", null),
+                                         allowedRoles.stream().sorted().toList());
 
-            if (allowedRoles.isEmpty()) {
-                return null;
+            if (callerRolesArray == null || allowedRoles.isEmpty()) {
+                return memo;
             }
 
             for (int i = 0; i < callerRolesArray.size(); i++) {
                 if (allowedRoles.contains(callerRolesArray.get(i).toString())) {
-                    return null;
+                    return memo;
                 }
             }
 

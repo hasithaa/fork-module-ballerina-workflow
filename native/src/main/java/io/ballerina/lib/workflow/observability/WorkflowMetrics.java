@@ -50,6 +50,10 @@ public final class WorkflowMetrics {
     private static final String TAG_ACTIVITY_TYPE = "activity_type";
     private static final String TAG_DATA_NAME = "data_name";
     private static final String TAG_STATUS = "status";
+    private static final String TAG_TASK_KIND = "task_kind";
+    private static final String TAG_TASK_NAME = "task_name";
+    private static final String TAG_ACTION = "action";
+    private static final String TAG_OUTCOME = "outcome";
     private static final String STATUS_COMPLETED = "completed";
     private static final String STATUS_FAILED = "failed";
 
@@ -127,6 +131,31 @@ public final class WorkflowMetrics {
             }
         } catch (Exception e) {
             LOGGER.debug("Failed to record activity execution metric", e);
+        }
+    }
+
+    /**
+     * Records one decision a person made on a human task or a review activity, accepted or refused.
+     * Task names are declared at compile time and the other tags are closed sets, so the series stay
+     * bounded; who decided is deliberately not a tag — it is on the decision's span and audit entry.
+     *
+     * @param taskKind {@code HUMAN_TASK} or {@code REVIEW_ACTIVITY}
+     * @param taskName the task's declared name, or {@code unknown} when the decision was refused
+     *                 before the task was resolved
+     * @param action   what was decided
+     * @param outcome  {@code accepted} or {@code denied}
+     */
+    public static void recordTaskDecision(String taskKind, String taskName, String action, String outcome) {
+        if (!isMetricsEnabled()) {
+            return;
+        }
+        try {
+            counter("workflow_task_decisions_total",
+                    "Total decisions people made on human tasks and review activities through this runtime",
+                    Set.of(Tag.of(TAG_TASK_KIND, taskKind), Tag.of(TAG_TASK_NAME, taskName),
+                           Tag.of(TAG_ACTION, action), Tag.of(TAG_OUTCOME, outcome))).increment();
+        } catch (Exception e) {
+            LOGGER.debug("Failed to record task decision metric", e);
         }
     }
 

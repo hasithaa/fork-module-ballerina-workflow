@@ -14,6 +14,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import ballerina/log;
+
 # Represents a tracing span for starting a workflow instance.
 public isolated distinct class StartWorkflowSpan {
     *WorkflowSpan;
@@ -79,22 +81,157 @@ public isolated distinct class GetWorkflowResultSpan {
     }
 }
 
-# Represents a tracing span for completing a pending human task.
-public isolated distinct class CompleteHumanTaskSpan {
+# The kind of task a person decides on.
+public enum TaskKind {
+    HUMAN_TASK,
+    REVIEW_ACTIVITY
+}
+
+# What a person decided: `complete` or `fail` for a human task; `proceed`,
+# `proceed-with-input` or `reject` for a review activity.
+public type TaskAction "complete"|"fail"|"proceed"|"proceed-with-input"|"reject";
+
+# Decision content longer than this is cut, so one oversized submission cannot flood a span
+# or a log line.
+const int MAX_CONTENT_CHARS = 8192;
+
+const string DECISION_ACCEPTED = "accepted";
+const string DECISION_DENIED = "denied";
+const string UNKNOWN_TASK_NAME = "unknown";
+
+# Represents one decision a person makes on a task — completing or rejecting a human task,
+# or deciding a review activity — as a tracing span that, when closed, also writes the
+# decision's audit log entry and counts it in `workflow_task_decisions_total`.
+#
+# The span and the audit entry both say who decided (`user.id`, `user.roles`), what
+# (`workflow.task.action`) and on which task; the audit entry adds the task's name, its
+# parent workflow and the roles it allowed, once the runtime has confirmed them, and
+# whether the decision was accepted or refused. A refused decision is recorded too. The
+# decision's content joins both only when `captureHumanTaskContent` is on.
+#
+# The audit entry is written whether or not tracing or metrics are enabled: it is the
+# governance record, not telemetry.
+public isolated distinct class TaskDecisionSpan {
     *WorkflowSpan;
     private final BaseSpanImp baseSpan;
+    private final TaskKind kind;
+    private final string taskId;
+    private final TaskAction action;
+    private string? userId = ();
+    private string[] & readonly userRoles = [];
+    private string? contentJson = ();
+    private string? taskName = ();
+    private string? parentWorkflowId = ();
+    private string[] & readonly assignedRoles = [];
 
-    isolated function init(string taskWorkflowId) {
-        self.baseSpan = new (string `${COMPLETE_HUMAN_TASK} ${taskWorkflowId}`);
-        self.baseSpan.addTag(OPERATION_NAME, COMPLETE_HUMAN_TASK);
-        self.baseSpan.addTag(HUMAN_TASK_ID, taskWorkflowId);
+    isolated function init(TaskKind kind, string taskId, TaskAction action) {
+        self.kind = kind;
+        self.taskId = taskId;
+        self.action = action;
+        Operations operation = kind == HUMAN_TASK
+            ? (action == "fail" ? FAIL_HUMAN_TASK : COMPLETE_HUMAN_TASK)
+            : COMPLETE_REVIEW_ACTIVITY;
+        self.baseSpan = new (string `${operation} ${taskId}`);
+        self.baseSpan.addTag(OPERATION_NAME, operation);
+        self.baseSpan.addTag(kind == HUMAN_TASK ? HUMAN_TASK_ID : REVIEW_ACTIVITY_ID, taskId);
+        self.baseSpan.addTag(TASK_ACTION, action);
     }
 
-    # Closes the span and records its final status.
+    # Records who made the decision, as the caller identified them.
     #
-    # + err - Optional error that indicates if the operation failed
+    # + userId - The deciding user's identifier, when the caller supplied one
+    # + roles - The roles the caller presented, when any
+    public isolated function addDecider(string? userId, string[]? roles) {
+        string[] & readonly presented = (roles ?: []).cloneReadOnly();
+        lock {
+            self.userId = userId;
+            self.userRoles = presented;
+        }
+        if userId is string {
+            self.baseSpan.addTag(USER_ID, userId);
+        }
+        if presented.length() > 0 {
+            self.baseSpan.addTag(USER_ROLES, string:'join(",", ...presented));
+        }
+    }
+
+    # Records what the person submitted — the completion result, the rejection reason and
+    # details, or the review decision's input and feedback. Recorded only when
+    # `captureHumanTaskContent` is on; otherwise this is a no-op.
+    #
+    # + content - The submitted value
+    public isolated function addContent(anydata content) {
+        if !captureHumanTaskContent {
+            return;
+        }
+        string text = content.toJsonString();
+        if text.length() > MAX_CONTENT_CHARS {
+            text = text.substring(0, MAX_CONTENT_CHARS) + "…";
+        }
+        lock {
+            self.contentJson = text;
+        }
+        self.baseSpan.addTag(TASK_CONTENT, text);
+    }
+
+    # Records what the runtime confirmed about the task when it accepted the decision:
+    # its declared name, its parent workflow and the roles it allowed to decide it.
+    #
+    # + receipt - The receipt the runtime returned for the accepted decision
+    public isolated function addTaskDetails(map<anydata> receipt) {
+        anydata name = receipt["taskName"];
+        anydata parent = receipt["parentWorkflowId"];
+        anydata roles = receipt["assignedRoles"];
+        string[] & readonly allowed = (roles is anydata[])
+            ? (from anydata role in roles where role is string select role).cloneReadOnly()
+            : [];
+        lock {
+            self.taskName = (name is string) ? name : ();
+            self.parentWorkflowId = (parent is string) ? parent : ();
+            self.assignedRoles = allowed;
+        }
+        if name is string {
+            self.baseSpan.addTag(TASK_NAME, name);
+        }
+    }
+
+    # Closes the span, writes the decision's audit entry, and counts the decision.
+    #
+    # + err - The error the runtime refused the decision with, if it did
     public isolated function close(error? err = ()) {
         self.baseSpan.close(err);
+        self.audit(err);
+    }
+
+    isolated function audit(error? err) {
+        string? userId;
+        string[] & readonly userRoles;
+        string? contentJson;
+        string? taskName;
+        string? parentWorkflowId;
+        string[] & readonly assignedRoles;
+        lock {
+            userId = self.userId;
+            userRoles = self.userRoles;
+            contentJson = self.contentJson;
+            taskName = self.taskName;
+            parentWorkflowId = self.parentWorkflowId;
+            assignedRoles = self.assignedRoles;
+        }
+        string outcome = (err is ()) ? DECISION_ACCEPTED : DECISION_DENIED;
+        recordTaskDecisionMetric(self.kind, taskName ?: UNKNOWN_TASK_NAME, self.action, outcome);
+        string subject = self.kind == HUMAN_TASK ? "human task" : "review activity";
+        if err is () {
+            log:printInfo(string `${subject} decision ${outcome}`, taskKind = self.kind, taskId = self.taskId,
+                    taskName = taskName, parentWorkflowId = parentWorkflowId, action = self.action,
+                    outcome = outcome, userId = userId, userRoles = userRoles, assignedRoles = assignedRoles,
+                    decidedAt = nowText(), content = contentJson);
+        } else {
+            log:printWarn(string `${subject} decision ${outcome}`, 'error = err, taskKind = self.kind,
+                    taskId = self.taskId, taskName = taskName, parentWorkflowId = parentWorkflowId,
+                    action = self.action, outcome = outcome, userId = userId, userRoles = userRoles,
+                    assignedRoles = assignedRoles, decidedAt = nowText(), content = contentJson);
+        }
     }
 }
 
@@ -170,12 +307,24 @@ public isolated function createGetWorkflowResultSpan(string instanceId) returns 
     return new (instanceId);
 }
 
-# Creates a span representing the completion of a pending human task.
+# Creates a span representing a person's decision on a human task.
 #
 # + taskWorkflowId - The human task's workflow ID
-# + return - A `CompleteHumanTaskSpan` instance representing the span
-public isolated function createCompleteHumanTaskSpan(string taskWorkflowId) returns CompleteHumanTaskSpan {
-    return new (taskWorkflowId);
+# + action - `complete` to submit a result, `fail` to reject the task
+# + return - A `TaskDecisionSpan` for the decision
+public isolated function createHumanTaskDecisionSpan(string taskWorkflowId, "complete"|"fail" action)
+        returns TaskDecisionSpan {
+    return new (HUMAN_TASK, taskWorkflowId, action);
+}
+
+# Creates a span representing a person's decision on a review activity.
+#
+# + taskWorkflowId - The review activity's workflow ID
+# + action - The review decision: `proceed`, `proceed-with-input` or `reject`
+# + return - A `TaskDecisionSpan` for the decision
+public isolated function createReviewActivityDecisionSpan(string taskWorkflowId,
+        "proceed"|"proceed-with-input"|"reject" action) returns TaskDecisionSpan {
+    return new (REVIEW_ACTIVITY, taskWorkflowId, action);
 }
 
 # Creates a span representing the start of a durable agent instance.

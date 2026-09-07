@@ -31,7 +31,45 @@ import io.temporal.workflow.Workflow;
  */
 public final class ObservabilityNative {
 
+    // Set once at module init from the `workflow.observe` configurables. Read on activity
+    // threads, where Ballerina configurables are out of reach; volatile so those threads see
+    // the value the init strand wrote.
+    private static volatile boolean activityContentCaptured = false;
+
     private ObservabilityNative() {
+    }
+
+    /**
+     * Records the worker-side content-capture switch from the {@code workflow.observe} configurables.
+     *
+     * @param activityContent whether every activity execution logs its arguments and result
+     */
+    public static void configureContentCapture(boolean activityContent) {
+        activityContentCaptured = activityContent;
+    }
+
+    /**
+     * Whether activity executions log their arguments and results.
+     *
+     * @return {@code true} when {@code captureActivityContent} is on
+     */
+    public static boolean isActivityContentCaptured() {
+        return activityContentCaptured;
+    }
+
+    /**
+     * Counts one decision a person made on a task. The Ballerina side owns the decision's audit
+     * entry and span; this is the metric leg, kept with the other counters.
+     *
+     * @param taskKind {@code HUMAN_TASK} or {@code REVIEW_ACTIVITY}
+     * @param taskName the task's declared name, or {@code unknown} when the decision was refused
+     *                 before the task was resolved
+     * @param action   what was decided
+     * @param outcome  {@code accepted} or {@code denied}
+     */
+    public static void recordTaskDecisionMetric(BString taskKind, BString taskName, BString action, BString outcome) {
+        WorkflowMetrics.recordTaskDecision(taskKind.getValue(), taskName.getValue(), action.getValue(),
+                                           outcome.getValue());
     }
 
     /**

@@ -31,6 +31,8 @@ import ballerina/observe;
 import ballerina/observe.mockextension as mock;
 import ballerina/test;
 import ballerina/workflow;
+import ballerina/workflow.management;
+import ballerina/workflow.observe as wfobserve;
 
 import ballerinax/prometheus as _;
 
@@ -108,6 +110,83 @@ function testWorkflowSpanEmission() returns error? {
     test:assertEquals(resultSpan.tags["workflow.operation.name"], "get_workflow_result");
 }
 
+@test:Config {
+    groups: ["integration", "observability"]
+}
+function testHumanTaskDecisionTelemetry() returns error? {
+    string workflowId = check workflow:run(observabilityApprovalFlow, {name: "decision"});
+    management:HumanTaskGroup[] groups = check waitForPendingHumanTask(workflowId);
+    string taskId = groups[0].taskIds[0];
+
+    // Someone outside the task's roles is refused — and the refusal is itself a recorded decision.
+    error? refused = workflow:completeHumanTask(taskId, {approved: true},
+            callerRoles = ["OBS_BYSTANDER"], userId = "mallory");
+    test:assertTrue(refused is error, "A caller outside the task's roles must be refused");
+
+    check workflow:completeHumanTask(taskId, {approved: true}, callerRoles = ["OBS_APPROVER"], userId = "alice");
+    anydata result = check workflow:getWorkflowResult(workflowId, 60);
+    test:assertEquals(result, "obs:approved", "The approved task should complete the workflow");
+
+    if observe:isMetricsEnabled() {
+        check assertMetricAtLeast("workflow_task_decisions_total",
+                {task_kind: "HUMAN_TASK", action: "complete", outcome: "accepted"}, 1.0);
+        check assertMetricAtLeast("workflow_task_decisions_total",
+                {task_kind: "HUMAN_TASK", action: "complete", outcome: "denied"}, 1.0);
+    }
+    if observe:isTracingEnabled() {
+        mock:Span accepted = check findDecisionSpan("complete_human_task", "workflow.human_task.id", taskId, "alice");
+        test:assertEquals(accepted.tags["user.roles"], "OBS_APPROVER", "the span should say in which role alice decided");
+        test:assertEquals(accepted.tags["workflow.task.action"], "complete");
+        string taskName = accepted.tags["workflow.task.name"] ?: "";
+        test:assertTrue(taskName.endsWith("obsApprove"),
+                "an accepted decision's span should name the task, got '" + taskName + "'");
+        if wfobserve:isHumanTaskContentCaptured() {
+            test:assertEquals(accepted.tags["workflow.task.content"], "{\"approved\":true}",
+                    "with content capture on, the span should carry the submitted result");
+        } else {
+            test:assertFalse(accepted.tags.hasKey("workflow.task.content"),
+                    "with content capture off, the submitted result must stay off the span");
+        }
+
+        mock:Span denied = check findDecisionSpan("complete_human_task", "workflow.human_task.id", taskId, "mallory");
+        test:assertEquals(denied.tags["user.roles"], "OBS_BYSTANDER", "a refused decision still records who tried");
+        test:assertFalse(denied.tags.hasKey("workflow.task.name"),
+                "a refused decision never resolved the task, so it cannot name it");
+    }
+}
+
+@test:Config {
+    groups: ["integration", "observability"]
+}
+function testReviewActivityDecisionTelemetry() returns error? {
+    string workflowId = check workflow:run(observabilityReviewFlow, {name: "fail"});
+    management:ReviewActivitySummary review = check waitForPendingReviewActivity(workflowId);
+
+    check management:completeReviewActivity(review.taskId,
+            {action: "proceed-with-input", input: {mode: "ok"}},
+            callerRoles = ["OBS_REVIEWER"], userId = "bob");
+    anydata result = check workflow:getWorkflowResult(workflowId, 60);
+    test:assertEquals(result, "obs:recovered:ok", "The reviewer's input should let the step recover");
+
+    if observe:isMetricsEnabled() {
+        check assertMetricAtLeast("workflow_task_decisions_total",
+                {task_kind: "REVIEW_ACTIVITY", action: "proceed-with-input", outcome: "accepted"}, 1.0);
+    }
+    if observe:isTracingEnabled() {
+        mock:Span span = check findDecisionSpan("complete_review_activity", "workflow.review_activity.id",
+                review.taskId, "bob");
+        test:assertEquals(span.tags["user.roles"], "OBS_REVIEWER");
+        test:assertEquals(span.tags["workflow.task.action"], "proceed-with-input");
+        if wfobserve:isHumanTaskContentCaptured() {
+            string content = span.tags["workflow.task.content"] ?: "";
+            test:assertTrue(content.includes("\"mode\":\"ok\""),
+                    "with content capture on, the span should carry the reviewer's input, got '" + content + "'");
+        } else {
+            test:assertFalse(span.tags.hasKey("workflow.task.content"));
+        }
+    }
+}
+
 // ================================================================================
 // HELPERS
 // ================================================================================
@@ -155,6 +234,32 @@ function assertMetricAtLeast(string name, map<string> expectedTags, float minimu
     }
     return error(string `metric '${name}' with tags ${expectedTags.toString()} expected to reach ` +
             string `${minimum} but was ${value is float ? value.toString() : "absent"}`);
+}
+
+# Finds a finished decision span by its `workflow.operation.name` tag, task ID tag and decider,
+# retrying briefly because the tracer finishes spans asynchronously. Keyed on the decider too: a
+# refused and an accepted decision on the same task are two spans. (A span's recorded name is
+# `<operation> <taskId>`; the tag is the stable half.)
+#
+# + operationName - The value of the span's `workflow.operation.name` tag
+# + idTag - The tag carrying the task ID (`workflow.human_task.id` or `workflow.review_activity.id`)
+# + taskId - The task's workflow ID
+# + userId - The `user.id` the span must carry
+# + return - The matching span, or an error when none is found
+function findDecisionSpan(string operationName, string idTag, string taskId, string userId)
+        returns mock:Span|error {
+    foreach int attempt in 0 ..< 10 {
+        foreach string serviceName in spanServiceCandidates {
+            foreach mock:Span span in mock:getFinishedSpans(serviceName) {
+                if span.tags["workflow.operation.name"] == operationName && span.tags[idTag] == taskId
+                        && span.tags["user.id"] == userId {
+                    return span;
+                }
+            }
+        }
+        runtime:sleep(0.5);
+    }
+    return error(string `decision span '${operationName}' for task '${taskId}' by '${userId}' was not recorded`);
 }
 
 # Finds a finished span by operation name carrying the given workflow instance ID,
