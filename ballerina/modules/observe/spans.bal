@@ -229,6 +229,12 @@ public isolated distinct class TaskDecisionSpan {
         }
         string outcome = (err is ()) ? DECISION_ACCEPTED : DECISION_DENIED;
         recordTaskDecisionMetric(self.kind, taskName ?: UNKNOWN_TASK_NAME, self.action, outcome);
+        if publishMetricSamples {
+            // The decision's sample for log-based metrics: what was decided and on which task —
+            // never who, and never the content. Those stay on the audit entry below.
+            log:printInfo("", logger = "workflow-metrics", sample = "task.decided", task_kind = self.kind,
+                    task_name = taskName ?: UNKNOWN_TASK_NAME, action = self.action, outcome = outcome);
+        }
         string subject = self.kind == HUMAN_TASK ? "human task" : "review activity";
         if err is () {
             log:printInfo(string `${subject} decision ${outcome}`, taskKind = self.kind, taskId = self.taskId,

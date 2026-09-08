@@ -125,6 +125,30 @@ where that cannot hold, a deployment switches the relevant capture off, once, in
 configuration. (OpenTelemetry's GenAI conventions make the opposite call, opt-in, for
 message content; this module sides with its in-house precedent.)
 
+### Samples for log-based metrics
+
+Platforms such as the Integration Control Plane build their metrics from log records rather
+than from a scrape: `ballerinax/metrics.logs` publishes one record per HTTP request
+(`logger = "metrics"`, the request's fields as keys) and a log pipeline indexes them. The
+registry counters above never reach such a platform. So the module publishes its own samples,
+in the same shape, under `logger = "workflow-metrics"` with a `sample` name:
+
+| `sample` | Fields | Written from |
+|---|---|---|
+| `workflow.started` | `workflow_type`, `workflow_id` | the client, on `run` |
+| `workflow.closed` | `workflow_type`, `workflow_id`, `run_id`, `status` (`completed`/`failed`), `duration_seconds` | the workflow adapter, replay-gated |
+| `activity.executed` | `activity_type`, `workflow_id`, `run_id`, `attempt`, `outcome`, `duration_seconds` | the activity adapter, per attempt |
+| `data.sent` | `data_name`, `workflow_id` | the client, on `sendData` |
+| `task.decided` | `task_kind`, `task_name`, `action`, `outcome` | beside the decision's audit entry |
+
+Structural fields only — never inputs, results or who decided; those stay on the audit entry
+and the content log. The Java-side samples go through the module's console handler, whose
+formatter renders a record's `Map` parameter as top-level `key=value` pairs, so a logfmt parser
+reads them exactly as it reads `ballerina/log` output. `publishMetricSamples = false` under
+`[ballerina.workflow.observe]` turns them off. What a platform does with them — a
+`ballerina-workflow-metrics-*` index and a workflow view — is the platform's side; the
+field names above are the contract.
+
 ## Backward compatibility
 
 None of the public API signatures change; wrappers preserve behavior exactly and the new

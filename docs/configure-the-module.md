@@ -158,6 +158,7 @@ captureActivityContent = true
 |-----------|---------|-------------|
 | `captureHumanTaskContent` | `true` | Record a decision's content on its span and audit entry: what the person was shown (the human task's input, or the arguments of the activity under review) and what they submitted (the completion result, the rejection reason and details, or the review decision's input and feedback). Who decided, what and when are recorded regardless |
 | `captureActivityContent` | `true` | Log every activity execution attempt's arguments and result (or error) to the worker's log, beside its outcome and duration. Long values are truncated |
+| `publishMetricSamples` | `true` | Publish one structured log record per workflow event — run started/closed with duration, activity attempt with outcome and duration, data event delivered, task decided — tagged `logger = "workflow-metrics"`, so a log pipeline can build a workflow metrics index the way `ballerinax/metrics.logs` feeds HTTP metrics. Structural fields only |
 
 Both are on by default, as `ballerina/ai`'s `ai.observe` records prompt and completion
 content: the engine already persists everything a workflow handles for the life of the run,

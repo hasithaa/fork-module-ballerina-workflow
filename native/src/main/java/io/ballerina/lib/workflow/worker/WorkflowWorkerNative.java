@@ -24,6 +24,7 @@ import io.ballerina.lib.workflow.context.SignalAwaitWrapper;
 import io.ballerina.lib.workflow.context.WorkflowContextNative;
 import io.ballerina.lib.workflow.observability.ActivityContentLog;
 import io.ballerina.lib.workflow.observability.WorkflowMetrics;
+import io.ballerina.lib.workflow.observability.WorkflowSampleLog;
 import io.ballerina.lib.workflow.registry.EventInfo;
 import io.ballerina.lib.workflow.runtime.WorkflowRuntime;
 import io.ballerina.lib.workflow.utils.BallerinaFailureConverter;
@@ -1896,7 +1897,9 @@ public final class WorkflowWorkerNative {
 
     /**
      * Formats a JUL record in Ballerina's structured log style:
-     * {@code time=... level=... module=ballerina/workflow message="..." [error="..."]}.
+     * {@code time=... level=... module=ballerina/workflow message="..." [key=value ...] [error="..."]}.
+     * A record whose single parameter is a {@code Map} — the workflow samples — has each entry rendered
+     * as a top-level key=value pair, as {@code ballerina/log} renders its key-values.
      */
     private static final class BallerinaLogFormatter extends java.util.logging.Formatter {
 
@@ -1907,6 +1910,21 @@ public final class WorkflowWorkerNative {
                     .append(" level=").append(ballerinaLevel(record.getLevel()))
                     .append(" module=ballerina/workflow")
                     .append(" message=\"").append(escape(formatMessage(record))).append('"');
+            Object[] params = record.getParameters();
+            if (params != null && params.length == 1 && params[0] instanceof Map<?, ?> fields) {
+                for (Map.Entry<?, ?> entry : fields.entrySet()) {
+                    Object value = entry.getValue();
+                    if (value == null) {
+                        continue;
+                    }
+                    line.append(' ').append(entry.getKey()).append('=');
+                    if (value instanceof Number || value instanceof Boolean) {
+                        line.append(value);
+                    } else {
+                        line.append('"').append(escape(String.valueOf(value))).append('"');
+                    }
+                }
+            }
             Throwable thrown = record.getThrown();
             if (thrown != null) {
                 line.append(" error=\"").append(escape(String.valueOf(thrown))).append('"');
@@ -2312,16 +2330,20 @@ public final class WorkflowWorkerNative {
                 // (crash recovery, queries against closed runs) the body re-executes but
                 // no new completion happened, so recording would double-count.
                 if (!Workflow.isReplaying()) {
-                    WorkflowMetrics.recordWorkflowCompletion(executingType,
-                            Workflow.currentTimeMillis() - workflowInfo.getRunStartedTimestampMillis(), false);
+                    long elapsed = Workflow.currentTimeMillis() - workflowInfo.getRunStartedTimestampMillis();
+                    WorkflowMetrics.recordWorkflowCompletion(executingType, elapsed, false);
+                    WorkflowSampleLog.workflowClosed(executingType, workflowInfo.getWorkflowId(),
+                            workflowInfo.getRunId(), elapsed, false);
                 }
                 return result;
             } catch (io.temporal.worker.NonDeterministicException e) {
                 throw e;
             } catch (Exception e) {
                 if (!Workflow.isReplaying() && !isDestroyWorkflowThreadError(e)) {
-                    WorkflowMetrics.recordWorkflowCompletion(executingType,
-                            Workflow.currentTimeMillis() - workflowInfo.getRunStartedTimestampMillis(), true);
+                    long elapsed = Workflow.currentTimeMillis() - workflowInfo.getRunStartedTimestampMillis();
+                    WorkflowMetrics.recordWorkflowCompletion(executingType, elapsed, true);
+                    WorkflowSampleLog.workflowClosed(executingType, workflowInfo.getWorkflowId(),
+                            workflowInfo.getRunId(), elapsed, true);
                 }
                 throw e;
             }
@@ -2877,11 +2899,13 @@ public final class WorkflowWorkerNative {
                 Object result = executeInternal(args);
                 long durationMillis = (System.nanoTime() - startNanos) / 1_000_000;
                 WorkflowMetrics.recordActivityExecution(executingActivityType, durationMillis, false);
+                WorkflowSampleLog.activityExecuted(info, durationMillis, false);
                 ActivityContentLog.record(info, args, durationMillis, result, null);
                 return result;
             } catch (Exception e) {
                 long durationMillis = (System.nanoTime() - startNanos) / 1_000_000;
                 WorkflowMetrics.recordActivityExecution(executingActivityType, durationMillis, true);
+                WorkflowSampleLog.activityExecuted(info, durationMillis, true);
                 ActivityContentLog.record(info, args, durationMillis, null, e);
                 throw e;
             }

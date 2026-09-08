@@ -35,17 +35,29 @@ public final class ObservabilityNative {
     // threads, where Ballerina configurables are out of reach; volatile so those threads see
     // the value the init strand wrote.
     private static volatile boolean activityContentCaptured = false;
+    private static volatile boolean metricSamplesPublished = true;
 
     private ObservabilityNative() {
     }
 
     /**
-     * Records the worker-side content-capture switch from the {@code workflow.observe} configurables.
+     * Records the worker-side switches from the {@code workflow.observe} configurables.
      *
      * @param activityContent whether every activity execution logs its arguments and result
+     * @param metricSamples   whether the runtime publishes one structured log record per workflow event
      */
-    public static void configureContentCapture(boolean activityContent) {
+    public static void configure(boolean activityContent, boolean metricSamples) {
         activityContentCaptured = activityContent;
+        metricSamplesPublished = metricSamples;
+    }
+
+    /**
+     * Whether the runtime publishes one structured log record per workflow event, for log-based metrics.
+     *
+     * @return {@code true} when {@code publishMetricSamples} is on
+     */
+    public static boolean areMetricSamplesPublished() {
+        return metricSamplesPublished;
     }
 
     /**

@@ -93,6 +93,8 @@ function testContentCaptureIsOnByDefault() {
             "a decision's content is recorded unless the deployment switches it off, as ai.observe does");
     test:assertTrue(observe:isActivityContentCaptured(),
             "activity arguments and results are logged unless the deployment switches it off");
+    test:assertTrue(observe:isMetricSamplesPublished(),
+            "one sample per workflow event is published unless the deployment switches it off");
 }
 
 @test:Config {

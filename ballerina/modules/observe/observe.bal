@@ -39,9 +39,23 @@ configurable boolean captureHumanTaskContent = true;
 # truncated.
 configurable boolean captureActivityContent = true;
 
+# Whether the runtime publishes one structured log record per workflow event — a run started or
+# closed (with its duration), an activity attempt (with outcome and duration), a data event
+# delivered, a task decided — tagged `logger = "workflow-metrics"` with a `sample` name. This
+# is the workflow-domain counterpart of `ballerinax/metrics.logs`, which publishes one record per
+# HTTP request: a log pipeline can build a workflow metrics index from these without scraping
+# the metric registry. Structural fields only — types, ids, status, duration — never inputs,
+# results or who decided.
+configurable boolean publishMetricSamples = true;
+
 function init() {
-    configureContentCapture(captureActivityContent);
+    configure(captureActivityContent, publishMetricSamples);
 }
+
+# Reports whether the runtime publishes one structured log record per workflow event.
+#
+# + return - The value of `publishMetricSamples`
+public isolated function isMetricSamplesPublished() returns boolean => publishMetricSamples;
 
 # Reports whether decision content is recorded on task-decision spans and audit entries.
 #
@@ -186,13 +200,14 @@ public isolated function workflowTypeNameOf(function processFunction) returns st
     name: "workflowTypeNameOf"
 } external;
 
-# Hands the worker-side content-capture switch to the runtime, which reads it on the
-# activity threads where Ballerina configurables are out of reach.
+# Hands the worker-side switches to the runtime, which reads them on the workflow and activity
+# threads where Ballerina configurables are out of reach.
 #
 # + activityContent - Whether activity executions log their arguments and results
-isolated function configureContentCapture(boolean activityContent) = @java:Method {
+# + metricSamples - Whether the runtime publishes one structured log record per workflow event
+isolated function configure(boolean activityContent, boolean metricSamples) = @java:Method {
     'class: "io.ballerina.lib.workflow.observability.ObservabilityNative",
-    name: "configureContentCapture"
+    name: "configure"
 } external;
 
 # Counts one decision on a task in the runtime's metric registry.

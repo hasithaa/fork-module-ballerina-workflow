@@ -37,6 +37,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
     and result. Both default to `true`, as `ai.observe` records content: the engine already
     persists this data for the run and telemetry retention retires its copy. Turn one off
     where that content must not leave the workflow store.
+  - **One structured log record per workflow event, for log-based metrics.** Under
+    `logger = "workflow-metrics"`: `workflow.started`, `workflow.closed` (status, duration),
+    `activity.executed` (attempt, outcome, duration), `data.sent`, `task.decided` — the
+    workflow-domain counterpart of what `ballerinax/metrics.logs` publishes per HTTP request,
+    so a platform that builds metrics from logs can index workflow metrics too. Structural
+    fields only. `publishMetricSamples = false` turns them off.
   The integration tests run with observability enabled and assert the emitted metrics,
   spans and decision records, content included.
   See `docs/proposals/observability-integration.md` for the design.
