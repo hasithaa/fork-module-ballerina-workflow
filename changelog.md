@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Changed
+- [[#9132] Updated Keywords and Reformat README for Connector Store Discoverability](https://github.com/ballerina-platform/ballerina-library/issues/9132)
+
+### Changed
 
 - **`HumanTaskDefinition` and `ReviewTaskDefinition` replace `HumanTaskOptions` and the
   `string|string[]` retry policy.** `ReviewTaskDefinition` holds `userRoles`, `title`,
