@@ -34,7 +34,7 @@ function processOrder(workflow:Context ctx, OrderRequest request) returns OrderR
 }
 ```
 
-## Key Features
+### Key Features
 
 - `@workflow:Workflow` and `@workflow:Activity` annotations for durable orchestration and non-deterministic operations
 - Automatic checkpointing and replay-based recovery from failures
