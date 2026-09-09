@@ -135,7 +135,7 @@ in the same shape, under `logger = "workflow-metrics"` with a `sample` name:
 
 | `sample` | Fields | Written from |
 |---|---|---|
-| `workflow.started` | `workflow_type`, `workflow_id` | the client, on `run` |
+| `workflow.started` | `workflow_type`, `workflow_id`, `run_id` | the workflow adapter on the run's first execution, replay-gated — so a management start, a child workflow, a human task and an agent run count like a `run` |
 | `workflow.closed` | `workflow_type`, `workflow_id`, `run_id`, `status` (`completed`/`failed`), `duration_seconds` | the workflow adapter, replay-gated |
 | `activity.executed` | `activity_type`, `workflow_id`, `run_id`, `attempt`, `outcome`, `duration_seconds` | the activity adapter, per attempt |
 | `data.sent` | `data_name`, `workflow_id` | the client, on `sendData` |

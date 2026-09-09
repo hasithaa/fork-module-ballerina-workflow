@@ -43,6 +43,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
     workflow-domain counterpart of what `ballerinax/metrics.logs` publishes per HTTP request,
     so a platform that builds metrics from logs can index workflow metrics too. Structural
     fields only. `publishMetricSamples = false` turns them off.
+  - **A run started through the management API now counts in `workflow_starts_total`.** The
+    management start built its Temporal stub directly and never reached the instrumented start
+    path, so only `workflow:run` starts were counted.
   The integration tests run with observability enabled and assert the emitted metrics,
   spans and decision records, content included.
   See `docs/proposals/observability-integration.md` for the design.

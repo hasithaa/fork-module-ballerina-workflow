@@ -51,15 +51,19 @@ public final class WorkflowSampleLog {
     }
 
     /**
-     * A run was started.
+     * A run began executing — fresh progress only; callers gate on replay. Published from the workflow
+     * adapter rather than from the client that started the run, so every way a run can begin (a
+     * {@code workflow:run}, a management start, a child workflow, a human task, an agent) is one sample.
      *
      * @param workflowType the registered workflow type
-     * @param workflowId   the new instance's id
+     * @param workflowId   the instance id
+     * @param runId        the run id
      */
-    public static void workflowStarted(String workflowType, String workflowId) {
+    public static void workflowStarted(String workflowType, String workflowId, String runId) {
         Map<String, Object> f = new LinkedHashMap<>();
         f.put("workflow_type", workflowType);
         f.put("workflow_id", workflowId);
+        f.put("run_id", runId);
         record("workflow.started", f);
     }
 

@@ -157,7 +157,6 @@ public final class WorkflowRuntime {
             workflowStub.start(input);
 
             WorkflowMetrics.recordWorkflowStart(processName);
-            WorkflowSampleLog.workflowStarted(processName, workflowId);
             LOGGER.debug("Started workflow: type={}, id={}", processName, workflowId);
             return workflowId;
 

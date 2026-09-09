@@ -2324,6 +2324,11 @@ public final class WorkflowWorkerNative {
         public Object execute(EncodedValues args) {
             io.temporal.workflow.WorkflowInfo workflowInfo = Workflow.getInfo();
             String executingType = workflowInfo.getWorkflowType();
+            // The run's first execution is where every start path converges; on replay the body
+            // runs again but nothing new started.
+            if (!Workflow.isReplaying()) {
+                WorkflowSampleLog.workflowStarted(executingType, workflowInfo.getWorkflowId(), workflowInfo.getRunId());
+            }
             try {
                 Object result = executeInternal(args);
                 // Record the completion only when this is fresh progress: during a replay
