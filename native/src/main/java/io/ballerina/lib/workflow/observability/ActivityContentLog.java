@@ -76,7 +76,7 @@ public final class ActivityContentLog {
                     .append(" runId=").append(info.getRunId())
                     .append(" activityId=").append(info.getActivityId())
                     .append(" attempt=").append(info.getAttempt())
-                    .append(" outcome=").append(failure == null ? "completed" : "failed")
+                    .append(" outcome=").append(failure == null ? "success" : "failure")
                     .append(" durationMs=").append(durationMillis)
                     .append(" args=").append(render(namedArgs));
             if (failure == null) {

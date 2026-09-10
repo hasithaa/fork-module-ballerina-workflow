@@ -23,7 +23,6 @@ import com.google.protobuf.ByteString;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.util.JsonFormat;
 import io.ballerina.lib.workflow.ModuleUtils;
-import io.ballerina.lib.workflow.observability.WorkflowMetrics;
 import io.ballerina.lib.workflow.runtime.WorkflowRuntime;
 import io.ballerina.lib.workflow.utils.CorrelationExtractor;
 import io.ballerina.lib.workflow.utils.EventExtractor;
@@ -1717,8 +1716,9 @@ public final class ManagementNative {
             } else {
                 javaInput = input != null ? TypesUtil.convertBallerinaToJavaType(input) : null;
             }
+            // The started event is counted at the worker's first execution, where every
+            // start path converges.
             WorkflowExecution execution = stub.start(javaInput);
-            WorkflowMetrics.recordWorkflowStart(type);
 
             BMap<BString, Object> handle = ValueCreator.createRecordValue(ModuleUtils.getManagementModule(),
                                                                           "WorkflowHandle");

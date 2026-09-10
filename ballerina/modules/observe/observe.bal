@@ -131,6 +131,9 @@ isolated class BaseSpanImp {
             return;
         }
         addOtherTags("span.type", "workflow", spanId);
+        foreach [string, string] [key, value] in spanIdentityTags().entries() {
+            addOtherTags(key, value, spanId);
+        }
     }
 
     isolated function addTag(WorkflowTagNames key, string value) {
@@ -216,9 +219,29 @@ isolated function configure(boolean activityContent, boolean metricSamples) = @j
 # + taskName - The task's declared name, or `unknown` when the decision was refused before
 #              the task was resolved
 # + action - What was decided
-# + outcome - `accepted` or `denied`
+# + accepted - Whether the runtime accepted the decision
+# + errorType - The refusing error's type name, or an empty string when accepted
 isolated function recordTaskDecisionMetric(string taskKind, string taskName, string action,
-        string outcome) = @java:Method {
+        boolean accepted, string errorType) = @java:Method {
     'class: "io.ballerina.lib.workflow.observability.ObservabilityNative",
     name: "recordTaskDecisionMetric"
 } external;
+
+# The identity tags every workflow span carries: the module, the caller side, the engine
+# endpoint, the task queue, and the local host.
+#
+# + return - The identity tag names and values
+isolated function spanIdentityTags() returns map<string> = @java:Method {
+    'class: "io.ballerina.lib.workflow.observability.ObservabilityNative",
+    name: "spanIdentityTags"
+} external;
+
+# The type name of an error, for the bounded `error.type` dimension.
+#
+# + e - The error
+# + return - The error's type name
+isolated function errorTypeName(error e) returns string {
+    // `typeof e` prints as `typedesc <TypeName>`; the name starts after the space.
+    string typedescString = (typeof e).toString();
+    return typedescString.length() > 9 ? typedescString.substring(9) : typedescString;
+}

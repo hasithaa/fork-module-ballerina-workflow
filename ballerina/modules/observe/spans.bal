@@ -101,7 +101,7 @@ const string UNKNOWN_TASK_NAME = "unknown";
 
 # Represents one decision a person makes on a task — completing or rejecting a human task,
 # or deciding a review activity — as a tracing span that, when closed, also writes the
-# decision's audit log entry and counts it in `workflow_task_decisions_total`.
+# decision's audit log entry and counts it in `workflow_events_total{event="task_decided"}`.
 #
 # The span and the audit entry both say who decided (`user.id`, `user.roles`), what
 # (`workflow.task.action`) and on which task; the audit entry adds the task's name, its
@@ -228,12 +228,14 @@ public isolated distinct class TaskDecisionSpan {
             assignedRoles = self.assignedRoles;
         }
         string outcome = (err is ()) ? DECISION_ACCEPTED : DECISION_DENIED;
-        recordTaskDecisionMetric(self.kind, taskName ?: UNKNOWN_TASK_NAME, self.action, outcome);
+        recordTaskDecisionMetric(self.kind, taskName ?: UNKNOWN_TASK_NAME, self.action, err is (),
+                (err is ()) ? "" : errorTypeName(err));
         if publishMetricSamples {
             // The decision's sample for log-based metrics: what was decided and on which task —
             // never who, and never the content. Those stay on the audit entry below.
             log:printInfo("", logger = "workflow-metrics", sample = "task.decided", task_kind = self.kind,
-                    task_name = taskName ?: UNKNOWN_TASK_NAME, action = self.action, outcome = outcome);
+                    task_name = taskName ?: UNKNOWN_TASK_NAME, action = self.action,
+                    outcome = (err is ()) ? "success" : "failure");
         }
         string subject = self.kind == HUMAN_TASK ? "human task" : "review activity";
         if err is () {

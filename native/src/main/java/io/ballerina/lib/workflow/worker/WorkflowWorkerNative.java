@@ -1206,6 +1206,15 @@ public final class WorkflowWorkerNative {
     }
 
     /**
+     * Get the engine endpoint this runtime is connected to.
+     *
+     * @return the server URL, or {@code in-memory} for the embedded engine
+     */
+    public static String getServerUrl() {
+        return serverUrl;
+    }
+
+    /**
      * Check if the worker is running in in-memory mode.
      *
      * @return true if in-memory mode is active
@@ -2327,6 +2336,7 @@ public final class WorkflowWorkerNative {
             // The run's first execution is where every start path converges; on replay the body
             // runs again but nothing new started.
             if (!Workflow.isReplaying()) {
+                WorkflowMetrics.recordWorkflowStarted(executingType);
                 WorkflowSampleLog.workflowStarted(executingType, workflowInfo.getWorkflowId(), workflowInfo.getRunId());
             }
             try {
@@ -2336,7 +2346,7 @@ public final class WorkflowWorkerNative {
                 // no new completion happened, so recording would double-count.
                 if (!Workflow.isReplaying()) {
                     long elapsed = Workflow.currentTimeMillis() - workflowInfo.getRunStartedTimestampMillis();
-                    WorkflowMetrics.recordWorkflowCompletion(executingType, elapsed, false);
+                    WorkflowMetrics.recordWorkflowClosed(executingType, elapsed, null);
                     WorkflowSampleLog.workflowClosed(executingType, workflowInfo.getWorkflowId(),
                             workflowInfo.getRunId(), elapsed, false);
                 }
@@ -2346,7 +2356,7 @@ public final class WorkflowWorkerNative {
             } catch (Exception e) {
                 if (!Workflow.isReplaying() && !isDestroyWorkflowThreadError(e)) {
                     long elapsed = Workflow.currentTimeMillis() - workflowInfo.getRunStartedTimestampMillis();
-                    WorkflowMetrics.recordWorkflowCompletion(executingType, elapsed, true);
+                    WorkflowMetrics.recordWorkflowClosed(executingType, elapsed, e);
                     WorkflowSampleLog.workflowClosed(executingType, workflowInfo.getWorkflowId(),
                             workflowInfo.getRunId(), elapsed, true);
                 }
@@ -2903,13 +2913,15 @@ public final class WorkflowWorkerNative {
             try {
                 Object result = executeInternal(args);
                 long durationMillis = (System.nanoTime() - startNanos) / 1_000_000;
-                WorkflowMetrics.recordActivityExecution(executingActivityType, durationMillis, false);
+                WorkflowMetrics.recordActivityExecution(executingActivityType, info.getWorkflowType(),
+                        durationMillis, null);
                 WorkflowSampleLog.activityExecuted(info, durationMillis, false);
                 ActivityContentLog.record(info, args, durationMillis, result, null);
                 return result;
             } catch (Exception e) {
                 long durationMillis = (System.nanoTime() - startNanos) / 1_000_000;
-                WorkflowMetrics.recordActivityExecution(executingActivityType, durationMillis, true);
+                WorkflowMetrics.recordActivityExecution(executingActivityType, info.getWorkflowType(),
+                        durationMillis, e);
                 WorkflowSampleLog.activityExecuted(info, durationMillis, true);
                 ActivityContentLog.record(info, args, durationMillis, null, e);
                 throw e;

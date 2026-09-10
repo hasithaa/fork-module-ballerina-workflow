@@ -19,8 +19,12 @@
 package io.ballerina.lib.workflow.observability;
 
 import io.ballerina.lib.workflow.worker.WorkflowWorkerNative;
+import io.ballerina.runtime.api.creators.TypeCreator;
+import io.ballerina.runtime.api.creators.ValueCreator;
+import io.ballerina.runtime.api.types.PredefinedTypes;
 import io.ballerina.runtime.api.utils.StringUtils;
 import io.ballerina.runtime.api.values.BFunctionPointer;
+import io.ballerina.runtime.api.values.BMap;
 import io.ballerina.runtime.api.values.BString;
 import io.temporal.workflow.Workflow;
 
@@ -73,15 +77,48 @@ public final class ObservabilityNative {
      * Counts one decision a person made on a task. The Ballerina side owns the decision's audit
      * entry and span; this is the metric leg, kept with the other counters.
      *
-     * @param taskKind {@code HUMAN_TASK} or {@code REVIEW_ACTIVITY}
-     * @param taskName the task's declared name, or {@code unknown} when the decision was refused
-     *                 before the task was resolved
-     * @param action   what was decided
-     * @param outcome  {@code accepted} or {@code denied}
+     * @param taskKind  {@code HUMAN_TASK} or {@code REVIEW_ACTIVITY}
+     * @param taskName  the task's declared name, or {@code unknown} when the decision was refused
+     *                  before the task was resolved
+     * @param action    what was decided
+     * @param accepted  whether the runtime accepted the decision
+     * @param errorType the refusing error's type name, or empty when accepted
      */
-    public static void recordTaskDecisionMetric(BString taskKind, BString taskName, BString action, BString outcome) {
+    public static void recordTaskDecisionMetric(BString taskKind, BString taskName, BString action,
+                                                boolean accepted, BString errorType) {
         WorkflowMetrics.recordTaskDecision(taskKind.getValue(), taskName.getValue(), action.getValue(),
-                                           outcome.getValue());
+                                           accepted, errorType.getValue());
+    }
+
+    /**
+     * The identity tags every span carries, as the standard's identity dimensions: the module, the
+     * caller side, the engine endpoint, the task queue, and the local host.
+     *
+     * @return the identity tag names and values, ready to add to a span
+     */
+    public static BMap<BString, Object> spanIdentityTags() {
+        BMap<BString, Object> tags = ValueCreator.createMapValue(
+                TypeCreator.createMapType(PredefinedTypes.TYPE_STRING));
+        tags.put(StringUtils.fromString("module"), StringUtils.fromString("workflow"));
+        tags.put(StringUtils.fromString("type"), StringUtils.fromString("client"));
+        String url = WorkflowWorkerNative.getServerUrl();
+        if (url != null && !url.isEmpty()) {
+            tags.put(StringUtils.fromString("remote.url"), StringUtils.fromString(url));
+        }
+        String queue = WorkflowWorkerNative.getTaskQueue();
+        if (queue != null && !queue.isEmpty()) {
+            tags.put(StringUtils.fromString("task.queue"), StringUtils.fromString(queue));
+        }
+        tags.put(StringUtils.fromString("host"), StringUtils.fromString(hostName()));
+        return tags;
+    }
+
+    private static String hostName() {
+        try {
+            return java.net.InetAddress.getLocalHost().getHostName();
+        } catch (Exception e) {
+            return "none";
+        }
     }
 
     /**

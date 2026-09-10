@@ -50,24 +50,33 @@ function testWorkflowMetricsEmission() returns error? {
         return;
     }
     string workflowId = check workflow:run(observabilityFlow, {name: "metrics"});
+    runtime:sleep(1);
     check workflow:sendData(observabilityFlow, workflowId, "obsApproval", true);
     anydata result = check workflow:getWorkflowResult(workflowId, 60);
     test:assertEquals(result, "obs:metrics", "Workflow should complete normally");
 
-    check assertMetricAtLeast("workflow_starts_total", {workflow_type: "workflow-observabilityFlow"}, 1.0);
-    check assertMetricAtLeast("workflow_completions_total",
-            {workflow_type: "workflow-observabilityFlow", status: "completed"}, 1.0);
+    // Every lifecycle event is one increment of workflow_events_total, distinguished by tags;
+    // the identity tags (module, type, remote_url, task_queue, host) ride on every sample.
+    check assertMetricAtLeast("workflow_events_total",
+            {module: "workflow", 'type: "worker", event: "started",
+                workflow_type: "workflow-observabilityFlow"}, 1.0);
+    check assertMetricAtLeast("workflow_events_total",
+            {event: "closed", workflow_type: "workflow-observabilityFlow",
+                outcome: "success", error_type: "none"}, 1.0);
     // Activities are scheduled under their plain function name (no workflow qualifier).
-    check assertMetricAtLeast("workflow_activity_executions_total",
-            {activity_type: "observabilityEcho", status: "completed"}, 1.0);
-    check assertMetricAtLeast("workflow_data_events_sent_total", {data_name: "obsApproval"}, 1.0);
+    check assertMetricAtLeast("workflow_events_total",
+            {event: "activity_executed", activity_type: "observabilityEcho",
+                workflow_type: "workflow-observabilityFlow", outcome: "success"}, 1.0);
+    check assertMetricAtLeast("workflow_events_total",
+            {module: "workflow", 'type: "client", event: "data_sent", data_name: "obsApproval",
+                workflow_type: "none", outcome: "success"}, 1.0);
 
     // Duration summaries exist for the completed run (value is duration, not a count).
     test:assertTrue(findMetricValue("workflow_duration_seconds",
-            {workflow_type: "workflow-observabilityFlow", status: "completed"}) !is (),
+            {workflow_type: "workflow-observabilityFlow", outcome: "success"}) !is (),
             "workflow_duration_seconds should be recorded for the completed run");
     test:assertTrue(findMetricValue("workflow_activity_duration_seconds",
-            {activity_type: "observabilityEcho", status: "completed"}) !is (),
+            {activity_type: "observabilityEcho", outcome: "success"}) !is (),
             "workflow_activity_duration_seconds should be recorded for the activity execution");
 }
 
@@ -82,8 +91,9 @@ function testWorkflowFailureMetricsEmission() returns error? {
     anydata|error result = workflow:getWorkflowResult(workflowId, 60);
     test:assertTrue(result is error, "Failing workflow should surface an error result");
 
-    check assertMetricAtLeast("workflow_completions_total",
-            {workflow_type: "workflow-observabilityFailingFlow", status: "failed"}, 1.0);
+    check assertMetricAtLeast("workflow_events_total",
+            {event: "closed", workflow_type: "workflow-observabilityFailingFlow",
+                outcome: "failure", error_type: "ApplicationFailure"}, 1.0);
 }
 
 @test:Config {
@@ -94,6 +104,7 @@ function testWorkflowSpanEmission() returns error? {
         return;
     }
     string workflowId = check workflow:run(observabilityFlow, {name: "spans"});
+    runtime:sleep(1);
     check workflow:sendData(observabilityFlow, workflowId, "obsApproval", true);
     anydata result = check workflow:getWorkflowResult(workflowId, 60);
     test:assertEquals(result, "obs:spans", "Workflow should complete normally");
@@ -102,6 +113,9 @@ function testWorkflowSpanEmission() returns error? {
     test:assertEquals(startSpan.tags["span.type"], "workflow", "start span should be typed as a workflow span");
     test:assertEquals(startSpan.tags["workflow.operation.name"], "start_workflow");
     test:assertEquals(startSpan.tags["workflow.type"], "workflow-observabilityFlow");
+    test:assertEquals(startSpan.tags["module"], "workflow", "spans carry the standard identity tags");
+    test:assertEquals(startSpan.tags["type"], "client", "client-side spans identify their side");
+    test:assertTrue(startSpan.tags.hasKey("task.queue"), "spans carry the task queue identity tag");
 
     mock:Span sendSpan = check findSpan("send_data obsApproval", workflowId);
     test:assertEquals(sendSpan.tags["workflow.data.name"], "obsApproval");
@@ -128,10 +142,12 @@ function testHumanTaskDecisionTelemetry() returns error? {
     test:assertEquals(result, "obs:approved", "The approved task should complete the workflow");
 
     if observe:isMetricsEnabled() {
-        check assertMetricAtLeast("workflow_task_decisions_total",
-                {task_kind: "HUMAN_TASK", action: "complete", outcome: "accepted"}, 1.0);
-        check assertMetricAtLeast("workflow_task_decisions_total",
-                {task_kind: "HUMAN_TASK", action: "complete", outcome: "denied"}, 1.0);
+        check assertMetricAtLeast("workflow_events_total",
+                {event: "task_decided", task_kind: "HUMAN_TASK", action: "complete", outcome: "success"}, 1.0);
+        // A refused decision is a failure event, and it names the refusing error's type.
+        check assertMetricAtLeast("workflow_events_total",
+                {event: "task_decided", task_kind: "HUMAN_TASK", action: "complete",
+                    task_name: "unknown", outcome: "failure"}, 1.0);
     }
     if observe:isTracingEnabled() {
         mock:Span accepted = check findDecisionSpan("complete_human_task", "workflow.human_task.id", taskId, "alice");
@@ -173,8 +189,9 @@ function testReviewActivityDecisionTelemetry() returns error? {
     test:assertEquals(result, "obs:recovered:ok", "The reviewer's input should let the step recover");
 
     if observe:isMetricsEnabled() {
-        check assertMetricAtLeast("workflow_task_decisions_total",
-                {task_kind: "REVIEW_ACTIVITY", action: "proceed-with-input", outcome: "accepted"}, 1.0);
+        check assertMetricAtLeast("workflow_events_total",
+                {event: "task_decided", task_kind: "REVIEW_ACTIVITY", action: "proceed-with-input",
+                    outcome: "success"}, 1.0);
     }
     if observe:isTracingEnabled() {
         mock:Span span = check findDecisionSpan("complete_review_activity", "workflow.review_activity.id",

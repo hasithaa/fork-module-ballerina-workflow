@@ -82,7 +82,7 @@ public final class WorkflowSampleLog {
         f.put("workflow_type", workflowType);
         f.put("workflow_id", workflowId);
         f.put("run_id", runId);
-        f.put("status", failed ? "failed" : "completed");
+        f.put("outcome", failed ? "failure" : "success");
         f.put("duration_seconds", durationMillis / 1000.0);
         record("workflow.closed", f);
     }
@@ -100,18 +100,22 @@ public final class WorkflowSampleLog {
         f.put("workflow_id", info.getWorkflowId());
         f.put("run_id", info.getRunId());
         f.put("attempt", info.getAttempt());
-        f.put("outcome", failed ? "failed" : "completed");
+        f.put("outcome", failed ? "failure" : "success");
         f.put("duration_seconds", durationMillis / 1000.0);
         record("activity.executed", f);
     }
 
     /**
-     * A data event was delivered to a running instance.
+     * A data event was delivered to a running instance. Framework control signals
+     * ({@code __wf_suspend}, {@code __agent_wake}, …) are not data events and publish no sample.
      *
      * @param dataName   the declared event name
      * @param workflowId the target instance
      */
     public static void dataSent(String dataName, String workflowId) {
+        if (dataName.startsWith("__")) {
+            return;
+        }
         Map<String, Object> f = new LinkedHashMap<>();
         f.put("data_name", dataName);
         f.put("workflow_id", workflowId);

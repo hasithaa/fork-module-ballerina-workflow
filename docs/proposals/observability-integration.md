@@ -63,10 +63,69 @@ A new exported submodule `workflow.observe` provides typed span classes over
 | `SendAgentEventSpan` | `DurableAgent.sendData` | `gen_ai.agent.name`, `workflow.instance.id`, `workflow.event.name` |
 
 Every span carries `workflow.operation.name` and `span.type = workflow` (mirroring
-`span.type = ai` in the AI module), and closes with error status via
+`span.type = ai` in the AI module), plus the identity tags below (`module`,
+`type = client`, `remote.url`, `task.queue`, `host`), and closes with error status via
 `observe:finishSpanWithError` on failure. Agent spans reuse the OpenTelemetry GenAI
 attribute `gen_ai.agent.name` so agent traces correlate with `ai.observe` spans; decision
 spans reuse the OpenTelemetry `user.id` and `user.roles` attributes for who decided.
+
+### Metrics: one events counter, uniform labels
+
+The metrics follow the Ballerina integration observability standard (the model the file
+integration modules share): one lifecycle counter carries every event, logical metrics are
+derived from it by tag filters, and module-specific values appear only in tag values —
+never in metric names.
+
+**Identity tags**, present on every metric sample and every span, pin the origin of an
+observation:
+
+| Tag | Values | Notes |
+|---|---|---|
+| `module` | `workflow` | identifies the Ballerina module on shared dashboards |
+| `type` | `client`, `worker` | a client API call vs a worker-side execution |
+| `remote_url` | engine `host:port`, `in-memory` | the engine endpoint, from the connection configuration |
+| `task_queue` | task queue name | the workflow analog of a listener's watched path |
+| `host` | local hostname | `none` when resolution fails |
+
+**`workflow_events_total`** counts every lifecycle event. Every increment carries the same
+label keys — a key that does not apply to an event holds the sentinel `none` rather than
+being omitted, so a series with labels *{a, b}* never splits from one with *{a, b, c}* and
+tag-filtered aggregations neither drop nor double-count rows:
+
+| Label | Values |
+|---|---|
+| `event` | `started`, `closed`, `activity_executed`, `data_sent`, `task_decided` |
+| `workflow_type` | the registered workflow type, else `none` |
+| `activity_type` | the activity's plain name on `activity_executed`, else `none` |
+| `data_name` | the declared event name on `data_sent` (bounded to 64 distinct series; framework control signals such as `__wf_suspend` are not data events and are not counted), else `none` |
+| `task_kind`, `task_name`, `action` | the decision's dimensions on `task_decided`, else `none` |
+| `outcome` | `success`, `failure` |
+| `error_type` | the failure's application error type (else its class name); `none` on success |
+
+`started` and `closed` are recorded by the workflow adapter, replay-gated, at the one
+place every start path converges — a `workflow:run`, a management start, a child workflow,
+a human task, an agent — so each run counts exactly once. `activity_executed` counts each
+real attempt (attempts are never replayed). `data_sent` and `task_decided` are client-side.
+
+Logical metrics are derived, never published as separate names:
+
+| Logical metric | PromQL derivation |
+|---|---|
+| Runs started | `workflow_events_total{event="started"}` |
+| Runs completed / failed | `workflow_events_total{event="closed", outcome=…}` |
+| Activity attempts | `workflow_events_total{event="activity_executed"}` |
+| Data events delivered | `workflow_events_total{event="data_sent"}` |
+| Task decisions (accepted / refused) | `workflow_events_total{event="task_decided", outcome=…}` |
+
+**Durations** stay their own summaries, as the standard keeps `file_databinding_duration`:
+`workflow_duration_seconds` (run start to close, on the engine's deterministic clock) and
+`workflow_activity_duration_seconds` (wall clock per attempt), each tagged with the identity
+tags, the type dimension, and `outcome`, publishing p50/p75/p90/p95/p99 over a five-minute
+sliding window.
+
+Tag cardinality is bounded by construction: workflow types, activity types, declared event
+names and task names are compile-time sets, `error_type` is a closed set of failure types,
+and instance IDs never appear on metrics — they live on spans, samples and audit entries.
 
 ### Governance: every decision a person makes is recorded
 
@@ -86,10 +145,11 @@ wrapper turns the call into one `TaskDecisionSpan`, which on close writes three 
   caller), `assignedRoles` (as declared on the task), `decidedAt`. Written at `INFO` for an
   accepted decision and `WARN` for a refused one, with the refusal's error attached;
 - the span above, so the decision sits in the caller's request trace;
-- one increment of `workflow_task_decisions_total`.
+- one increment of `workflow_events_total{event="task_decided"}`.
 
 A **refused** decision — wrong role, task no longer running, task not found — is recorded
-too, as `outcome = denied`: an audit trail that only shows what succeeded is half a trail.
+too: `denied` on the audit entry, `outcome = failure` with the refusing `error_type` on the
+metric. An audit trail that only shows what succeeded is half a trail.
 A refused decision never resolved the task, so its entry carries what the caller presented
 and no task name or input.
 
@@ -136,10 +196,12 @@ in the same shape, under `logger = "workflow-metrics"` with a `sample` name:
 | `sample` | Fields | Written from |
 |---|---|---|
 | `workflow.started` | `workflow_type`, `workflow_id`, `run_id` | the workflow adapter on the run's first execution, replay-gated — so a management start, a child workflow, a human task and an agent run count like a `run` |
-| `workflow.closed` | `workflow_type`, `workflow_id`, `run_id`, `status` (`completed`/`failed`), `duration_seconds` | the workflow adapter, replay-gated |
+| `workflow.closed` | `workflow_type`, `workflow_id`, `run_id`, `outcome` (`success`/`failure`), `duration_seconds` | the workflow adapter, replay-gated |
 | `activity.executed` | `activity_type`, `workflow_id`, `run_id`, `attempt`, `outcome`, `duration_seconds` | the activity adapter, per attempt |
 | `data.sent` | `data_name`, `workflow_id` | the client, on `sendData` |
 | `task.decided` | `task_kind`, `task_name`, `action`, `outcome` | beside the decision's audit entry |
+
+Samples use the same `outcome = success|failure` vocabulary as the registry metrics.
 
 Structural fields only — never inputs, results or who decided; those stay on the audit entry
 and the content log. The Java-side samples go through the module's console handler, whose
@@ -202,7 +264,8 @@ observation hooks and is left for a future iteration.
 - **Integration tests** (`integration-tests/tests/observability_test.bal`): the
   integration package builds with `observabilityIncluded = true` and runs with metrics
   enabled (Prometheus reporter) and the distribution's mock tracer against a real engine
-  dev server. They assert the six `workflow_*` metrics with expected tags for completed
+  dev server. They assert the `workflow_events_total` events (with the identity tags, the
+  uniform label set and its `none` sentinels) and the duration summaries for successful
   and failed runs (`testWorkflowMetricsEmission`, `testWorkflowFailureMetricsEmission`)
   and the `start_workflow`/`send_data`/`get_workflow_result` spans tagged with the
   instance ID (`testWorkflowSpanEmission`). `testHumanTaskDecisionTelemetry` refuses a
