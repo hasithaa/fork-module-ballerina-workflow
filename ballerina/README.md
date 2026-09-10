@@ -1,7 +1,3 @@
-# Ballerina Workflow Library
-
-The `ballerina/workflow` library provides durable, fault-tolerant workflow orchestration for Ballerina applications. It lets you define long-running business processes — spanning minutes, hours, or days — that automatically recover from crashes and process restarts without losing progress.
-
 ## Overview
 
 Workflows and activities are ordinary Ballerina functions:
@@ -37,6 +33,12 @@ function processOrder(workflow:Context ctx, OrderRequest request) returns OrderR
     return {orderId: request.orderId, status: "COMPLETED"};
 }
 ```
+
+### Key Features
+
+- `@workflow:Workflow` and `@workflow:Activity` annotations for durable orchestration and non-deterministic operations
+- Automatic checkpointing and replay-based recovery from failures
+- External data delivery to running workflow instances
 
 ## Authoring guidelines
 

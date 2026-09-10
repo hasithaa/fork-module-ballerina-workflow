@@ -9,6 +9,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [0.9.0] - 2026-09-07
 
 ### Changed
+- [[#9132] Updated Keywords and Reformat README for Connector Store Discoverability](https://github.com/ballerina-platform/ballerina-library/issues/9132)
+
+### Changed
 
 - **Breaking**: the management HTTP API moved from `ballerina/workflow.management`
   to the new `ballerina/workflow.management.rest` module. `workflow.management` is

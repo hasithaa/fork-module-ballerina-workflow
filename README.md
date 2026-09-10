@@ -7,8 +7,6 @@
 [![GitHub Last Commit](https://img.shields.io/github/last-commit/ballerina-platform/module-ballerina-workflow.svg)](https://github.com/ballerina-platform/module-ballerina-workflow/commits/main)
 [![Github issues](https://img.shields.io/github/issues/ballerina-platform/ballerina-library/Area%2FWorkflow.svg?label=Open%20Issues)](https://github.com/ballerina-platform/ballerina-library/labels/Area%2Fworkflow)
 
-This library provides durable, fault-tolerant workflow orchestration for Ballerina applications. It lets you define long-running business processes — spanning minutes, hours, or days — that automatically recover from crashes and process restarts without losing progress.
-
 ## Overview
 
 Workflows and activities are ordinary Ballerina functions:
@@ -44,6 +42,14 @@ function processOrder(workflow:Context ctx, OrderRequest request) returns OrderR
     return {orderId: request.orderId, status: "COMPLETED"};
 }
 ```
+
+## Authoring guidelines
+
+- Workflow functions must contain only orchestration logic (control flow and waiting for data). All business logic and non-deterministic operations - database calls, external API calls, I/O - belong in activity functions.
+- Activities must be invoked through `ctx->callActivity(...)` from within a workflow function. Calling an activity function directly is a compile-time error.
+- When calling an activity, pass its arguments as a record whose keys exactly match the activity function's parameter names - for example, `ctx->callActivity(checkInventory, {"item": request.item})` for `function checkInventory(string item)`.
+- When using the Ballerina Integrator tooling, place all `@workflow:Workflow` and `@workflow:Activity` functions in the project's `functions.bal` file.
+- Store the workflow ID returned by `workflow:run()` so that later `workflow:sendData()` calls can be routed to the correct running instance.
 
 ## Starting a Workflow
 
@@ -221,7 +227,7 @@ Execute the commands below to build from source.
 
 ## Contribute to Ballerina
 
-As an open source project, Ballerina welcomes contributions from the community.
+As an open-source project, Ballerina welcomes contributions from the community.
 
 For more information, go to the [contribution guidelines](https://github.com/ballerina-platform/ballerina-lang/blob/master/CONTRIBUTING.md).
 
