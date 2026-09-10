@@ -33,7 +33,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
     whether it was accepted), a `TaskDecisionSpan` carrying the same on `user.id`,
     `user.roles` and `workflow.task.action`, and one count in
     `workflow_events_total{event="task_decided"}`. A refused decision is recorded too, as a
-    `failure` with the refusing error's type. None of this is switchable.
+    `failure` with the refusing error's type. The audit entry and the span also say where
+    the deciding identity came from (`identitySource` / `user.identity.source`): `verified`
+    when the REST gateway resolved it from a credential its auth layer validated (a JWT
+    claim, a basic-auth username), `asserted` when the application supplied it or a trusted
+    gateway forwarded it — carried on `management:Identity.identitySource` through
+    `executeCommand`. None of this is switchable.
   - **Content is recorded too, and can be switched off.** `[ballerina.workflow.observe]`
     gains `captureHumanTaskContent` — what the person was shown (the task's input, or the
     reviewed activity's arguments) and what they submitted join the decision's span and

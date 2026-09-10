@@ -67,7 +67,7 @@ function testTaskDecisionSpansAuditWithoutTracing() {
     // Tracing is off, so the span itself is a no-op — but the decision's audit entry and its
     // metric leg still run, and must survive every shape of input.
     observe:TaskDecisionSpan accepted = observe:createHumanTaskDecisionSpan("humantask-wf-1-approve-x", "complete");
-    accepted.addDecider("alice", ["FINANCE_APPROVER"]);
+    accepted.addDecider("alice", ["FINANCE_APPROVER"], "verified");
     accepted.addContent({approved: true, comment: "LGTM"});
     accepted.addTaskDetails({taskName: "expenseFlow.approve", parentWorkflowId: "wf-1",
                              assignedRoles: ["FINANCE_APPROVER", "CFO"], taskInput: {amount: 1200, currency: "USD"}});

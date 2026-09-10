@@ -68,7 +68,7 @@ function testJwtClaimsReplaceSpoofedHeaders() {
     req.setHeader("x-user-id", "spoofed-user");
     req.setHeader("x-user-roles", "spoofed-role");
     CallerIdentity|http:Forbidden identity = resolveCallerIdentity(req, "workflows", tokenMode);
-    test:assertEquals(identity, <CallerIdentity>{userId: "alice", roles: ["approver", "admin"]});
+    test:assertEquals(identity, <CallerIdentity>{userId: "alice", roles: ["approver", "admin"], identitySource: "verified"});
 }
 
 @test:Config {groups: ["unit", "auth"]}
@@ -89,14 +89,14 @@ function testJwtKeycloakClaimPaths() {
     }));
     CallerIdentity|http:Forbidden identity = resolveCallerIdentity(req, "workflows", keycloak);
     test:assertEquals(identity,
-        <CallerIdentity>{userId: "alice", roles: ["approver", "offline_access"]});
+        <CallerIdentity>{userId: "alice", roles: ["approver", "offline_access"], identitySource: "verified"});
 }
 
 @test:Config {groups: ["unit", "auth"]}
 function testJwtRolesFromCommaSeparatedClaim() {
     http:Request req = bearerRequest(jwtOf({"sub": "bob", "roles": "approver, admin"}));
     CallerIdentity|http:Forbidden identity = resolveCallerIdentity(req, "workflows", tokenMode);
-    test:assertEquals(identity, <CallerIdentity>{userId: "bob", roles: ["approver", "admin"]});
+    test:assertEquals(identity, <CallerIdentity>{userId: "bob", roles: ["approver", "admin"], identitySource: "verified"});
 }
 
 @test:Config {groups: ["unit", "auth"]}
@@ -176,7 +176,7 @@ function testScopeEnforcementPerOperationClass() {
     http:Request read = bearerRequest(viewToken);
     read.method = "GET";
     CallerIdentity|http:Forbidden allowed = resolveCallerIdentity(read, "workflows", enforcing);
-    test:assertEquals(allowed, <CallerIdentity>{userId: "alice", roles: []});
+    test:assertEquals(allowed, <CallerIdentity>{userId: "alice", roles: [], identitySource: "verified"});
 
     // A mutation with only the view scope is forbidden.
     http:Request mutation = bearerRequest(viewToken);

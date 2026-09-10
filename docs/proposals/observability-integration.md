@@ -57,8 +57,8 @@ A new exported submodule `workflow.observe` provides typed span classes over
 | `StartWorkflowSpan` | `workflow:run` | `workflow.type`, `workflow.instance.id` |
 | `SendDataSpan` | `workflow:sendData` | `workflow.instance.id`, `workflow.data.name` |
 | `GetWorkflowResultSpan` | `workflow:getWorkflowResult` | `workflow.instance.id` |
-| `TaskDecisionSpan` | `completeHumanTask`, `management:failHumanTask` | `workflow.human_task.id`, `workflow.task.action`, `workflow.task.name`, `user.id`, `user.roles`, `workflow.task.input`, `workflow.task.content` |
-| `TaskDecisionSpan` | `management:completeReviewActivity` | `workflow.review_activity.id`, `workflow.task.action`, `workflow.task.name`, `user.id`, `user.roles`, `workflow.task.input`, `workflow.task.content` |
+| `TaskDecisionSpan` | `completeHumanTask`, `management:failHumanTask` | `workflow.human_task.id`, `workflow.task.action`, `workflow.task.name`, `user.id`, `user.roles`, `user.identity.source`, `workflow.task.input`, `workflow.task.content` |
+| `TaskDecisionSpan` | `management:completeReviewActivity` | `workflow.review_activity.id`, `workflow.task.action`, `workflow.task.name`, `user.id`, `user.roles`, `user.identity.source`, `workflow.task.input`, `workflow.task.content` |
 | `StartAgentSpan` | `DurableAgent.run` | `gen_ai.agent.name`, `workflow.instance.id` |
 | `SendAgentEventSpan` | `DurableAgent.sendData` | `gen_ai.agent.name`, `workflow.instance.id`, `workflow.event.name` |
 
@@ -142,8 +142,9 @@ wrapper turns the call into one `TaskDecisionSpan`, which on close writes three 
 
 - an **audit entry** through `ballerina/log` — `taskKind`, `taskId`, `taskName`,
   `parentWorkflowId`, `action`, `outcome`, `userId`, `userRoles` (as presented by the
-  caller), `assignedRoles` (as declared on the task), `decidedAt`. Written at `INFO` for an
-  accepted decision and `WARN` for a refused one, with the refusal's error attached;
+  caller), `identitySource`, `assignedRoles` (as declared on the task), `decidedAt`.
+  Written at `INFO` for an accepted decision and `WARN` for a refused one, with the
+  refusal's error attached;
 - the span above, so the decision sits in the caller's request trace;
 - one increment of `workflow_events_total{event="task_decided"}`.
 
@@ -152,6 +153,16 @@ too: `denied` on the audit entry, `outcome = failure` with the refusing `error_t
 metric. An audit trail that only shows what succeeded is half a trail.
 A refused decision never resolved the task, so its entry carries what the caller presented
 and no task name or input.
+
+**Identity provenance.** The audit entry and the span record where the deciding identity
+came from, as `identitySource` / `user.identity.source`: `verified` when it was resolved
+from a credential the receiving service's auth layer validated — the REST gateway sets it
+for a user ID read from a validated JWT's claims or a basic-auth username — and `asserted`
+when the application supplied it through the embedded API, or a trusted gateway forwarded
+it in `x-user-*` headers. The label is provenance for the audit trail, not authorization:
+role checks run the same either way. It travels on `management:Identity.identitySource` through
+`executeCommand`, so any platform embedding the command API can mark its own verified
+identities; direct calls to the public functions record `asserted`.
 
 The audit entry goes through `ballerina/log` deliberately, not the worker's Java log: it is
 the governance record, so it must land where the application's logs land, in the format

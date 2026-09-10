@@ -94,7 +94,7 @@ function testBasicAuthUserDefaulting() {
     req.setHeader("Authorization", "Basic b3BzOnMzY3JldCE=");
     CallerIdentity|http:Forbidden identity =
             resolveCallerIdentity(req, "workflows", defaultIdentityConfig());
-    test:assertEquals(identity, <CallerIdentity>{userId: "ops", roles: []});
+    test:assertEquals(identity, <CallerIdentity>{userId: "ops", roles: [], identitySource: "verified"});
 
     // A forwarded x-user-id is never overridden by the basic-auth default.
     http:Request explicit = new;

@@ -83,6 +83,7 @@ enum WorkflowTagNames {
     TASK_CONTENT = "workflow.task.content",
     USER_ID = "user.id",
     USER_ROLES = "user.roles",
+    IDENTITY_SOURCE = "user.identity.source",
     AGENT_NAME = "gen_ai.agent.name",
     EVENT_NAME = "workflow.event.name"
 }

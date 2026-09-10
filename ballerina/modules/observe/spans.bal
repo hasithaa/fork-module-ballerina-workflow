@@ -91,6 +91,11 @@ public enum TaskKind {
 # `proceed-with-input` or `reject` for a review activity.
 public type TaskAction "complete"|"fail"|"proceed"|"proceed-with-input"|"reject";
 
+# Where a decision's user identity came from: `verified` when it was resolved from a
+# credential the receiving service's auth layer validated (a JWT claim, a basic-auth
+# username), `asserted` when the application or a forwarded header supplied it.
+public type IdentitySource "asserted"|"verified";
+
 # Decision content longer than this is cut, so one oversized submission cannot flood a span
 # or a log line.
 const int MAX_CONTENT_CHARS = 8192;
@@ -120,6 +125,7 @@ public isolated distinct class TaskDecisionSpan {
     private final TaskAction action;
     private string? userId = ();
     private string[] & readonly userRoles = [];
+    private IdentitySource identitySource = "asserted";
     private string? contentJson = ();
     private string? taskInputJson = ();
     private string? taskName = ();
@@ -139,15 +145,20 @@ public isolated distinct class TaskDecisionSpan {
         self.baseSpan.addTag(TASK_ACTION, action);
     }
 
-    # Records who made the decision, as the caller identified them.
+    # Records who made the decision, as the caller identified them, and where that
+    # identity came from.
     #
     # + userId - The deciding user's identifier, when the caller supplied one
     # + roles - The roles the caller presented, when any
-    public isolated function addDecider(string? userId, string[]? roles) {
+    # + identitySource - `verified` when the identity was resolved from a credential the
+    #                    receiving service validated; `asserted` (the default) otherwise
+    public isolated function addDecider(string? userId, string[]? roles,
+            IdentitySource identitySource = "asserted") {
         string[] & readonly presented = (roles ?: []).cloneReadOnly();
         lock {
             self.userId = userId;
             self.userRoles = presented;
+            self.identitySource = identitySource;
         }
         if userId is string {
             self.baseSpan.addTag(USER_ID, userId);
@@ -155,6 +166,7 @@ public isolated distinct class TaskDecisionSpan {
         if presented.length() > 0 {
             self.baseSpan.addTag(USER_ROLES, string:'join(",", ...presented));
         }
+        self.baseSpan.addTag(IDENTITY_SOURCE, identitySource);
     }
 
     # Records what the person submitted — the completion result, the rejection reason and
@@ -213,6 +225,7 @@ public isolated distinct class TaskDecisionSpan {
     isolated function audit(error? err) {
         string? userId;
         string[] & readonly userRoles;
+        IdentitySource identitySource;
         string? contentJson;
         string? taskInputJson;
         string? taskName;
@@ -221,6 +234,7 @@ public isolated distinct class TaskDecisionSpan {
         lock {
             userId = self.userId;
             userRoles = self.userRoles;
+            identitySource = self.identitySource;
             contentJson = self.contentJson;
             taskInputJson = self.taskInputJson;
             taskName = self.taskName;
@@ -241,14 +255,15 @@ public isolated distinct class TaskDecisionSpan {
         if err is () {
             log:printInfo(string `${subject} decision ${outcome}`, taskKind = self.kind, taskId = self.taskId,
                     taskName = taskName, parentWorkflowId = parentWorkflowId, action = self.action,
-                    outcome = outcome, userId = userId, userRoles = userRoles, assignedRoles = assignedRoles,
+                    outcome = outcome, userId = userId, userRoles = userRoles,
+                    identitySource = identitySource, assignedRoles = assignedRoles,
                     decidedAt = nowText(), taskInput = taskInputJson, content = contentJson);
         } else {
             log:printWarn(string `${subject} decision ${outcome}`, 'error = err, taskKind = self.kind,
                     taskId = self.taskId, taskName = taskName, parentWorkflowId = parentWorkflowId,
                     action = self.action, outcome = outcome, userId = userId, userRoles = userRoles,
-                    assignedRoles = assignedRoles, decidedAt = nowText(), taskInput = taskInputJson,
-                    content = contentJson);
+                    identitySource = identitySource, assignedRoles = assignedRoles,
+                    decidedAt = nowText(), taskInput = taskInputJson, content = contentJson);
         }
     }
 }

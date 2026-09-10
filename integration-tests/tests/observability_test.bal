@@ -153,6 +153,8 @@ function testHumanTaskDecisionTelemetry() returns error? {
         mock:Span accepted = check findDecisionSpan("complete_human_task", "workflow.human_task.id", taskId, "alice");
         test:assertEquals(accepted.tags["user.roles"], "OBS_APPROVER", "the span should say in which role alice decided");
         test:assertEquals(accepted.tags["workflow.task.action"], "complete");
+        test:assertEquals(accepted.tags["user.identity.source"], "asserted",
+                "an embedded-API decision's identity is what the caller asserted");
         string taskName = accepted.tags["workflow.task.name"] ?: "";
         test:assertTrue(taskName.endsWith("obsApprove"),
                 "an accepted decision's span should name the task, got '" + taskName + "'");
@@ -182,9 +184,14 @@ function testReviewActivityDecisionTelemetry() returns error? {
     string workflowId = check workflow:run(observabilityReviewFlow, {name: "fail"});
     management:ReviewActivitySummary review = check waitForPendingReviewActivity(workflowId);
 
-    check management:completeReviewActivity(review.taskId,
-            {action: "proceed-with-input", input: {mode: "ok"}},
-            callerRoles = ["OBS_REVIEWER"], userId = "bob");
+    // Decide through executeCommand with a gateway-style verified identity, so the
+    // provenance rides the whole command path into the decision's telemetry.
+    json|management:Error decided = management:executeCommand({
+        operation: management:DECIDE_REVIEW_ACTIVITY,
+        params: {taskId: review.taskId, action: "proceed-with-input", input: {mode: "ok"}},
+        identity: {userId: "bob", roles: ["OBS_REVIEWER"], identitySource: "verified"}
+    });
+    test:assertTrue(decided !is management:Error, "The reviewer's decision should be accepted");
     anydata result = check workflow:getWorkflowResult(workflowId, 60);
     test:assertEquals(result, "obs:recovered:ok", "The reviewer's input should let the step recover");
 
@@ -198,6 +205,8 @@ function testReviewActivityDecisionTelemetry() returns error? {
                 review.taskId, "bob");
         test:assertEquals(span.tags["user.roles"], "OBS_REVIEWER");
         test:assertEquals(span.tags["workflow.task.action"], "proceed-with-input");
+        test:assertEquals(span.tags["user.identity.source"], "verified",
+                "a decision carrying a gateway-verified identity says so on its span");
         if wfobserve:isHumanTaskContentCaptured() {
             string content = span.tags["workflow.task.content"] ?: "";
             test:assertTrue(content.includes("\"mode\":\"ok\""),

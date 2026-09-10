@@ -17,6 +17,7 @@
 import ballerina/http;
 import ballerina/jwt;
 import ballerina/lang.array;
+import ballerina/workflow.management;
 
 // ================================================================================
 // CALLER IDENTITY
@@ -82,9 +83,14 @@ configurable string scopeHumanTaskManage = "humantask:manage";
 #
 # + userId - The caller's user ID, or `()` when no scheme established one
 # + roles - The caller's role names; empty when none were established
+# + identitySource - `verified` when the user ID was resolved from a credential the
+#                    auth layer validated (a JWT claim, a basic-auth username);
+#                    `asserted` when it came from forwarded x-user-* headers, or when
+#                    there is no user
 type CallerIdentity record {|
     string? userId = ();
     string[] roles = [];
+    management:IdentitySource identitySource = "asserted";
 |};
 
 # The request-context key the resolved `CallerIdentity` is stored under.
@@ -141,7 +147,9 @@ isolated function resolveCallerIdentity(http:Request req, string firstSegment,
     if cfg.basicAuthEnabled && identity.userId is () {
         string? basicUser = basicAuthUsername(req);
         if basicUser is string {
+            // The declarative auth layer validated these credentials before this ran.
             identity.userId = basicUser;
+            identity.identitySource = "verified";
         }
     }
 
@@ -184,6 +192,8 @@ isolated function resolveCallerIdentity(http:Request req, string firstSegment,
     if !(cfg.trustForwardedIdentity && hasForwardedUser) {
         json? userId = claimAt(claims, cfg.userIdClaim);
         identity.userId = userId is string && userId.trim().length() > 0 ? userId : ();
+        // The auth layer admitted the token; a user ID read from its claims is verified.
+        identity.identitySource = identity.userId is string ? "verified" : "asserted";
     }
     if !(cfg.trustForwardedIdentity && hasForwardedRoles) {
         string[]? roles = stringArrayFromClaim(claimAt(claims, cfg.rolesClaim));

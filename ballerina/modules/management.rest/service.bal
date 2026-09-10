@@ -438,7 +438,7 @@ isolated function executeToResponse(management:Operation operation, map<json> pa
     json|management:Error result = management:executeCommand({
         operation: operation,
         params: params,
-        identity: {userId: identity.userId, roles: identity.roles}
+        identity: {userId: identity.userId, roles: identity.roles, identitySource: identity.identitySource}
     });
     http:Response response = new;
     if result is management:Error {

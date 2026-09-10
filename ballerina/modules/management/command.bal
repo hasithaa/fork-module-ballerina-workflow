@@ -14,6 +14,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import workflow.observe;
+
 // ================================================================================
 // MANAGEMENT COMMANDS
 // ================================================================================
@@ -91,10 +93,17 @@ public enum Operation {
 #
 # + userId - The caller's user ID, or `()` when unknown
 # + roles - The caller's roles; an empty array means the caller holds none
+# + identitySource - Where the identity came from: `verified` when the caller resolved
+#                    it from a credential its auth layer validated (the REST gateway
+#                    does), `asserted` (the default) when it was supplied as given
 public type Identity record {|
     string? userId = ();
     string[] roles = [];
+    IdentitySource identitySource = "asserted";
 |};
+
+# Where a decision's user identity came from, as recorded on its audit entry and span.
+public type IdentitySource observe:IdentitySource;
 
 # A management operation to execute, named by `Operation` and parameterized by a
 # map. Parameter names match the operation's own vocabulary and are documented
@@ -174,6 +183,7 @@ public isolated function executeCommand(Command command) returns json|Error {
     map<json> params = normalized;
     [string, string...]? callerRoles = rolesFromIdentity(command.identity);
     string? userId = command.identity.userId;
+    IdentitySource identitySource = command.identity.identitySource;
 
     match command.operation {
         GET_RUNTIME_INFO => {
@@ -292,7 +302,7 @@ public isolated function executeCommand(Command command) returns json|Error {
             if taskId is Error {
                 return taskId;
             }
-            return opCompleteHumanTask(taskId, params["result"], callerRoles, userId);
+            return opCompleteHumanTask(taskId, params["result"], callerRoles, userId, identitySource);
         }
         FAIL_HUMAN_TASK => {
             string|Error taskId = requiredParam(params, "taskId");
@@ -300,7 +310,7 @@ public isolated function executeCommand(Command command) returns json|Error {
                 return taskId;
             }
             map<json>? details = params["details"] is map<json> ? <map<json>>params["details"] : ();
-            return opFailHumanTask(taskId, params["reason"], details, callerRoles, userId);
+            return opFailHumanTask(taskId, params["reason"], details, callerRoles, userId, identitySource);
         }
         LIST_REVIEW_ACTIVITIES => {
             return opListReviewActivities(strParam(params, "status"),
@@ -328,7 +338,7 @@ public isolated function executeCommand(Command command) returns json|Error {
             }
             map<json>? input = params["input"] is map<json> ? <map<json>>params["input"] : ();
             return opDecideReviewActivity(taskId, action, input,
-                    strParam(params, "feedback"), callerRoles, userId);
+                    strParam(params, "feedback"), callerRoles, userId, identitySource);
         }
         LIST_RESET_POINTS => {
             string|Error workflowId = requiredParam(params, "workflowId");
@@ -358,7 +368,7 @@ public isolated function executeCommand(Command command) returns json|Error {
             }
             return opBulkRetryReviewActivities(action, params["taskIds"],
                     strParam(params, "parentWorkflowId"), strParam(params, "activityName"),
-                    strParam(params, "feedback"), callerRoles, userId);
+                    strParam(params, "feedback"), callerRoles, userId, identitySource);
         }
         _ => {
             // Unreachable for a well-typed Command: the operation field is the enum.

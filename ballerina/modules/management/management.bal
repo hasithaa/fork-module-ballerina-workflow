@@ -241,8 +241,17 @@ public isolated function getHumanTaskInfo(string taskId) returns HumanTaskInfo|e
 # + return - An error if the task cannot be found, is already completed, or the caller is unauthorized
 public isolated function completeHumanTask(string taskWorkflowId, anydata result,
         [string, string...]? callerRoles = (), string? userId = ()) returns error? {
+    return decideCompleteHumanTask(taskWorkflowId, result, callerRoles, userId, "asserted");
+}
+
+// The embedded API trusts the caller's identity as given ("asserted"); executeCommand
+// passes the source its command carries, so a decision arriving through the REST
+// gateway is recorded as "verified" when the gateway resolved it from a credential.
+isolated function decideCompleteHumanTask(string taskWorkflowId, anydata result,
+        [string, string...]? callerRoles, string? userId,
+        observe:IdentitySource identitySource) returns error? {
     observe:TaskDecisionSpan span = observe:createHumanTaskDecisionSpan(taskWorkflowId, "complete");
-    span.addDecider(userId, callerRoles);
+    span.addDecider(userId, callerRoles, identitySource);
     span.addContent(result);
     map<anydata>|error receipt = completeHumanTaskNative(taskWorkflowId, result, callerRoles, userId);
     if receipt is error {
@@ -280,8 +289,14 @@ isolated function completeHumanTaskNative(string taskWorkflowId, anydata result,
 public isolated function failHumanTask(string taskWorkflowId, string reason,
         map<json>? details = (), [string, string...]? callerRoles = (),
         string? userId = ()) returns error? {
+    return decideFailHumanTask(taskWorkflowId, reason, details, callerRoles, userId, "asserted");
+}
+
+isolated function decideFailHumanTask(string taskWorkflowId, string reason,
+        map<json>? details, [string, string...]? callerRoles, string? userId,
+        observe:IdentitySource identitySource) returns error? {
     observe:TaskDecisionSpan span = observe:createHumanTaskDecisionSpan(taskWorkflowId, "fail");
-    span.addDecider(userId, callerRoles);
+    span.addDecider(userId, callerRoles, identitySource);
     span.addContent({reason, details});
     map<anydata>|error receipt = failHumanTaskNative(taskWorkflowId, reason, details, callerRoles, userId);
     if receipt is error {
@@ -336,8 +351,14 @@ isolated function failHumanTaskNative(string taskWorkflowId, string reason, map<
 # + return - An error if the task cannot be found, is already completed, or the caller is unauthorized
 public isolated function completeReviewActivity(string taskWorkflowId, ReviewDecision decision,
         [string, string...]? callerRoles = (), string? userId = ()) returns error? {
+    return decideReviewActivity(taskWorkflowId, decision, callerRoles, userId, "asserted");
+}
+
+isolated function decideReviewActivity(string taskWorkflowId, ReviewDecision decision,
+        [string, string...]? callerRoles, string? userId,
+        observe:IdentitySource identitySource) returns error? {
     observe:TaskDecisionSpan span = observe:createReviewActivityDecisionSpan(taskWorkflowId, decision.action);
-    span.addDecider(userId, callerRoles);
+    span.addDecider(userId, callerRoles, identitySource);
     span.addContent({input: decision.input, feedback: decision.feedback});
     map<anydata>|error receipt = completeReviewActivityNative(taskWorkflowId, decision, callerRoles, userId);
     if receipt is error {
