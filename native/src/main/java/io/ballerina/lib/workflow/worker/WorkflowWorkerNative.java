@@ -157,6 +157,15 @@ public final class WorkflowWorkerNative {
      * to the workflow that sent it. Envelope: {token, response} or {token, error}.
      */
     public static final String AGENT_EVENT_REPLY_SIGNAL_NAME = "__agent_event_reply";
+    // Signals the task decision paths send to a task child; not data events, though the names carry no prefix.
+    public static final String TASK_COMPLETION_SIGNAL_NAME = "taskCompletion";
+    public static final String TASK_DECISION_SIGNAL_NAME = "taskDecision";
+
+    // Whether a signal is framework plumbing (control, agent wiring, task decisions) rather than a user data event.
+    public static boolean isFrameworkSignal(String signalName) {
+        return signalName.startsWith("__") || TASK_COMPLETION_SIGNAL_NAME.equals(signalName)
+                || TASK_DECISION_SIGNAL_NAME.equals(signalName);
+    }
 
     /**
      * Query returning the agent updates that were accepted but whose turn has not completed yet
@@ -1205,11 +1214,7 @@ public final class WorkflowWorkerNative {
         return taskQueue;
     }
 
-    /**
-     * Get the engine endpoint this runtime is connected to.
-     *
-     * @return the server URL, or {@code in-memory} for the embedded engine
-     */
+    // The engine endpoint this runtime is connected to, or in-memory for the embedded engine.
     public static String getServerUrl() {
         return serverUrl;
     }
@@ -1904,12 +1909,8 @@ public final class WorkflowWorkerNative {
         }
     }
 
-    /**
-     * Formats a JUL record in Ballerina's structured log style:
-     * {@code time=... level=... module=ballerina/workflow message="..." [key=value ...] [error="..."]}.
-     * A record whose single parameter is a {@code Map} — the workflow samples — has each entry rendered
-     * as a top-level key=value pair, as {@code ballerina/log} renders its key-values.
-     */
+    // Formats a JUL record in Ballerina's structured log style; a record whose single parameter is a Map (the
+    // workflow samples) renders each entry as a top-level key=value pair, as ballerina/log does.
     private static final class BallerinaLogFormatter extends java.util.logging.Formatter {
 
         @Override
@@ -2341,9 +2342,7 @@ public final class WorkflowWorkerNative {
             }
             try {
                 Object result = executeInternal(args);
-                // Record the completion only when this is fresh progress: during a replay
-                // (crash recovery, queries against closed runs) the body re-executes but
-                // no new completion happened, so recording would double-count.
+                // Only fresh progress counts: a replay re-executes the body without a new completion.
                 if (!Workflow.isReplaying()) {
                     long elapsed = Workflow.currentTimeMillis() - workflowInfo.getRunStartedTimestampMillis();
                     WorkflowMetrics.recordWorkflowClosed(executingType, elapsed, null);
@@ -2901,6 +2900,7 @@ public final class WorkflowWorkerNative {
         public static final String BUILTIN_GET_RESULT = "workflow:getResult";
         public static final String BUILTIN_GET_INFO = "workflow:getInfo";
         public static final String BUILTIN_PENDING_AGENT_EVENTS = "workflow:pendingAgentDataEvents";
+        private static final String BUILTIN_PREFIX = "workflow:";
         private static final String CALL_CONFIG_MARKER = "__callConfig__";
         private static final String RETRY_ON_ERROR_KEY = "retryOnError";
 
@@ -2909,22 +2909,25 @@ public final class WorkflowWorkerNative {
             io.temporal.activity.ActivityInfo info =
                     io.temporal.activity.Activity.getExecutionContext().getInfo();
             String executingActivityType = info.getActivityType();
+            // The built-in implicit activities are engine plumbing, not user activities: no telemetry for them.
+            boolean observed = !executingActivityType.startsWith(BUILTIN_PREFIX);
             long startNanos = System.nanoTime();
+            Object result = null;
+            Exception failure = null;
             try {
-                Object result = executeInternal(args);
-                long durationMillis = (System.nanoTime() - startNanos) / 1_000_000;
-                WorkflowMetrics.recordActivityExecution(executingActivityType, info.getWorkflowType(),
-                        durationMillis, null);
-                WorkflowSampleLog.activityExecuted(info, durationMillis, false);
-                ActivityContentLog.record(info, args, durationMillis, result, null);
+                result = executeInternal(args);
                 return result;
             } catch (Exception e) {
-                long durationMillis = (System.nanoTime() - startNanos) / 1_000_000;
-                WorkflowMetrics.recordActivityExecution(executingActivityType, info.getWorkflowType(),
-                        durationMillis, e);
-                WorkflowSampleLog.activityExecuted(info, durationMillis, true);
-                ActivityContentLog.record(info, args, durationMillis, null, e);
+                failure = e;
                 throw e;
+            } finally {
+                if (observed) {
+                    long durationMillis = (System.nanoTime() - startNanos) / 1_000_000;
+                    WorkflowMetrics.recordActivityExecution(executingActivityType, info.getWorkflowType(),
+                            durationMillis, failure);
+                    WorkflowSampleLog.activityExecuted(info, durationMillis, failure != null);
+                    ActivityContentLog.record(info, args, durationMillis, result, failure);
+                }
             }
         }
 

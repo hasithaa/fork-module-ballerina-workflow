@@ -151,21 +151,22 @@ What those records *contain* is governed under `[ballerina.workflow.observe]`:
 ```toml
 [ballerina.workflow.observe]
 captureHumanTaskContent = true
-captureActivityContent = true
+captureActivityContent = false
 ```
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `captureHumanTaskContent` | `true` | Record a decision's content on its span and audit entry: what the person was shown (the human task's input, or the arguments of the activity under review) and what they submitted (the completion result, the rejection reason and details, or the review decision's input and feedback). Who decided, what and when are recorded regardless |
-| `captureActivityContent` | `true` | Log every activity execution attempt's arguments and result (or error) to the worker's log, beside its outcome and duration. Long values are truncated |
+| `captureActivityContent` | `false` | Log every activity execution attempt's arguments and result (or error) to the worker's log, beside its outcome and duration. Long values are truncated |
 | `publishMetricSamples` | `true` | Publish one structured log record per workflow event — run started/closed with duration, activity attempt with outcome and duration, data event delivered, task decided — tagged `logger = "workflow-metrics"`, so a log pipeline can build a workflow metrics index the way `ballerinax/metrics.logs` feeds HTTP metrics. Structural fields only |
 
-Both are on by default, as `ballerina/ai`'s `ai.observe` records prompt and completion
-content: the engine already persists everything a workflow handles for the life of the run,
-and telemetry retention retires its copy on its own schedule. The module's standing advice
-still applies — keep sensitive data out of workflow inputs, activity arguments and task
-results altogether. Where that is not possible and the content must not leave the workflow
-store, switch the relevant capture off.
+Decision content is on by default, as `ballerina/ai`'s `ai.observe` records prompt and
+completion content: the engine already persists everything a workflow handles for the life
+of the run, and telemetry retention retires its copy on its own schedule. Activity content
+is off by default — activity arguments routinely carry credentials or personal data, and
+the worker log cannot be silenced through the logging configuration — so opt in per
+deployment. The module's standing advice still applies — keep sensitive data out of
+workflow inputs, activity arguments and task results altogether.
 
 ## What's Next
 

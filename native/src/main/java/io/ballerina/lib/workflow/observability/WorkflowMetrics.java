@@ -35,32 +35,13 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Records workflow runtime metrics through the Ballerina observability metric registry, following the
- * Ballerina integration observability standard: one {@code workflow_events_total} counter carries every
- * lifecycle event, distinguished by tags; logical metrics (starts, completions, activity attempts, data
- * deliveries, task decisions) are derived by filtering, never given their own metric names.
- * <p>
- * Every increment of a metric carries the same set of label keys — a tag that does not apply to an event
- * holds the sentinel {@code none} rather than being omitted, so tag-filtered aggregations never split or
- * drop series. Each sample also carries the standard identity tags ({@code module}, {@code type},
- * {@code remote_url}, {@code task_queue}, {@code host}), and outcomes use the standard vocabulary:
- * {@code outcome=success|failure} with {@code error_type} set on failures.
- * <p>
- * All metrics are published only when the program is built with {@code observabilityIncluded = true}
- * and metrics are enabled at runtime; otherwise every call is a no-op. Only structural identifiers
- * (workflow types, activity types, declared event names) are used as tag values — never instance-level
- * IDs or business data, keeping tag cardinality bounded.
- * <p>
- * Recording must never affect workflow execution: every method swallows and logs unexpected errors.
- *
- * @since 0.9.1
- */
+// Workflow metrics in the Ballerina metric registry, per the integration observability standard: one
+// workflow_events_total counter with uniform labels (none where a key does not apply). No-op when metrics are off.
 public final class WorkflowMetrics {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(WorkflowMetrics.class);
 
-    /** Sentinel for a label that does not apply to an event, keeping label sets uniform. */
+    // Sentinel for a label that does not apply to an event, keeping label sets uniform.
     public static final String NONE = "none";
 
     private static final String EVENTS_METRIC = "workflow_events_total";
@@ -78,15 +59,15 @@ public final class WorkflowMetrics {
 
     // Event tags; non-applicable keys carry the sentinel so every increment has the same key set.
     private static final String TAG_EVENT = "event";
-    private static final String TAG_WORKFLOW_TYPE = "workflow_type";
-    private static final String TAG_ACTIVITY_TYPE = "activity_type";
-    private static final String TAG_DATA_NAME = "data_name";
-    private static final String TAG_TASK_KIND = "task_kind";
-    private static final String TAG_TASK_NAME = "task_name";
-    private static final String TAG_TOOL_NAME = "tool_name";
-    private static final String TAG_ACTION = "action";
-    private static final String TAG_OUTCOME = "outcome";
-    private static final String TAG_ERROR_TYPE = "error_type";
+    static final String TAG_WORKFLOW_TYPE = "workflow_type";
+    static final String TAG_ACTIVITY_TYPE = "activity_type";
+    static final String TAG_DATA_NAME = "data_name";
+    static final String TAG_TASK_KIND = "task_kind";
+    static final String TAG_TASK_NAME = "task_name";
+    static final String TAG_TOOL_NAME = "tool_name";
+    static final String TAG_ACTION = "action";
+    static final String TAG_OUTCOME = "outcome";
+    static final String TAG_ERROR_TYPE = "error_type";
 
     private static final String EVENT_STARTED = "started";
     private static final String EVENT_CLOSED = "closed";
@@ -98,10 +79,10 @@ public final class WorkflowMetrics {
     public static final String EVENT_TERMINATED = "terminated";
     public static final String EVENT_CANCELLED = "cancelled";
 
-    private static final String OUTCOME_SUCCESS = "success";
-    private static final String OUTCOME_FAILURE = "failure";
+    static final String OUTCOME_SUCCESS = "success";
+    static final String OUTCOME_FAILURE = "failure";
 
-    /** Duration summaries publish p50/p75/p90/p95/p99 over a five-minute sliding window. */
+    // Duration summaries publish p50/p75/p90/p95/p99 over a five-minute sliding window.
     private static final StatisticConfig DURATION_STATS = StatisticConfig.builder()
             .percentiles(0.5, 0.75, 0.9, 0.95, 0.99)
             .expiry(Duration.ofMinutes(5))
@@ -112,13 +93,7 @@ public final class WorkflowMetrics {
     private WorkflowMetrics() {
     }
 
-    /**
-     * Records that a run began executing on this worker — fresh progress only; callers gate on replay.
-     * The worker's first execution is where every start path (a {@code workflow:run}, a management
-     * start, a child workflow, a human task, an agent) converges, so each run counts exactly once.
-     *
-     * @param workflowType the workflow type name
-     */
+    // A run began executing on this worker; callers gate on replay. Every start path converges here.
     public static void recordWorkflowStarted(String workflowType) {
         if (!isMetricsEnabled()) {
             return;
@@ -135,15 +110,7 @@ public final class WorkflowMetrics {
               taskNameOf(workflowType), NONE, NONE, OUTCOME_SUCCESS, NONE).increment();
     }
 
-    /**
-     * Records the completion of a workflow execution on this worker, along with its duration
-     * measured from the run start. Callers must gate this on {@code !Workflow.isReplaying()}
-     * so replays never double-count completions.
-     *
-     * @param workflowType   the workflow type name
-     * @param durationMillis run duration in milliseconds (ignored when negative)
-     * @param failure        the failure that closed the run, or {@code null} when it succeeded
-     */
+    // A run closed on this worker with its duration (ignored when negative); callers gate on replay.
     public static void recordWorkflowClosed(String workflowType, long durationMillis, Throwable failure) {
         if (!isMetricsEnabled()) {
             return;
@@ -175,14 +142,7 @@ public final class WorkflowMetrics {
         }
     }
 
-    /**
-     * The task kind a workflow type represents: human tasks and review activities run as
-     * child workflows with typed prefixes, so their lifecycle events double as task
-     * lifecycle events — created, decided-and-closed, and how long a decision took.
-     *
-     * @param workflowType the workflow type name
-     * @return {@code HUMAN_TASK}, {@code REVIEW_ACTIVITY}, or {@value NONE}
-     */
+    // HUMAN_TASK, REVIEW_ACTIVITY or none: task children run as prefixed child workflow types.
     static String taskKindOf(String workflowType) {
         if (workflowType.startsWith(WorkflowWorkerNative.HUMANTASK_TYPE_PREFIX)) {
             return "HUMAN_TASK";
@@ -194,13 +154,7 @@ public final class WorkflowMetrics {
         return NONE;
     }
 
-    /**
-     * The declared task name a task workflow type carries — the type without its kind
-     * prefix (e.g. {@code expenseFlow.approve}) — or {@value NONE} for a non-task type.
-     *
-     * @param workflowType the workflow type name
-     * @return the declared task name, or {@value NONE}
-     */
+    // The declared task name a task workflow type carries (the type without its kind prefix), or none.
     static String taskNameOf(String workflowType) {
         if (workflowType.startsWith(WorkflowWorkerNative.HUMANTASK_TYPE_PREFIX)) {
             return workflowType.substring(WorkflowWorkerNative.HUMANTASK_TYPE_PREFIX.length());
@@ -211,15 +165,7 @@ public final class WorkflowMetrics {
         return NONE;
     }
 
-    /**
-     * Records one activity execution attempt on this worker. Activity attempts are never
-     * replayed, so every call represents a real execution.
-     *
-     * @param activityType   the activity type name
-     * @param workflowType   the workflow type the attempt ran under
-     * @param durationMillis execution duration in milliseconds
-     * @param failure        the failure the attempt threw, or {@code null} when it succeeded
-     */
+    // One activity attempt on this worker; attempts are never replayed.
     public static void recordActivityExecution(String activityType, String workflowType, long durationMillis,
                                                Throwable failure) {
         if (!isMetricsEnabled()) {
@@ -249,16 +195,9 @@ public final class WorkflowMetrics {
         }
     }
 
-    /**
-     * Records a data event delivery attempted against a running workflow instance by this runtime.
-     * Framework control signals ({@code __wf_suspend}, {@code __agent_wake}, …) are not data
-     * events and are not counted.
-     *
-     * @param dataName the declared data/event name the payload was delivered to
-     * @param failure  the failure the delivery threw, or {@code null} when it was accepted
-     */
+    // A data event delivery attempted by this runtime; framework signals (control, task decisions) are not counted.
     public static void recordDataSent(String dataName, Throwable failure) {
-        if (!isMetricsEnabled() || dataName.startsWith("__")) {
+        if (!isMetricsEnabled() || WorkflowWorkerNative.isFrameworkSignal(dataName)) {
             return;
         }
         try {
@@ -274,15 +213,7 @@ public final class WorkflowMetrics {
               failed ? OUTCOME_FAILURE : OUTCOME_SUCCESS, errorTypeOf(failure)).increment();
     }
 
-    /**
-     * Records a management control operation attempted against an instance by this runtime — a suspend,
-     * resume, terminate or cancel — accepted or refused. The instance's type is not known on the client,
-     * so {@code workflow_type} holds {@value NONE}; the sample carries the instance id.
-     *
-     * @param event     {@link #EVENT_SUSPENDED}, {@link #EVENT_RESUMED}, {@link #EVENT_TERMINATED} or
-     *                  {@link #EVENT_CANCELLED}
-     * @param errorType the refusing error's type, or {@code null}/empty when the operation was accepted
-     */
+    // A control operation (suspend, resume, terminate, cancel) attempted by this client; workflow_type is none.
     public static void recordControl(String event, String errorType) {
         if (!isMetricsEnabled()) {
             return;
@@ -300,11 +231,7 @@ public final class WorkflowMetrics {
               failed ? OUTCOME_FAILURE : OUTCOME_SUCCESS, failed ? errorType : NONE).increment();
     }
 
-    /**
-     * Records one completed step of a durable agent's loop — see {@link AgentStep}. Callers gate on replay.
-     *
-     * @param step the completed step
-     */
+    // One completed durable-agent step; callers gate on replay.
     public static void recordAgentStep(AgentStep step) {
         if (!isMetricsEnabled()) {
             return;
@@ -336,18 +263,7 @@ public final class WorkflowMetrics {
         }
     }
 
-    /**
-     * Records one decision a person made on a human task or a review activity, accepted or refused.
-     * Task names are declared at compile time and the other tags are closed sets, so the series stay
-     * bounded; who decided is deliberately not a tag — it is on the decision's span and audit entry.
-     *
-     * @param taskKind  {@code HUMAN_TASK} or {@code REVIEW_ACTIVITY}
-     * @param taskName  the task's declared name, or {@code unknown} when the decision was refused
-     *                  before the task was resolved
-     * @param action    what was decided
-     * @param accepted  whether the runtime accepted the decision
-     * @param errorType the refusing error's type name, or empty/null when accepted
-     */
+    // One decision on a task, accepted or refused; who decided stays on the span and audit entry, not a tag.
     public static void recordTaskDecision(String taskKind, String taskName, String action, boolean accepted,
                                           String errorType) {
         if (!isMetricsEnabled()) {
@@ -367,13 +283,7 @@ public final class WorkflowMetrics {
               (errorType == null || errorType.isEmpty()) ? NONE : errorType).increment();
     }
 
-    /**
-     * The error-type tag value for a failure: the application-level failure type when the engine
-     * carries one, else the exception's class name; {@value NONE} for a success.
-     *
-     * @param failure the failure, or {@code null} on success
-     * @return the bounded error type tag value
-     */
+    // The error_type tag value: the application failure type when present, else the class name; none on success.
     public static String errorTypeOf(Throwable failure) {
         if (failure == null) {
             return NONE;
@@ -384,9 +294,7 @@ public final class WorkflowMetrics {
         return failure.getClass().getSimpleName();
     }
 
-    /**
-     * The counter cell for one lifecycle event, with the full uniform label set.
-     */
+    // The counter cell for one event, with the full uniform label set.
     private static io.ballerina.runtime.observability.metrics.Counter event(MetricRegistry registry,
             String event, String type, String workflowType, String activityType, String dataName,
             String taskKind, String taskName, String toolName, String action, String outcome, String errorType) {
@@ -404,13 +312,7 @@ public final class WorkflowMetrics {
         return registry.counter(new MetricId(EVENTS_METRIC, EVENTS_DESC, tags));
     }
 
-    /**
-     * The identity tags every sample carries: the module, whether the observation was made by a
-     * client call or a worker execution, the engine endpoint, the task queue, and the local host.
-     *
-     * @param type {@code client} or {@code worker}
-     * @return a mutable set holding the identity tags
-     */
+    // Identity tags every sample carries: module, client/worker, engine endpoint, task queue, host.
     private static Set<Tag> identityTags(String type) {
         Set<Tag> tags = new HashSet<>();
         tags.add(Tag.of(TAG_MODULE, MODULE_VALUE));
@@ -431,28 +333,12 @@ public final class WorkflowMetrics {
         }
     }
 
-    /**
-     * The most distinct {@code data_name} tag values given their own series. Declared event
-     * names are compile-time constants for declared workflows, but a dynamic {@code sendData}
-     * name skips that validation and reaches here as whatever the caller computed — and every
-     * distinct tag set is a new series in the registry and the exporter. Past the cap, new
-     * names collapse into {@link #OTHER_DATA_NAME}; the counter still counts, the name is the
-     * only thing surrendered.
-     */
+    // Cap on distinct data_name series: dynamic sendData names are unvalidated, and each tag set is a new series.
     private static final int MAX_DATA_NAME_SERIES = 64;
     private static final String OTHER_DATA_NAME = "__other__";
     private static final Set<String> SEEN_DATA_NAMES = ConcurrentHashMap.newKeySet();
 
-    /**
-     * The tag value for one delivery: the name itself while the distinct-name budget lasts,
-     * {@value #OTHER_DATA_NAME} afterwards. Admission is atomic — the lock-free fast path
-     * serves already-admitted names, and a synchronized check-then-add admits new ones, so
-     * concurrent senders can never push the registry past the budget. The sample log reuses
-     * this so log-derived {@code data_name} dimensions stay within the same budget.
-     *
-     * @param dataName the delivered event name
-     * @return the bounded tag value for the delivery
-     */
+    // The bounded data_name tag value; admission is atomic so concurrent senders cannot exceed the budget.
     static String boundedDataName(String dataName) {
         if (SEEN_DATA_NAMES.contains(dataName)) {
             return dataName;

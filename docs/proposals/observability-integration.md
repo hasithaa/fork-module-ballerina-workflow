@@ -15,8 +15,8 @@ they already use for HTTP services. Metrics and metric samples carry only struct
 identifiers — workflow types, instance IDs, declared event names — never business data.
 Task and activity **content** (what a person was shown and submitted, an activity's
 arguments and result) is recorded on decision spans, audit entries and the activity
-content log by the content-capture switches, which default to **on** and can be turned
-off per deployment (see "Content capture" below).
+content log by the content-capture switches: decision content is **on** by default, activity
+content **off** (see "Content capture" below).
 
 ## Motivation
 
@@ -215,10 +215,12 @@ and at the level `[ballerina.log]` configures, and it is written whether or not 
 metrics are enabled. Logs are the right primary carrier for an audit event: traces are
 sampled and metrics are aggregates, and neither may drop or merge a decision.
 
-### Content capture: on by default, switchable off
+### Content capture: switchable
 
-The records above name the task; two switches under `[ballerina.workflow.observe]`, both
-`true` by default, decide whether they also carry its content:
+The records above name the task; two switches under `[ballerina.workflow.observe]` decide
+whether they also carry its content. `captureHumanTaskContent` is on by default;
+`captureActivityContent` is off, because an activity's arguments can carry credentials or
+personal data and the worker log cannot be silenced through the logging configuration:
 
 | Switch | What it adds | Where |
 |---|---|---|
@@ -295,13 +297,13 @@ tracingProvider = "jaeger"
 
 No workflow-module configuration is required for spans, metrics or the decision audit
 entries; the standard Ballerina observability switches control the first two, and the audit
-entries follow `[ballerina.log]`. The two content switches are on unless turned off:
+entries follow `[ballerina.log]`. The content switches:
 
 ```toml
 # Config.toml
 [ballerina.workflow.observe]
-captureHumanTaskContent = false   # keep what was shown and submitted off the span and audit entry
-captureActivityContent = false    # keep activity arguments and results out of the worker log
+captureHumanTaskContent = false   # keep what was shown and submitted off the span and audit entry (default true)
+captureActivityContent = true     # log activity arguments and results in the worker log (default false)
 ```
 
 ## Known artifact

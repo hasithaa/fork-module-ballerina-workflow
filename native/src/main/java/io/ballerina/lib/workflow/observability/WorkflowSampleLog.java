@@ -18,6 +18,7 @@
 
 package io.ballerina.lib.workflow.observability;
 
+import io.ballerina.lib.workflow.worker.WorkflowWorkerNative;
 import io.temporal.activity.ActivityInfo;
 import org.slf4j.LoggerFactory;
 
@@ -27,149 +28,99 @@ import java.util.logging.Level;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 
-/**
- * Publishes one structured log record per workflow event — a run started or closed, an activity attempt, a
- * data event delivered — the way {@code ballerinax/metrics.logs} publishes one per HTTP request. A log
- * pipeline turns them into a metrics index without ever touching this runtime's metric registry; the
- * registry counters in {@link WorkflowMetrics} stay for Prometheus.
- * <p>
- * Each record carries {@code logger="workflow-metrics"} and a {@code sample} name, then only structural
- * fields: types, ids, status, duration. Never inputs, results or who decided — those belong to the audit
- * entry and the content log. The task-decision sample is written on the Ballerina side, beside its audit
- * entry. Off when {@code publishMetricSamples} is off; every call is then a flag check.
- *
- * @since 0.9.1
- */
+// One structured log record per workflow event under logger="workflow-metrics", like ballerinax/metrics.logs.
+// Structural fields only. Off when publishMetricSamples is off.
 public final class WorkflowSampleLog {
 
-    /** A child of the module logger, so the module's Ballerina-style console handler formats these. */
+    // A child of the module logger, so the module's Ballerina-style console handler formats these.
     private static final Logger SAMPLES = Logger.getLogger("io.ballerina.lib.workflow.observability.samples");
     private static final org.slf4j.Logger LOGGER = LoggerFactory.getLogger(WorkflowSampleLog.class);
     static final String LOGGER_TAG = "workflow-metrics";
+    private static final String FIELD_WORKFLOW_ID = "workflow_id";
+    private static final String FIELD_RUN_ID = "run_id";
+    private static final String FIELD_ATTEMPT = "attempt";
+    private static final String FIELD_DURATION_SECONDS = "duration_seconds";
 
     private WorkflowSampleLog() {
     }
 
-    /**
-     * A run began executing — fresh progress only; callers gate on replay. Published from the workflow
-     * adapter rather than from the client that started the run, so every way a run can begin (a
-     * {@code workflow:run}, a management start, a child workflow, a human task, an agent) is one sample.
-     *
-     * @param workflowType the registered workflow type
-     * @param workflowId   the instance id
-     * @param runId        the run id
-     */
+    // A run began executing; callers gate on replay. Published from the adapter so every start path is one sample.
     public static void workflowStarted(String workflowType, String workflowId, String runId) {
         Map<String, Object> f = new LinkedHashMap<>();
-        f.put("workflow_type", workflowType);
-        f.put("task_kind", WorkflowMetrics.taskKindOf(workflowType));
-        f.put("task_name", WorkflowMetrics.taskNameOf(workflowType));
-        f.put("workflow_id", workflowId);
-        f.put("run_id", runId);
+        f.put(WorkflowMetrics.TAG_WORKFLOW_TYPE, workflowType);
+        f.put(WorkflowMetrics.TAG_TASK_KIND, WorkflowMetrics.taskKindOf(workflowType));
+        f.put(WorkflowMetrics.TAG_TASK_NAME, WorkflowMetrics.taskNameOf(workflowType));
+        f.put(FIELD_WORKFLOW_ID, workflowId);
+        f.put(FIELD_RUN_ID, runId);
         record("workflow.started", f);
     }
 
-    /**
-     * A run closed — fresh progress only; callers gate on replay.
-     *
-     * @param workflowType   the registered workflow type
-     * @param workflowId     the instance id
-     * @param runId          the run id
-     * @param durationMillis run start to close
-     * @param failed         whether the body ended in an error
-     */
+    // A run closed; callers gate on replay.
     public static void workflowClosed(String workflowType, String workflowId, String runId, long durationMillis,
                                       boolean failed) {
         Map<String, Object> f = new LinkedHashMap<>();
-        f.put("workflow_type", workflowType);
-        f.put("task_kind", WorkflowMetrics.taskKindOf(workflowType));
-        f.put("task_name", WorkflowMetrics.taskNameOf(workflowType));
-        f.put("workflow_id", workflowId);
-        f.put("run_id", runId);
-        f.put("outcome", failed ? "failure" : "success");
-        f.put("duration_seconds", durationMillis / 1000.0);
+        f.put(WorkflowMetrics.TAG_WORKFLOW_TYPE, workflowType);
+        f.put(WorkflowMetrics.TAG_TASK_KIND, WorkflowMetrics.taskKindOf(workflowType));
+        f.put(WorkflowMetrics.TAG_TASK_NAME, WorkflowMetrics.taskNameOf(workflowType));
+        f.put(FIELD_WORKFLOW_ID, workflowId);
+        f.put(FIELD_RUN_ID, runId);
+        f.put(WorkflowMetrics.TAG_OUTCOME, outcome(failed));
+        f.put(FIELD_DURATION_SECONDS, durationMillis / 1000.0);
         record("workflow.closed", f);
     }
 
-    /**
-     * One activity attempt finished.
-     *
-     * @param info           the attempt, as the engine describes it
-     * @param durationMillis how long it ran
-     * @param failed         whether it threw
-     */
+    // One activity attempt finished.
     public static void activityExecuted(ActivityInfo info, long durationMillis, boolean failed) {
         Map<String, Object> f = new LinkedHashMap<>();
-        f.put("activity_type", info.getActivityType());
-        f.put("workflow_id", info.getWorkflowId());
-        f.put("run_id", info.getRunId());
-        f.put("attempt", info.getAttempt());
-        f.put("outcome", failed ? "failure" : "success");
-        f.put("duration_seconds", durationMillis / 1000.0);
+        f.put(WorkflowMetrics.TAG_ACTIVITY_TYPE, info.getActivityType());
+        f.put(FIELD_WORKFLOW_ID, info.getWorkflowId());
+        f.put(FIELD_RUN_ID, info.getRunId());
+        f.put(FIELD_ATTEMPT, info.getAttempt());
+        f.put(WorkflowMetrics.TAG_OUTCOME, outcome(failed));
+        f.put(FIELD_DURATION_SECONDS, durationMillis / 1000.0);
         record("activity.executed", f);
     }
 
-    /**
-     * A data event delivery was attempted against a running instance, accepted or not — a
-     * log-derived total must count failed deliveries like the registry counter does. The
-     * name shares the registry's distinct-name budget so a log-derived {@code data_name}
-     * dimension stays bounded too. Framework control signals ({@code __wf_suspend},
-     * {@code __agent_wake}, …) are not data events and publish no sample.
-     *
-     * @param dataName   the declared event name
-     * @param workflowId the target instance
-     * @param failed     whether the delivery failed
-     */
+    // A data event delivery, accepted or not; the name shares the registry's series budget. Control signals skipped.
     public static void dataSent(String dataName, String workflowId, boolean failed) {
-        if (dataName.startsWith("__")) {
+        if (WorkflowWorkerNative.isFrameworkSignal(dataName)) {
             return;
         }
         Map<String, Object> f = new LinkedHashMap<>();
-        f.put("data_name", WorkflowMetrics.boundedDataName(dataName));
-        f.put("workflow_id", workflowId);
-        f.put("outcome", failed ? "failure" : "success");
+        f.put(WorkflowMetrics.TAG_DATA_NAME, WorkflowMetrics.boundedDataName(dataName));
+        f.put(FIELD_WORKFLOW_ID, workflowId);
+        f.put(WorkflowMetrics.TAG_OUTCOME, outcome(failed));
         record("data.sent", f);
     }
 
-    /**
-     * A management control operation — suspend, resume, terminate, cancel — was attempted against an
-     * instance, accepted or refused.
-     *
-     * @param event      the control event name, as on the registry counter
-     * @param workflowId the target instance
-     * @param failed     whether the operation was refused
-     */
+    // A control operation (suspend, resume, terminate, cancel) attempted against an instance.
     public static void control(String event, String workflowId, boolean failed) {
         Map<String, Object> f = new LinkedHashMap<>();
-        f.put("workflow_id", workflowId);
-        f.put("outcome", failed ? "failure" : "success");
+        f.put(FIELD_WORKFLOW_ID, workflowId);
+        f.put(WorkflowMetrics.TAG_OUTCOME, outcome(failed));
         record("workflow." + event, f);
     }
 
-    /**
-     * One step of a durable agent's loop completed — fresh progress only; callers gate on replay. The
-     * fields mirror the registry tags, with the sentinel {@code none} where a field does not apply, so a
-     * log-derived agent dashboard groups exactly as a Prometheus one does.
-     *
-     * @param step       the completed step
-     * @param workflowId the agent's instance id
-     * @param runId      the run id
-     */
+    // One agent step completed; callers gate on replay. Fields mirror the registry tags, none where absent.
     public static void agentStep(AgentStep step, String workflowId, String runId) {
         Map<String, Object> f = new LinkedHashMap<>();
-        f.put("workflow_type", step.workflowType());
-        f.put("workflow_id", workflowId);
-        f.put("run_id", runId);
-        f.put("activity_type", step.activityType());
-        f.put("tool_name", step.toolName());
-        f.put("data_name", step.dataName());
-        f.put("task_kind", step.taskKind());
-        f.put("task_name", step.taskName());
-        f.put("action", step.action());
-        f.put("outcome", step.failed() ? "failure" : "success");
-        f.put("error_type", step.errorType());
-        f.put("duration_seconds", step.durationMillis() / 1000.0);
+        f.put(WorkflowMetrics.TAG_WORKFLOW_TYPE, step.workflowType());
+        f.put(FIELD_WORKFLOW_ID, workflowId);
+        f.put(FIELD_RUN_ID, runId);
+        f.put(WorkflowMetrics.TAG_ACTIVITY_TYPE, step.activityType());
+        f.put(WorkflowMetrics.TAG_TOOL_NAME, step.toolName());
+        f.put(WorkflowMetrics.TAG_DATA_NAME, step.dataName());
+        f.put(WorkflowMetrics.TAG_TASK_KIND, step.taskKind());
+        f.put(WorkflowMetrics.TAG_TASK_NAME, step.taskName());
+        f.put(WorkflowMetrics.TAG_ACTION, step.action());
+        f.put(WorkflowMetrics.TAG_OUTCOME, outcome(step.failed()));
+        f.put(WorkflowMetrics.TAG_ERROR_TYPE, step.errorType());
+        f.put(FIELD_DURATION_SECONDS, step.durationMillis() / 1000.0);
         record(step.sampleName(), f);
+    }
+
+    private static String outcome(boolean failed) {
+        return failed ? WorkflowMetrics.OUTCOME_FAILURE : WorkflowMetrics.OUTCOME_SUCCESS;
     }
 
     private static void record(String sample, Map<String, Object> fields) {

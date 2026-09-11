@@ -23,16 +23,8 @@ import ballerina/workflow.observe;
 // ================================================================================
 // workflow.observe SUBMODULE - TESTS
 // ================================================================================
-// This test run is observability-ENABLED (the gradle test task passes
-// --observability-included; tests/Config.toml turns on tracing with the distribution's
-// mock tracer), so these tests, and the whole IN_MEMORY suite around them, execute the
-// real span-recording paths. Metrics cannot be enabled here — each test module's session
-// would re-set the process-wide default metric registry, which the runtime forbids — so
-// the metric recorders are driven through their registry-taking seams instead; the
-// integration tests assert them end-to-end. The disabled no-op paths stay covered by the
-// integration auth-variant runs, whose regenerated config carries no [ballerina.observe]
-// section.
-// ================================================================================
+// Runs observability-enabled (--observability-included, mock tracer). Metrics cannot be enabled in a
+// multi-module test run, so the recorders are driven through registry seams; integration tests cover the rest.
 
 function observeSampleFlow() returns string => "ok";
 
@@ -48,6 +40,9 @@ function testWorkflowTypeNameOf() {
     groups: ["observe"]
 }
 function testStartWorkflowSpanRecordsTagsAndStatus() returns error? {
+    if !observability:isTracingEnabled() {
+        return;
+    }
     observe:StartWorkflowSpan span = observe:createStartWorkflowSpan("workflow-observeSampleFlow");
     span.addInstanceId("wf-instance-1");
     span.close();
@@ -118,11 +113,11 @@ function testOversizedDecisionContentIsCut() {
 @test:Config {
     groups: ["observe"]
 }
-function testContentCaptureIsOnByDefault() {
+function testContentCaptureDefaults() {
     test:assertTrue(observe:isHumanTaskContentCaptured(),
             "a decision's content is recorded unless the deployment switches it off, as ai.observe does");
-    test:assertTrue(observe:isActivityContentCaptured(),
-            "activity arguments and results are logged unless the deployment switches it off");
+    test:assertFalse(observe:isActivityContentCaptured(),
+            "activity arguments and results stay out of the log unless the deployment opts in");
     test:assertTrue(observe:isMetricSamplesPublished(),
             "one sample per workflow event is published unless the deployment switches it off");
 }
@@ -131,6 +126,9 @@ function testContentCaptureIsOnByDefault() {
     groups: ["observe"]
 }
 function testAgentSpansRecordAgentIdentity() returns error? {
+    if !observability:isTracingEnabled() {
+        return;
+    }
     observe:StartAgentSpan agentSpan = observe:createStartAgentSpan("assistantAgent");
     agentSpan.addInstanceId("wf-agent-1");
     agentSpan.close();
@@ -146,9 +144,10 @@ function testAgentSpansRecordAgentIdentity() returns error? {
     groups: ["observe"]
 }
 function testWorkflowSpanSurfaceEndToEnd() returns error? {
-    // One conversational agent turn drives the enabled tracing surface in memory:
-    // the start, data and result client calls each leave a span in the mock tracer.
-    test:assertTrue(observability:isTracingEnabled(), "unit tests run with tracing enabled");
+    // One agent turn drives the tracing surface in memory; a GraalVM run builds without observability.
+    if !observability:isTracingEnabled() {
+        return;
+    }
 
     map<anydata> input = {id: "observe-surface-001", request: "unused"};
     string runId = check run(chatStockAgent, input);
@@ -165,9 +164,7 @@ function testWorkflowSpanSurfaceEndToEnd() returns error? {
     groups: ["observe"]
 }
 function testMetricRecordersThroughTheirSeams() {
-    // The runtime forbids re-setting the process-wide metric registry, so a multi-module
-    // test run cannot enable metrics for real; the recorders run here against a local
-    // no-op registry — full tag assembly and event routing, an inert sink.
+    // Metrics cannot be enabled in a multi-module test run; the recorders run against a no-op registry.
     string[] errorTypes = exerciseMetricRecorders();
     test:assertEquals(errorTypes, ["none", "ExercisedFailure", "IllegalStateException"],
             "error_type resolves the application failure type, else the class name, else none");
@@ -239,12 +236,7 @@ isolated function exerciseBoundedDataNames(int count) returns string[] = @java:M
 // HELPERS
 // ================================================================================
 
-# Finds a finished span by its `workflow.operation.name` tag and one identifying tag.
-#
-# + operationName - The span's `workflow.operation.name` tag value
-# + idTag - The identifying tag name
-# + idValue - The identifying tag value
-# + return - The matching span, or an error when none was recorded
+// Finds a finished span by its workflow.operation.name tag and one identifying tag.
 function findUnitSpan(string operationName, string idTag, string idValue) returns mock:Span|error {
     foreach string serviceName in ["Ballerina", "Unknown Service"] {
         foreach mock:Span span in mock:getFinishedSpans(serviceName) {

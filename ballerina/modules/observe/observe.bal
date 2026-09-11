@@ -19,33 +19,16 @@ import ballerina/log;
 import ballerina/observe;
 import ballerina/time;
 
-# Whether a decision on a task carries its content: what the person was shown (the human
-# task's input, or the arguments of the activity under review) and what they submitted (the
-# completion result, the rejection reason and details, or the review decision's input and
-# feedback), on the decision's span and in its audit log entry. Who decided, in which roles,
-# what they decided, when, and whether it was accepted are always recorded; this switch
-# governs only the content.
-#
-# On by default, as `ai.observe` records prompt and completion content: the engine already
-# persists this data for the run, and telemetry retention retires it on its own schedule.
-# Turn it off where the content itself must not leave the workflow store.
+# Whether a task decision's content (what the person was shown and submitted) joins its span and audit entry.
+# Who decided, in which roles, what and when are always recorded; this governs only the content.
 configurable boolean captureHumanTaskContent = true;
 
-# Whether every activity execution attempt logs its arguments and its result (or error)
-# to the worker's module log, beside the attempt's outcome and duration.
-#
-# On by default, for the same reason as `captureHumanTaskContent`. Turn it off where an
-# activity's arguments or results must not leave the workflow store. Long values are
-# truncated.
-configurable boolean captureActivityContent = true;
+# Whether every activity attempt logs its arguments and result (or error) to the worker's module log.
+# Off by default: activity arguments can carry credentials or personal data. Long values are truncated.
+configurable boolean captureActivityContent = false;
 
-# Whether the runtime publishes one structured log record per workflow event — a run started or
-# closed (with its duration), an activity attempt (with outcome and duration), a data event
-# delivered, a task decided — tagged `logger = "workflow-metrics"` with a `sample` name. This
-# is the workflow-domain counterpart of `ballerinax/metrics.logs`, which publishes one record per
-# HTTP request: a log pipeline can build a workflow metrics index from these without scraping
-# the metric registry. Structural fields only — types, ids, status, duration — never inputs,
-# results or who decided.
+# Whether the runtime publishes one structured log record per workflow event under `logger = "workflow-metrics"`,
+# the workflow counterpart of `ballerinax/metrics.logs`. Structural fields only, never content.
 configurable boolean publishMetricSamples = true;
 
 function init() {
@@ -67,9 +50,7 @@ public isolated function isHumanTaskContentCaptured() returns boolean => capture
 # + return - The value of `captureActivityContent`
 public isolated function isActivityContentCaptured() returns boolean => captureActivityContent;
 
-// Tag names attached to workflow tracing spans. Identifiers, declared names and — for a
-// decision on a task — who made it. A decision's content is recorded only when
-// `captureHumanTaskContent` is on; nothing else carries business payloads.
+// Span tag names: identifiers, declared names and, for a task decision, who made it.
 enum WorkflowTagNames {
     OPERATION_NAME = "workflow.operation.name",
     WORKFLOW_TYPE = "workflow.type",
@@ -109,13 +90,7 @@ public type WorkflowSpan distinct isolated object {
     public isolated function close(error? err = ());
 };
 
-# Implementation of the `WorkflowSpan` interface used to trace workflow operations.
-#
-# Spans are recorded only when tracing is enabled for the program AND the
-# current call is not executing inside a workflow body. Workflow bodies are
-# replayed deterministically by the durable engine, so emitting spans from
-# inside them would duplicate telemetry on every replay; execution-side
-# visibility is provided by the engine's history and the management API instead.
+// Records a span only when tracing is on and the call is outside a workflow body, since bodies replay.
 isolated class BaseSpanImp {
     *WorkflowSpan;
     private final int|error? spanId;
@@ -182,65 +157,36 @@ isolated function addOtherTags(string key, string value, int spanId) {
     }
 }
 
-# The current time as an RFC 3339 string, for audit entries.
-#
-# + return - The current UTC time
 isolated function nowText() returns string => time:utcToString(time:utcNow());
 
-# Checks whether the current call is executing inside a workflow body.
-#
-# + return - `true` when called from within a workflow execution context
 isolated function isInsideWorkflowContext() returns boolean = @java:Method {
-    'class: "io.ballerina.lib.workflow.observability.ObservabilityNative",
-    name: "isInsideWorkflowContext"
+    'class: "io.ballerina.lib.workflow.observability.ObservabilityNative"
 } external;
 
-# Returns the registered workflow type name for a workflow function.
-#
+# Returns the workflow type name the engine registers for a workflow function.
 # + processFunction - The workflow function
-# + return - The workflow type name used by the durable engine
+# + return - The engine's workflow type name
 public isolated function workflowTypeNameOf(function processFunction) returns string = @java:Method {
-    'class: "io.ballerina.lib.workflow.observability.ObservabilityNative",
-    name: "workflowTypeNameOf"
+    'class: "io.ballerina.lib.workflow.observability.ObservabilityNative"
 } external;
 
-# Hands the worker-side switches to the runtime, which reads them on the workflow and activity
-# threads where Ballerina configurables are out of reach.
-#
-# + activityContent - Whether activity executions log their arguments and results
-# + metricSamples - Whether the runtime publishes one structured log record per workflow event
+// Hands the worker-side switches to the runtime; workflow and activity threads cannot read configurables.
 isolated function configure(boolean activityContent, boolean metricSamples) = @java:Method {
-    'class: "io.ballerina.lib.workflow.observability.ObservabilityNative",
-    name: "configure"
+    'class: "io.ballerina.lib.workflow.observability.ObservabilityNative"
 } external;
 
-# Counts one decision on a task in the runtime's metric registry.
-#
-# + taskKind - `HUMAN_TASK` or `REVIEW_ACTIVITY`
-# + taskName - The task's declared name, or `unknown` when the decision was refused before
-#              the task was resolved
-# + action - What was decided
-# + accepted - Whether the runtime accepted the decision
-# + errorType - The refusing error's type name, or an empty string when accepted
+// Counts one task decision in the metric registry; taskName is "none" when the decision was refused unresolved.
 isolated function recordTaskDecisionMetric(string taskKind, string taskName, string action,
         boolean accepted, string errorType) = @java:Method {
-    'class: "io.ballerina.lib.workflow.observability.ObservabilityNative",
-    name: "recordTaskDecisionMetric"
+    'class: "io.ballerina.lib.workflow.observability.ObservabilityNative"
 } external;
 
-# The identity tags every workflow span carries: the module, the caller side, the engine
-# endpoint, the task queue, and the local host.
-#
-# + return - The identity tag names and values
+// Identity tags every span carries: module, caller side, engine endpoint, task queue, host.
 isolated function spanIdentityTags() returns map<string> = @java:Method {
-    'class: "io.ballerina.lib.workflow.observability.ObservabilityNative",
-    name: "spanIdentityTags"
+    'class: "io.ballerina.lib.workflow.observability.ObservabilityNative"
 } external;
 
-# The type name of an error, for the bounded `error.type` dimension.
-#
-# + e - The error
-# + return - The error's type name
+// The error's type name, for the bounded error_type dimension.
 isolated function errorTypeName(error e) returns string {
     // `typeof e` prints as `typedesc <TypeName>`; the name starts after the space.
     string typedescString = (typeof e).toString();

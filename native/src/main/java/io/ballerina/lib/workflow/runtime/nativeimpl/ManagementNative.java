@@ -384,13 +384,10 @@ public final class ManagementNative {
         }
     }
 
-    /** The {@code error_type} of a control operation that found no such instance. */
+    // The error_type of a control operation that found no such instance.
     private static final String ERR_TYPE_NOT_FOUND = "WorkflowNotFound";
 
-    /**
-     * Records a control operation — suspend, resume, terminate, cancel — as one event and one sample,
-     * accepted ({@code errorType == null}) or refused.
-     */
+    // Records a control operation as one event and one sample; a null errorType means accepted.
     private static void recordControl(String event, String workflowId, String errorType) {
         WorkflowMetrics.recordControl(event, errorType);
         WorkflowSampleLog.control(event, workflowId, errorType != null);
@@ -2615,8 +2612,7 @@ public final class ManagementNative {
      * nodes in the activity tree.
      */
     private static boolean isInternalSignal(String signalName) {
-        return signalName.startsWith("__wf_") || "taskCompletion".equals(signalName) || "taskDecision".equals(
-                signalName);
+        return WorkflowWorkerNative.isFrameworkSignal(signalName);
     }
 
     /**

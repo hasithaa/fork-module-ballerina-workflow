@@ -283,6 +283,19 @@ def writeAuthConfig(String tomlPath, Map cfg) {
     if (cfg.authMtlsCert) lines << "authMtlsCert = \"${cfg.authMtlsCert}\""
     if (cfg.authMtlsKey)  lines << "authMtlsKey = \"${cfg.authMtlsKey}\""
     if (cfg.authCaCert)   lines << "authCaCert = \"${cfg.authCaCert}\""
+    // The observability sections the committed Config.toml carries; without them the observability tests skip.
+    lines.addAll([
+        "",
+        "[ballerina.observe]",
+        "metricsEnabled = true",
+        "metricsReporter = \"prometheus\"",
+        "tracingEnabled = true",
+        "tracingProvider = \"mock\"",
+        "",
+        "[ballerina.workflow.observe]",
+        "captureHumanTaskContent = true",
+        "captureActivityContent = true"
+    ])
     new File(tomlPath).text = lines.join('\n') + '\n'
 }
 
