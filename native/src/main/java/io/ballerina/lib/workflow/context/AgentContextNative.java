@@ -1273,18 +1273,15 @@ public final class AgentContextNative {
         return result;
     }
 
-    /** The qualified task name the task child is created under — the same derivation as awaitHumanTask's. */
+    // The qualified task name the task child is created under, as awaitHumanTask derives it.
     private static String humanTaskNameFor(String workflowType, String taskName) {
         String definitionName = workflowType.startsWith(WorkflowWorkerNative.WORKFLOW_TYPE_PREFIX)
                 ? workflowType.substring(WorkflowWorkerNative.WORKFLOW_TYPE_PREFIX.length()) : workflowType;
         return definitionName + "." + taskName;
     }
 
-    /**
-     * The {@code error_type} of a human task's outcome, in the vocabulary the task child's own closed
-     * event uses: a timeout and a rejection map back to the engine failure types, any other error keeps
-     * its Ballerina type name, and a value is not an error.
-     */
+    // error_type of a human task's outcome in the task child's vocabulary: timeout and rejection map to the
+    // engine failure types, any other error keeps its Ballerina type name.
     private static String taskErrorTypeOf(Object result) {
         if (!(result instanceof BError error)) {
             return null;
@@ -1388,12 +1385,7 @@ public final class AgentContextNative {
         return outcome.value();
     }
 
-    /**
-     * What an agent activity call produced.
-     *
-     * @param value     the result, or the Ballerina error handed back to the model
-     * @param errorType the failure's type when the call failed, else {@code null}
-     */
+    // The value (or Ballerina error) an agent activity call produced, and the failure's type if any.
     private record ActivityOutcome(Object value, String errorType) {
         static ActivityOutcome of(Object value) {
             return new ActivityOutcome(value, null);

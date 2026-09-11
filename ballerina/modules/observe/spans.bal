@@ -106,19 +106,8 @@ const string DECISION_DENIED = "denied";
 // contract uses the `none` sentinel for a dimension with no value.
 const string UNKNOWN_TASK_NAME = "none";
 
-# Represents one decision a person makes on a task — completing or rejecting a human task,
-# or deciding a review activity — as a tracing span that, when closed, also writes the
-# decision's audit log entry and counts it in `workflow_events_total{event="task_decided"}`.
-#
-# The span and the audit entry both say who decided (`user.id`, `user.roles`), what
-# (`workflow.task.action`) and on which task; the audit entry adds the task's name, its
-# parent workflow and the roles it allowed, once the runtime has confirmed them, and
-# whether the decision was accepted or refused. A refused decision is recorded too. The
-# decision's content — what the person was shown and what they submitted — joins both
-# unless `captureHumanTaskContent` is off.
-#
-# The audit entry is written whether or not tracing or metrics are enabled: it is the
-# governance record, not telemetry.
+# One decision a person makes on a task, as a span that also writes the decision's audit entry and counts it.
+# The audit entry is written whether or not tracing or metrics are enabled.
 public isolated distinct class TaskDecisionSpan {
     *WorkflowSpan;
     private final BaseSpanImp baseSpan;
@@ -147,13 +136,8 @@ public isolated distinct class TaskDecisionSpan {
         self.baseSpan.addTag(TASK_ACTION, action);
     }
 
-    # Records who made the decision, as the caller identified them, and where that
-    # identity came from.
-    #
-    # + userId - The deciding user's identifier, when the caller supplied one
-    # + roles - The roles the caller presented, when any
-    # + identitySource - `verified` when the identity was resolved from a credential the
-    #                    receiving service validated; `asserted` (the default) otherwise
+    # Records who decided, as the caller identified them, and where that identity came from.
+    # + identitySource - `verified` when resolved from a credential the receiving service validated
     public isolated function addDecider(string? userId, string[]? roles,
             IdentitySource identitySource = "asserted") {
         string[] & readonly presented = (roles ?: []).cloneReadOnly();
@@ -171,10 +155,7 @@ public isolated distinct class TaskDecisionSpan {
         self.baseSpan.addTag(IDENTITY_SOURCE, identitySource);
     }
 
-    # Records what the person submitted — the completion result, the rejection reason and
-    # details, or the review decision's input and feedback. A no-op when
-    # `captureHumanTaskContent` is off.
-    #
+    # Records what the person submitted. A no-op when `captureHumanTaskContent` is off.
     # + content - The submitted value
     public isolated function addContent(anydata content) {
         if !captureHumanTaskContent {
@@ -187,11 +168,7 @@ public isolated distinct class TaskDecisionSpan {
         self.baseSpan.addTag(TASK_CONTENT, text);
     }
 
-    # Records what the runtime confirmed about the task when it accepted the decision: its
-    # declared name, its parent workflow, the roles it allowed to decide it, and — unless
-    # `captureHumanTaskContent` is off — what the person was shown: the human task's input,
-    # or the arguments of the activity under review.
-    #
+    # Records what the runtime confirmed on accepting the decision: task name, parent, allowed roles and input.
     # + receipt - The receipt the runtime returned for the accepted decision
     public isolated function addTaskDetails(map<anydata> receipt) {
         anydata name = receipt["taskName"];
@@ -323,65 +300,48 @@ public isolated distinct class SendAgentEventSpan {
     }
 }
 
-# Creates a span representing the start of a workflow instance.
-#
-# + workflowType - The workflow type name being started
-# + return - A `StartWorkflowSpan` instance representing the span
+# Creates the span for starting a workflow instance.
+# + return - The span
 public isolated function createStartWorkflowSpan(string workflowType) returns StartWorkflowSpan {
     return new (workflowType);
 }
 
-# Creates a span representing sending data to a workflow instance.
-#
-# + instanceId - The target workflow instance ID
-# + dataName - The events record field the data is sent to
-# + return - A `SendDataSpan` instance representing the span
+# Creates the span for sending data to a workflow instance.
+# + return - The span
 public isolated function createSendDataSpan(string instanceId, string dataName) returns SendDataSpan {
     return new (instanceId, dataName);
 }
 
-# Creates a span representing waiting for a workflow instance's result.
-#
-# + instanceId - The target workflow instance ID
-# + return - A `GetWorkflowResultSpan` instance representing the span
+# Creates the span for waiting on a workflow instance's result.
+# + return - The span
 public isolated function createGetWorkflowResultSpan(string instanceId) returns GetWorkflowResultSpan {
     return new (instanceId);
 }
 
-# Creates a span representing a person's decision on a human task.
-#
-# + taskWorkflowId - The human task's workflow ID
+# Creates the span for a person's decision on a human task.
 # + action - `complete` to submit a result, `fail` to reject the task
-# + return - A `TaskDecisionSpan` for the decision
+# + return - The span
 public isolated function createHumanTaskDecisionSpan(string taskWorkflowId, "complete"|"fail" action)
         returns TaskDecisionSpan {
     return new (HUMAN_TASK, taskWorkflowId, action);
 }
 
-# Creates a span representing a person's decision on a review activity.
-#
-# + taskWorkflowId - The review activity's workflow ID
-# + action - The review decision: `proceed`, `proceed-with-input` or `reject`
-# + return - A `TaskDecisionSpan` for the decision
+# Creates the span for a person's decision on a review activity.
+# + action - `proceed`, `proceed-with-input` or `reject`
+# + return - The span
 public isolated function createReviewActivityDecisionSpan(string taskWorkflowId,
         "proceed"|"proceed-with-input"|"reject" action) returns TaskDecisionSpan {
     return new (REVIEW_ACTIVITY, taskWorkflowId, action);
 }
 
-# Creates a span representing the start of a durable agent instance.
-#
-# + agentName - The name of the agent being started
-# + return - A `StartAgentSpan` instance representing the span
+# Creates the span for starting a durable agent instance.
+# + return - The span
 public isolated function createStartAgentSpan(string agentName) returns StartAgentSpan {
     return new (agentName);
 }
 
-# Creates a span representing sending an event to a durable agent instance.
-#
-# + agentName - The name of the target agent
-# + instanceId - The agent instance ID
-# + eventName - The declared event channel name
-# + return - A `SendAgentEventSpan` instance representing the span
+# Creates the span for sending an event to a durable agent instance.
+# + return - The span
 public isolated function createSendAgentEventSpan(string agentName, string instanceId,
         string eventName) returns SendAgentEventSpan {
     return new (agentName, instanceId, eventName);

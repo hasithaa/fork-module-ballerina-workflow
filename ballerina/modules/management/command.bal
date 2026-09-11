@@ -93,9 +93,8 @@ public enum Operation {
 #
 # + userId - The caller's user ID, or `()` when unknown
 # + roles - The caller's roles; an empty array means the caller holds none
-# + identitySource - Where the identity came from: `verified` when the caller resolved
-#                    it from a credential its auth layer validated (the REST gateway
-#                    does), `asserted` (the default) when it was supplied as given
+# + identitySource - `verified` when resolved from a credential the caller's auth layer validated;
+#                    `asserted` (the default) when supplied as given
 public type Identity record {|
     string? userId = ();
     string[] roles = [];

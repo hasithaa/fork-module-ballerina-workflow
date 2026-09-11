@@ -23,13 +23,7 @@ import io.temporal.workflow.WorkflowInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * Records a durable agent's completed steps from the workflow thread. Every step is skipped while the
- * run is replaying — the worker that made the original progress already recorded it — so a step counts
- * once however many times the history is replayed after a restart.
- *
- * @since 0.9.1
- */
+// Records a durable agent's completed steps from the workflow thread, skipping replays so each counts once.
 public final class AgentStepTelemetry {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(AgentStepTelemetry.class);
@@ -37,12 +31,7 @@ public final class AgentStepTelemetry {
     private AgentStepTelemetry() {
     }
 
-    /**
-     * Records one completed step of the current agent run; a no-op under replay. Must be called on the
-     * workflow thread.
-     *
-     * @param step the step that just completed
-     */
+    // Records one completed step; a no-op under replay. Must run on the workflow thread.
     public static void record(AgentStep step) {
         try {
             if (Workflow.isReplaying()) {

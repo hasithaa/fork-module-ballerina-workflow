@@ -17,14 +17,7 @@
 // ================================================================================
 // OBSERVABILITY - TESTS
 // ================================================================================
-//
-// This package builds with observabilityIncluded = true and the tests run with
-// metrics enabled (Prometheus reporter) and tracing enabled (the distribution's
-// mock tracer), so these tests assert the real emission paths: the workflow_*
-// metrics recorded by the wrapper layer and the client-side spans recorded by
-// the workflow.observe submodule.
-//
-// ================================================================================
+// Runs with metrics (Prometheus) and tracing (mock tracer) enabled, asserting the real emission paths.
 
 import ballerina/lang.runtime;
 import ballerina/observe;
@@ -278,9 +271,7 @@ function testDurableAgentStepMetrics() returns error? {
     if !observe:isMetricsEnabled() {
         return;
     }
-    // One run walks a sleep, an event wait that times out, an activity tool, a human task
-    // and the model calls between them; the steps are recorded on the agent's own
-    // workflow type as it makes progress, so the task is decided before asserting.
+    // Steps are recorded as the agent makes progress, so the task is decided before asserting.
     string agentId = check observabilityAgent.run("observe every step");
     management:HumanTaskGroup[] groups = check waitForPendingHumanTask(agentId, 30);
     check workflow:completeHumanTask(groups[0].taskIds[0], {approved: true},
@@ -329,11 +320,7 @@ function testDurableAgentStepMetrics() returns error? {
 // HELPERS
 // ================================================================================
 
-# Looks up the current value of a metric matching the given name and tag subset.
-#
-# + name - The metric name
-# + expectedTags - Tags the metric must carry (subset match)
-# + return - The metric value, or `()` when no matching metric exists yet
+// The current value of the metric matching the name and tag subset, or () when absent.
 function findMetricValue(string name, map<string> expectedTags) returns float? {
     foreach observe:Metric metric in observe:getAllMetrics() {
         if metric.name != name {
@@ -354,13 +341,7 @@ function findMetricValue(string name, map<string> expectedTags) returns float? {
     return ();
 }
 
-# Asserts that a metric reaches at least the given value, retrying briefly because
-# worker-side recording completes asynchronously with result delivery.
-#
-# + name - The metric name
-# + expectedTags - Tags the metric must carry (subset match)
-# + minimum - The minimum expected value
-# + return - An error when the metric never reaches the minimum
+// Asserts a metric reaches the minimum, retrying briefly: worker-side recording lags result delivery.
 function assertMetricAtLeast(string name, map<string> expectedTags, float minimum) returns error? {
     float? value = ();
     foreach int attempt in 0 ..< 10 {
@@ -374,16 +355,8 @@ function assertMetricAtLeast(string name, map<string> expectedTags, float minimu
             string `${minimum} but was ${value is float ? value.toString() : "absent"}`);
 }
 
-# Finds a finished decision span by its `workflow.operation.name` tag, task ID tag and decider,
-# retrying briefly because the tracer finishes spans asynchronously. Keyed on the decider too: a
-# refused and an accepted decision on the same task are two spans. (A span's recorded name is
-# `<operation> <taskId>`; the tag is the stable half.)
-#
-# + operationName - The value of the span's `workflow.operation.name` tag
-# + idTag - The tag carrying the task ID (`workflow.human_task.id` or `workflow.review_activity.id`)
-# + taskId - The task's workflow ID
-# + userId - The `user.id` the span must carry
-# + return - The matching span, or an error when none is found
+// Finds a decision span by workflow.operation.name tag, task-id tag and decider, retrying briefly.
+// Keyed on the decider too: a refused and an accepted decision on one task are two spans.
 function findDecisionSpan(string operationName, string idTag, string taskId, string userId)
         returns mock:Span|error {
     foreach int attempt in 0 ..< 10 {
@@ -400,12 +373,7 @@ function findDecisionSpan(string operationName, string idTag, string taskId, str
     return error(string `decision span '${operationName}' for task '${taskId}' by '${userId}' was not recorded`);
 }
 
-# Finds a finished span by operation name carrying the given workflow instance ID,
-# retrying briefly because the tracer finishes spans asynchronously.
-#
-# + operationName - The span's operation name
-# + workflowId - The workflow instance ID the span must be tagged with
-# + return - The matching span, or an error when none is found
+// Finds a finished span by operation name carrying the workflow instance ID, retrying briefly.
 function findSpan(string operationName, string workflowId) returns mock:Span|error {
     foreach int attempt in 0 ..< 10 {
         foreach string serviceName in spanServiceCandidates {

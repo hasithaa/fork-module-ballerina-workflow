@@ -29,28 +29,10 @@ import io.ballerina.runtime.api.values.BString;
 
 import java.util.List;
 
-/**
- * What the runtime read from a task's memo while validating a decision on it: the task's declared
- * name, the workflow that created it, and the roles it allows to decide it. Handed back to the
- * Ballerina caller as the decision's receipt, so the audit entry can name the task without a second
- * describe call.
- *
- * @param taskName         the task's declared, workflow-qualified name; {@code null} when the memo lacks it
- * @param parentWorkflowId the workflow that created the task; {@code null} when the memo lacks it
- * @param assignedRoles    the roles allowed to decide the task, in a stable order; empty when none are set
- * @param taskInput        what the person was shown — the human task's input, or the arguments of the activity
- *                         under review — as decoded Java values; {@code null} when the memo lacks it
- * @since 0.9.1
- */
+// What the runtime read from a task's memo while validating a decision; returned to Ballerina as the receipt.
 record TaskMemo(String taskName, String parentWorkflowId, List<String> assignedRoles, Object taskInput) {
 
-    /**
-     * The receipt returned to Ballerina: a {@code map<anydata>} with {@code taskName} and
-     * {@code parentWorkflowId} and {@code taskInput} (each present only when known) and {@code assignedRoles}
-     * as a {@code string[]}.
-     *
-     * @return the receipt map
-     */
+    // The receipt map<anydata>: taskName, parentWorkflowId, taskInput (when known) and assignedRoles as string[].
     BMap<BString, Object> toReceipt() {
         BMap<BString, Object> receipt =
                 ValueCreator.createMapValue(TypeCreator.createMapType(PredefinedTypes.TYPE_ANYDATA));

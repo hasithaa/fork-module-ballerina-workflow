@@ -17,15 +17,8 @@
 // ================================================================================
 // OBSERVABILITY WORKFLOW
 // ================================================================================
-//
-// Exercises the observability integration: a workflow with one activity and one
-// data event, so a single run emits the workflow start/completion metrics, the
-// activity execution metrics, the data-event counter, and the client-side
-// start_workflow / send_data / get_workflow_result tracing spans asserted by
-// tests/observability_test.bal. A second workflow that always fails covers the
-// failed-status metrics.
-//
-// ================================================================================
+// Fixtures for tests/observability_test.bal: one run emits start/close, activity, data-event and span
+// telemetry; a failing flow covers failure outcomes.
 
 import ballerina/ai;
 import ballerina/jballerina.java;
@@ -92,7 +85,6 @@ function observabilityReviewFlow(workflow:Context ctx, ObservabilityInput input)
 }
 
 # Lookup tool the observability agent calls; runs as a durable activity.
-#
 # + item - Item to look up
 # + return - Availability text
 @workflow:Activity
@@ -100,9 +92,8 @@ function obsAgentLookup(string item) returns string {
     return item + " is available";
 }
 
-// Scripted so one run walks every kind of agent step: a sleep, an event wait that
-// times out, an activity tool, a human task, then the final answer. The step to take
-// next is read off how many tool results the conversation already holds.
+// Scripted: a sleep, an event wait that times out, an activity tool, a human task, then the answer;
+// the next step is chosen by how many tool results the conversation already holds.
 isolated client class ObsAgentMockModelProvider {
     *ai:ModelProvider;
 

@@ -26,38 +26,19 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 
-/**
- * Logs what each activity execution attempt received and produced, when {@code captureActivityContent}
- * is on. Off, every call is a flag check.
- * <p>
- * This is the one place the worker writes business data to a log, and only by request: an activity's
- * arguments and result are the workflow's payload, which the engine already keeps in history. The
- * entry joins the worker's module log — the stream its activity-failure warnings already go to — and
- * never affects execution: whatever cannot be rendered is logged as its {@code toString}, and any
- * failure here is swallowed.
- *
- * @since 0.9.1
- */
+// Logs each activity attempt's arguments and result when captureActivityContent is on; never fails execution.
 public final class ActivityContentLog {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ActivityContentLog.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    /** One value longer than this is cut, so a single oversized payload cannot flood the log. */
+    // One value longer than this is cut, so an oversized payload cannot flood the log.
     static final int MAX_CHARS = 8192;
 
     private ActivityContentLog() {
     }
 
-    /**
-     * Records one attempt, after it has completed or failed.
-     *
-     * @param info           the attempt, as the engine describes it
-     * @param args           the attempt's encoded arguments; the first is the named-argument map
-     * @param durationMillis how long the attempt ran
-     * @param result         what the activity returned, already converted to Java values; {@code null} on failure
-     * @param failure        what the activity threw; {@code null} on success
-     */
+    // Records one attempt after it completed or failed; args[0] is the named-argument map, result is null on failure.
     public static void record(ActivityInfo info, EncodedValues args, long durationMillis, Object result,
                               Throwable failure) {
         if (!ObservabilityNative.isActivityContentCaptured()) {

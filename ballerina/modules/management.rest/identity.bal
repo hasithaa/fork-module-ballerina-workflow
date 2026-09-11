@@ -83,10 +83,8 @@ configurable string scopeHumanTaskManage = "humantask:manage";
 #
 # + userId - The caller's user ID, or `()` when no scheme established one
 # + roles - The caller's role names; empty when none were established
-# + identitySource - `verified` when the user ID was resolved from a credential the
-#                    auth layer validated (a JWT claim, a basic-auth username);
-#                    `asserted` when it came from forwarded x-user-* headers, or when
-#                    there is no user
+# + identitySource - `verified` when resolved from a validated credential (JWT claim, basic-auth user);
+#                    `asserted` for forwarded x-user-* headers or no user
 type CallerIdentity record {|
     string? userId = ();
     string[] roles = [];

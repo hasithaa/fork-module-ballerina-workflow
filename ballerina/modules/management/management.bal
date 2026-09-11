@@ -244,9 +244,7 @@ public isolated function completeHumanTask(string taskWorkflowId, anydata result
     return decideCompleteHumanTask(taskWorkflowId, result, callerRoles, userId, "asserted");
 }
 
-// The embedded API trusts the caller's identity as given ("asserted"); executeCommand
-// passes the source its command carries, so a decision arriving through the REST
-// gateway is recorded as "verified" when the gateway resolved it from a credential.
+// Embedded callers are "asserted"; executeCommand passes the source its command carries.
 isolated function decideCompleteHumanTask(string taskWorkflowId, anydata result,
         [string, string...]? callerRoles, string? userId,
         observe:IdentitySource identitySource) returns error? {

@@ -27,24 +27,14 @@ import io.ballerina.runtime.observability.metrics.MetricRegistry;
 import io.ballerina.runtime.observability.metrics.noop.NoOpMetricProvider;
 import io.temporal.failure.ApplicationFailure;
 
-/**
- * Test-only natives for the metric recorders. The runtime forbids re-setting the process-wide
- * default metric registry, so a multi-module test run cannot enable metrics for real; these
- * drive the recorders through their registry-taking seams against a local no-op registry —
- * the tag assembly and event routing run exactly as in production, only the sink is inert.
- *
- * @since 0.9.1
- */
+// Test-only natives: drive the metric recorders through their registry seams against a no-op registry,
+// since a multi-module test run cannot enable metrics for real.
 public final class ObservabilityTestNatives {
 
     private ObservabilityTestNatives() {
     }
 
-    /**
-     * Drives every metric recorder through success, failure, filtered and unmeasured shapes.
-     *
-     * @return the error-type tag values the exercised failures resolved to
-     */
+    // Drives every recorder through success, failure, filtered and unmeasured shapes; returns the error types seen.
     public static BArray exerciseMetricRecorders() {
         MetricRegistry registry = new MetricRegistry(new NoOpMetricProvider());
 
@@ -76,12 +66,7 @@ public final class ObservabilityTestNatives {
         });
     }
 
-    /**
-     * Describes every agent step shape as {@code sample|event|outcome|error_type|task_kind|action}, so a
-     * test can pin the vocabulary the registry tags and the samples share.
-     *
-     * @return one description per exercised step, in order
-     */
+    // Describes each agent step as sample|event|outcome|error_type|task_kind|action|tool_name|data_name|task_name.
     public static BArray describeAgentSteps() {
         AgentStep[] steps = exercisedAgentSteps();
         String[] described = new String[steps.length];
@@ -109,12 +94,7 @@ public final class ObservabilityTestNatives {
         };
     }
 
-    /**
-     * Reports the task dimensions a workflow type resolves to.
-     *
-     * @param workflowType the workflow type name
-     * @return the task kind and task name tag values
-     */
+    // The task kind and task name a workflow type resolves to.
     public static BArray deriveTaskDimensions(BString workflowType) {
         String type = workflowType.getValue();
         return StringUtils.fromStringArray(new String[] {
@@ -123,12 +103,7 @@ public final class ObservabilityTestNatives {
         });
     }
 
-    /**
-     * Admits more distinct data names than the series budget and reports what each resolved to.
-     *
-     * @param count how many distinct names to admit
-     * @return the bounded tag value for each name, in admission order
-     */
+    // Admits more distinct data names than the series budget and reports what each resolved to.
     public static BArray exerciseBoundedDataNames(long count) {
         BArray bounded = ValueCreator.createArrayValue(
                 io.ballerina.runtime.api.creators.TypeCreator.createArrayType(

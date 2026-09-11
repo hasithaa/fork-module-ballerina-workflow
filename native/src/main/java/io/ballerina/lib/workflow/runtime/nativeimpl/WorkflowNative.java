@@ -1197,9 +1197,7 @@ public final class WorkflowNative {
         }
     }
 
-    /**
-     * One string field of a task's memo, or {@code null} when it is absent or cannot be decoded.
-     */
+    // One string field of a task's memo, or null when absent or undecodable.
     private static String decodeMemoText(io.temporal.common.converter.DataConverter dc,
                                          Map<String, io.temporal.api.common.v1.Payload> fields, String key) {
         try {
@@ -1210,10 +1208,7 @@ public final class WorkflowNative {
         }
     }
 
-    /**
-     * One structured field of a task's memo as decoded Java values, or {@code null} when it is absent or cannot
-     * be decoded.
-     */
+    // One structured field of a task's memo as decoded Java values, or null when absent or undecodable.
     private static Object decodeMemoValue(io.temporal.common.converter.DataConverter dc,
                                           Map<String, io.temporal.api.common.v1.Payload> fields, String key) {
         try {

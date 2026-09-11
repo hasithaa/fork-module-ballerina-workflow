@@ -28,74 +28,38 @@ import io.ballerina.runtime.api.values.BMap;
 import io.ballerina.runtime.api.values.BString;
 import io.temporal.workflow.Workflow;
 
-/**
- * Native implementations backing the {@code workflow.observe} Ballerina submodule.
- *
- * @since 0.9.1
- */
+// Natives backing the workflow.observe Ballerina submodule.
 public final class ObservabilityNative {
 
-    // Set once at module init from the `workflow.observe` configurables. Read on activity
-    // threads, where Ballerina configurables are out of reach; volatile so those threads see
-    // the value the init strand wrote.
+    // Set once at module init from the workflow.observe configurables; volatile because activity threads read them.
     private static volatile boolean activityContentCaptured = false;
     private static volatile boolean metricSamplesPublished = true;
 
     private ObservabilityNative() {
     }
 
-    /**
-     * Records the worker-side switches from the {@code workflow.observe} configurables.
-     *
-     * @param activityContent whether every activity execution logs its arguments and result
-     * @param metricSamples   whether the runtime publishes one structured log record per workflow event
-     */
+    // Records the worker-side switches from the workflow.observe configurables.
     public static void configure(boolean activityContent, boolean metricSamples) {
         activityContentCaptured = activityContent;
         metricSamplesPublished = metricSamples;
     }
 
-    /**
-     * Whether the runtime publishes one structured log record per workflow event, for log-based metrics.
-     *
-     * @return {@code true} when {@code publishMetricSamples} is on
-     */
     public static boolean areMetricSamplesPublished() {
         return metricSamplesPublished;
     }
 
-    /**
-     * Whether activity executions log their arguments and results.
-     *
-     * @return {@code true} when {@code captureActivityContent} is on
-     */
     public static boolean isActivityContentCaptured() {
         return activityContentCaptured;
     }
 
-    /**
-     * Counts one decision a person made on a task. The Ballerina side owns the decision's audit
-     * entry and span; this is the metric leg, kept with the other counters.
-     *
-     * @param taskKind  {@code HUMAN_TASK} or {@code REVIEW_ACTIVITY}
-     * @param taskName  the task's declared name, or {@code unknown} when the decision was refused
-     *                  before the task was resolved
-     * @param action    what was decided
-     * @param accepted  whether the runtime accepted the decision
-     * @param errorType the refusing error's type name, or empty when accepted
-     */
+    // Counts one task decision (the Ballerina side owns its audit entry and span); taskName is "none" if unresolved.
     public static void recordTaskDecisionMetric(BString taskKind, BString taskName, BString action,
                                                 boolean accepted, BString errorType) {
         WorkflowMetrics.recordTaskDecision(taskKind.getValue(), taskName.getValue(), action.getValue(),
                                            accepted, errorType.getValue());
     }
 
-    /**
-     * The identity tags every span carries, as the standard's identity dimensions: the module, the
-     * caller side, the engine endpoint, the task queue, and the local host.
-     *
-     * @return the identity tag names and values, ready to add to a span
-     */
+    // Identity tags every span carries: module, caller side, engine endpoint, task queue, host.
     public static BMap<BString, Object> spanIdentityTags() {
         BMap<BString, Object> tags = ValueCreator.createMapValue(
                 TypeCreator.createMapType(PredefinedTypes.TYPE_STRING));
@@ -121,15 +85,7 @@ public final class ObservabilityNative {
         }
     }
 
-    /**
-     * Checks whether the current thread is executing inside a workflow context.
-     * <p>
-     * Used to suppress span recording from workflow bodies: those are replayed
-     * deterministically by the durable engine, so client-side spans emitted from
-     * within them would be duplicated on every replay.
-     *
-     * @return {@code true} if inside a workflow execution, {@code false} otherwise
-     */
+    // Whether the current thread runs inside a workflow context; spans are suppressed there because bodies replay.
     public static boolean isInsideWorkflowContext() {
         try {
             Workflow.getInfo();
@@ -139,12 +95,7 @@ public final class ObservabilityNative {
         }
     }
 
-    /**
-     * Returns the workflow type name registered for a workflow function.
-     *
-     * @param processFunction the workflow function pointer
-     * @return the workflow type name used by the durable engine
-     */
+    // The workflow type name the engine registers for a workflow function.
     public static BString workflowTypeNameOf(BFunctionPointer processFunction) {
         String functionName = processFunction.getType().getName();
         return StringUtils.fromString(
