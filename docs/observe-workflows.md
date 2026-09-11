@@ -26,7 +26,11 @@ metricsReporter = "prometheus"
 ```
 
 The reporter serves `http://localhost:9797/metrics` for Prometheus to scrape; point a
-Grafana dashboard at Prometheus for graphs and alerts.
+Grafana dashboard at Prometheus for graphs and alerts. Two things about how the reporter
+exposes names: a counter is published with a `_value` suffix, so the queries below read
+`workflow_events_total_value` in Prometheus (a summary publishes `_value`, `_mean`, `_max`
+and the percentiles under the base name), and tag values are sanitised — a workflow type
+`workflow-orderFlow` appears as `workflow_orderFlow`.
 
 One counter carries every workflow lifecycle event, and logical metrics are derived from
 it by tag filters:
