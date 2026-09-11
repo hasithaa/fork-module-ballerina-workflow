@@ -116,8 +116,8 @@ function testOversizedDecisionContentIsCut() {
 function testContentCaptureDefaults() {
     test:assertTrue(observe:isHumanTaskContentCaptured(),
             "a decision's content is recorded unless the deployment switches it off, as ai.observe does");
-    test:assertFalse(observe:isActivityContentCaptured(),
-            "activity arguments and results stay out of the log unless the deployment opts in");
+    test:assertTrue(observe:isActivityContentCaptured(),
+            "activity arguments and results are logged unless the deployment switches it off");
     test:assertTrue(observe:isMetricSamplesPublished(),
             "one sample per workflow event is published unless the deployment switches it off");
 }

@@ -60,10 +60,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
     gains `captureHumanTaskContent` — what the person was shown (the task's input, or the
     reviewed activity's arguments) and what they submitted join the decision's span and
     audit entry — and `captureActivityContent` — every activity attempt logs its arguments
-    and result. The first defaults to `true`, as `ai.observe` records content: the engine
-    already persists this data for the run and telemetry retention retires its copy. The
-    second defaults to `false`: activity arguments can carry credentials or personal data,
-    and the worker log cannot be silenced through the logging configuration.
+    and result. Both default to `true`, as `ai.observe` records content: the engine already
+    persists every value a workflow handles in the run's history, so the log carries nothing
+    the workflow store does not, and telemetry retention retires its copy. Turn one off
+    where that content must not leave the workflow store.
   - **One structured log record per workflow event, for log-based metrics.** Under
     `logger = "workflow-metrics"`: `workflow.started`, `workflow.closed` (outcome, duration),
     `activity.executed` (attempt, outcome, duration), `data.sent`, `task.decided`, the

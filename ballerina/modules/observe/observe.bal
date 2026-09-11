@@ -24,8 +24,8 @@ import ballerina/time;
 configurable boolean captureHumanTaskContent = true;
 
 # Whether every activity attempt logs its arguments and result (or error) to the worker's module log.
-# Off by default: activity arguments can carry credentials or personal data. Long values are truncated.
-configurable boolean captureActivityContent = false;
+# Long values are truncated.
+configurable boolean captureActivityContent = true;
 
 # Whether the runtime publishes one structured log record per workflow event under `logger = "workflow-metrics"`,
 # the workflow counterpart of `ballerinax/metrics.logs`. Structural fields only, never content.
