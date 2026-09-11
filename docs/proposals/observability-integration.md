@@ -97,19 +97,45 @@ tag-filtered aggregations neither drop nor double-count rows:
 
 | Label | Values |
 |---|---|
-| `event` | `started`, `closed`, `activity_executed`, `data_sent`, `task_decided` |
-| `workflow_type` | the registered workflow type, else `none` |
-| `activity_type` | the activity's plain name on `activity_executed`, else `none` |
-| `data_name` | the declared event name on `data_sent` (bounded to 64 distinct series; framework control signals such as `__wf_suspend` are not data events and are not counted), else `none` |
-| `task_kind`, `task_name` | the task's kind and declared name — on `task_decided`, and on the `started`/`closed` events of human-task and review-activity child workflows, whose lifecycle doubles as the task's (created, decided-and-closed, time to decision); else `none` |
-| `action` | what was decided, on `task_decided`; else `none` |
+| `event` | lifecycle: `started`, `closed`, `activity_executed`, `data_sent`, `task_decided`; control: `suspended`, `resumed`, `terminated`, `cancelled`; agent steps: `agent_model_called`, `agent_tool_called`, `agent_task_awaited`, `agent_event_received`, `agent_slept`, `agent_tool_reviewed` |
+| `workflow_type` | the registered workflow type, else `none` (control events are client-side and do not know it) |
+| `activity_type` | the activity's plain name on `activity_executed`, the model activity (`llmChat`, `generate`, `generateResult`) on `agent_model_called`, the activity a tool ran on `agent_tool_called`; else `none` |
+| `data_name` | the declared event name on `data_sent` (bounded to 64 distinct series; framework control signals such as `__wf_suspend` are not data events and are not counted) and on `agent_event_received`; else `none` |
+| `task_kind`, `task_name` | the task's kind and declared name — on `task_decided`, on the `started`/`closed` events of human-task and review-activity child workflows, whose lifecycle doubles as the task's (created, decided-and-closed, time to decision), on `agent_task_awaited` (`HUMAN_TASK`) and `agent_tool_reviewed` (`REVIEW_ACTIVITY`); else `none` |
+| `tool_name` | the tool the model called, by its advertised name, on `agent_tool_called`, `agent_task_awaited` and `agent_tool_reviewed`; else `none` |
+| `action` | what was decided, on `task_decided` and `agent_tool_reviewed`; how a sleep ended (`completed`, `interrupted`) on `agent_slept`; else `none` |
 | `outcome` | `success`, `failure` |
-| `error_type` | the failure's application error type (else its class name); `none` on success |
+| `error_type` | the failure's application error type (else its class name); `none` on success. An event wait that ran out is `TIMEOUT`, one that hit the agent's `maxEventWaits` cap is `MAX_EVENT_WAITS`; a control operation on an unknown instance is `WorkflowNotFound` |
 
 `started` and `closed` are recorded by the workflow adapter, replay-gated, at the one
 place every start path converges — a `workflow:run`, a management start, a child workflow,
 a human task, an agent — so each run counts exactly once. `activity_executed` counts each
-real attempt (attempts are never replayed). `data_sent` and `task_decided` are client-side.
+real attempt (attempts are never replayed). `data_sent`, `task_decided` and the four control
+events (`management:suspendWorkflow`/`resumeWorkflow`/`terminateWorkflow`/`cancelWorkflow`,
+accepted or refused) are client-side.
+
+**Durable agent steps.** An agent's loop runs inside its workflow body: the model call,
+the tool dispatch, the human task it creates, the event it waits for, the sleep it takes,
+the review a gated tool goes through. Each is recorded from the workflow thread when the
+step completes — under the same replay gate as `closed`, so a step counts once however
+many times the history is replayed after a restart — with its duration on the engine's
+deterministic clock (so a wait that spans a worker restart is still measured end to end):
+
+| Step | `event` | Distinguished by |
+|---|---|---|
+| Thinking — a built-in model activity finished | `agent_model_called` | `activity_type` = `llmChat` \| `generate` \| `generateResult` |
+| A tool the model called finished | `agent_tool_called` | `tool_name` (advertised name), `activity_type` (the activity it ran, or `executeAgentTool` for an AI tool) |
+| A human task the agent created was decided | `agent_task_awaited` | `task_kind = HUMAN_TASK`, `task_name`, `tool_name`; `error_type` = `HUMANTASK_REJECTED` \| `HUMANTASK_TIMEOUT` |
+| An event wait ended | `agent_event_received` | `data_name`; `error_type` = `TIMEOUT` \| `MAX_EVENT_WAITS` on failure |
+| The built-in sleep tool returned | `agent_slept` | `action` = `completed` \| `interrupted` (woken by `management:wakeAgent`) |
+| A person decided on a gated tool call | `agent_tool_reviewed` | `task_kind = REVIEW_ACTIVITY`, `task_name`, `tool_name`, `action` = the decision |
+
+The model activities also appear as ordinary `activity_executed` attempts (wall clock, per
+attempt, worker-side) — the agent step is the loop's view of the same call: one per
+iteration, including the automatic retries, with the failure the model was told about.
+Token usage is not on these metrics: the workflow module drives `ai:ModelProvider->chat`
+through the `llmChat` activity, and `ballerina/ai`'s own `ai.observe` spans record input
+and output token counts from inside that call when tracing is on.
 
 Logical metrics are derived, never published as separate names:
 
@@ -124,17 +150,27 @@ Logical metrics are derived, never published as separate names:
 | Human tasks decided, by outcome | `workflow_events_total{event="closed", task_kind="HUMAN_TASK", outcome=…}` — rejections close with `error_type="HUMANTASK_REJECTED"`, expiries with `error_type="HUMANTASK_TIMEOUT"` |
 | Time to decision | `workflow_duration_seconds{task_kind="HUMAN_TASK", task_name=…}` |
 | Review activities created / decided | the same three, with `task_kind="REVIEW_ACTIVITY"` |
+| Runs suspended / resumed / terminated / cancelled | `workflow_events_total{event="suspended"}` etc., `outcome=…` |
+| Agent model calls ("thinking") | `workflow_events_total{event="agent_model_called", workflow_type=…}` |
+| Agent tool calls, by tool | `workflow_events_total{event="agent_tool_called", tool_name=…, outcome=…}` |
+| Human tasks an agent created | `workflow_events_total{event="started", task_kind="HUMAN_TASK", task_name=~"<agent>\\..*"}` — and, once decided, `agent_task_awaited` with the outcome |
+| Events an agent received / waits that timed out | `workflow_events_total{event="agent_event_received", data_name=…, outcome=…}` (`error_type="TIMEOUT"`) |
+| Agent sleeps | `workflow_events_total{event="agent_slept", action=…}` |
+| Human-task creation to completion, per agent | `workflow_agent_step_duration_seconds{event="agent_task_awaited", task_name=…}` |
 
 **Durations** stay their own summaries, as the standard keeps `file_databinding_duration`:
-`workflow_duration_seconds` (run start to close, on the engine's deterministic clock) and
-`workflow_activity_duration_seconds` (wall clock per attempt), each tagged with the identity
-tags, the type dimension, and `outcome` — `workflow_duration_seconds` also carries
-`task_kind`/`task_name`, so a human task's summary is its time-to-decision — publishing
-p50/p75/p90/p95/p99 over a five-minute sliding window.
+`workflow_duration_seconds` (run start to close, on the engine's deterministic clock),
+`workflow_activity_duration_seconds` (wall clock per attempt) and
+`workflow_agent_step_duration_seconds` (one agent step, engine clock; tagged with the
+step's `event`, `activity_type`, `tool_name`, `data_name` and `task_name`), each tagged with
+the identity tags, the type dimension, and `outcome` — `workflow_duration_seconds` also
+carries `task_kind`/`task_name`, so a human task's summary is its time-to-decision —
+publishing p50/p75/p90/p95/p99 over a five-minute sliding window.
 
 Tag cardinality is bounded by construction: workflow types, activity types, declared event
-names and task names are compile-time sets, `error_type` is a closed set of failure types,
-and instance IDs never appear on metrics — they live on spans, samples and audit entries.
+names, tool names and task names are compile-time sets, `error_type` is a closed set of
+failure types, and instance IDs never appear on metrics — they live on spans, samples and
+audit entries.
 
 ### Governance: every decision a person makes is recorded
 
@@ -220,6 +256,8 @@ in the same shape, under `logger = "workflow-metrics"` with a `sample` name:
 | `activity.executed` | `activity_type`, `workflow_id`, `run_id`, `attempt`, `outcome`, `duration_seconds` | the activity adapter, per attempt |
 | `data.sent` | `data_name`, `workflow_id` | the client, on `sendData` |
 | `task.decided` | `task_kind`, `task_name`, `action`, `outcome` | beside the decision's audit entry |
+| `workflow.suspended`, `workflow.resumed`, `workflow.terminated`, `workflow.cancelled` | `workflow_id`, `outcome` | the client, on the management control operations |
+| `agent.model_called`, `agent.tool_called`, `agent.task_awaited`, `agent.event_received`, `agent.slept`, `agent.tool_reviewed` | `workflow_type`, `workflow_id`, `run_id`, `activity_type`, `tool_name`, `data_name`, `task_kind`, `task_name`, `action`, `outcome`, `error_type`, `duration_seconds` — the registry tags of the matching `agent_*` event, `none` where one does not apply | the agent loop on the workflow thread, replay-gated |
 
 Samples use the same `outcome = success|failure` vocabulary as the registry metrics.
 
@@ -298,6 +336,15 @@ observation hooks and is left for a future iteration.
   roles and the action — with the task's input and the submitted result on the span exactly
   when `captureHumanTaskContent` is on. `testReviewActivityDecisionTelemetry` does the same
   for a `proceed-with-input` review decision, including the reviewed activity's arguments.
+  `testWorkflowControlMetricsEmission` suspends, resumes and terminates runs and refuses a
+  suspend on an unknown instance, asserting the four control events. `testDurableAgentStepMetrics`
+  runs a scripted agent through a sleep, an event wait that times out, an activity tool, a
+  human task and the model calls between them, and asserts every `agent_*` event with its
+  dimensions, the task child's `started` under the same task name, and the step duration
+  summaries (the sleep's covers the second it slept).
+- The unit run also pins the agent-step vocabulary — event value, derived sample name,
+  outcome from error type, `none` sentinels — through `describeAgentSteps`, and drives the
+  control and agent-step recorders through their registry seams.
   The integration config leaves both content switches at their default, on, so the capture
   paths run under the whole suite. The full pre-existing
   integration suite also runs with observability enabled, so it doubles as a regression

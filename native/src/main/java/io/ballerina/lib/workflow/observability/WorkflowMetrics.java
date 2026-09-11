@@ -83,6 +83,7 @@ public final class WorkflowMetrics {
     private static final String TAG_DATA_NAME = "data_name";
     private static final String TAG_TASK_KIND = "task_kind";
     private static final String TAG_TASK_NAME = "task_name";
+    private static final String TAG_TOOL_NAME = "tool_name";
     private static final String TAG_ACTION = "action";
     private static final String TAG_OUTCOME = "outcome";
     private static final String TAG_ERROR_TYPE = "error_type";
@@ -92,6 +93,10 @@ public final class WorkflowMetrics {
     private static final String EVENT_ACTIVITY = "activity_executed";
     private static final String EVENT_DATA_SENT = "data_sent";
     private static final String EVENT_TASK_DECIDED = "task_decided";
+    public static final String EVENT_SUSPENDED = "suspended";
+    public static final String EVENT_RESUMED = "resumed";
+    public static final String EVENT_TERMINATED = "terminated";
+    public static final String EVENT_CANCELLED = "cancelled";
 
     private static final String OUTCOME_SUCCESS = "success";
     private static final String OUTCOME_FAILURE = "failure";
@@ -127,7 +132,7 @@ public final class WorkflowMetrics {
 
     static void recordWorkflowStarted(MetricRegistry registry, String workflowType) {
         event(registry, EVENT_STARTED, TYPE_WORKER, workflowType, NONE, NONE, taskKindOf(workflowType),
-              taskNameOf(workflowType), NONE, OUTCOME_SUCCESS, NONE).increment();
+              taskNameOf(workflowType), NONE, NONE, OUTCOME_SUCCESS, NONE).increment();
     }
 
     /**
@@ -155,7 +160,7 @@ public final class WorkflowMetrics {
         boolean failed = failure != null;
         String taskKind = taskKindOf(workflowType);
         String taskName = taskNameOf(workflowType);
-        event(registry, EVENT_CLOSED, TYPE_WORKER, workflowType, NONE, NONE, taskKind, taskName, NONE,
+        event(registry, EVENT_CLOSED, TYPE_WORKER, workflowType, NONE, NONE, taskKind, taskName, NONE, NONE,
               failed ? OUTCOME_FAILURE : OUTCOME_SUCCESS, errorTypeOf(failure)).increment();
         if (durationMillis >= 0) {
             Set<Tag> tags = identityTags(TYPE_WORKER);
@@ -230,7 +235,7 @@ public final class WorkflowMetrics {
     static void recordActivityExecution(MetricRegistry registry, String activityType, String workflowType,
                                         long durationMillis, Throwable failure) {
         boolean failed = failure != null;
-        event(registry, EVENT_ACTIVITY, TYPE_WORKER, workflowType, activityType, NONE, NONE, NONE, NONE,
+        event(registry, EVENT_ACTIVITY, TYPE_WORKER, workflowType, activityType, NONE, NONE, NONE, NONE, NONE,
               failed ? OUTCOME_FAILURE : OUTCOME_SUCCESS, errorTypeOf(failure)).increment();
         if (durationMillis >= 0) {
             Set<Tag> tags = identityTags(TYPE_WORKER);
@@ -265,8 +270,70 @@ public final class WorkflowMetrics {
 
     static void recordDataSent(MetricRegistry registry, String dataName, Throwable failure) {
         boolean failed = failure != null;
-        event(registry, EVENT_DATA_SENT, TYPE_CLIENT, NONE, NONE, boundedDataName(dataName), NONE, NONE, NONE,
+        event(registry, EVENT_DATA_SENT, TYPE_CLIENT, NONE, NONE, boundedDataName(dataName), NONE, NONE, NONE, NONE,
               failed ? OUTCOME_FAILURE : OUTCOME_SUCCESS, errorTypeOf(failure)).increment();
+    }
+
+    /**
+     * Records a management control operation attempted against an instance by this runtime — a suspend,
+     * resume, terminate or cancel — accepted or refused. The instance's type is not known on the client,
+     * so {@code workflow_type} holds {@value NONE}; the sample carries the instance id.
+     *
+     * @param event     {@link #EVENT_SUSPENDED}, {@link #EVENT_RESUMED}, {@link #EVENT_TERMINATED} or
+     *                  {@link #EVENT_CANCELLED}
+     * @param errorType the refusing error's type, or {@code null}/empty when the operation was accepted
+     */
+    public static void recordControl(String event, String errorType) {
+        if (!isMetricsEnabled()) {
+            return;
+        }
+        try {
+            recordControl(registry(), event, errorType);
+        } catch (Exception e) {
+            LOGGER.debug("Failed to record workflow control metric", e);
+        }
+    }
+
+    static void recordControl(MetricRegistry registry, String event, String errorType) {
+        boolean failed = errorType != null && !errorType.isEmpty();
+        event(registry, event, TYPE_CLIENT, NONE, NONE, NONE, NONE, NONE, NONE, NONE,
+              failed ? OUTCOME_FAILURE : OUTCOME_SUCCESS, failed ? errorType : NONE).increment();
+    }
+
+    /**
+     * Records one completed step of a durable agent's loop — see {@link AgentStep}. Callers gate on replay.
+     *
+     * @param step the completed step
+     */
+    public static void recordAgentStep(AgentStep step) {
+        if (!isMetricsEnabled()) {
+            return;
+        }
+        try {
+            recordAgentStep(registry(), step);
+        } catch (Exception e) {
+            LOGGER.debug("Failed to record agent step metric", e);
+        }
+    }
+
+    static void recordAgentStep(MetricRegistry registry, AgentStep step) {
+        String outcome = step.failed() ? OUTCOME_FAILURE : OUTCOME_SUCCESS;
+        event(registry, step.event(), TYPE_WORKER, step.workflowType(), step.activityType(), step.dataName(),
+              step.taskKind(), step.taskName(), step.toolName(), step.action(), outcome, step.errorType()).increment();
+        if (step.durationMillis() >= 0) {
+            Set<Tag> tags = identityTags(TYPE_WORKER);
+            tags.add(Tag.of(TAG_WORKFLOW_TYPE, step.workflowType()));
+            tags.add(Tag.of(TAG_EVENT, step.event()));
+            tags.add(Tag.of(TAG_ACTIVITY_TYPE, step.activityType()));
+            tags.add(Tag.of(TAG_TOOL_NAME, step.toolName()));
+            tags.add(Tag.of(TAG_DATA_NAME, step.dataName()));
+            tags.add(Tag.of(TAG_TASK_NAME, step.taskName()));
+            tags.add(Tag.of(TAG_OUTCOME, outcome));
+            registry.gauge(new MetricId("workflow_agent_step_duration_seconds",
+                                        "Duration of one durable agent step, on the engine's clock", tags),
+                           DURATION_STATS)
+                    .setValue(step.durationMillis() / 1000.0);
+        }
     }
 
     /**
@@ -295,7 +362,7 @@ public final class WorkflowMetrics {
 
     static void recordTaskDecision(MetricRegistry registry, String taskKind, String taskName, String action,
                                    boolean accepted, String errorType) {
-        event(registry, EVENT_TASK_DECIDED, TYPE_CLIENT, NONE, NONE, NONE, taskKind, taskName, action,
+        event(registry, EVENT_TASK_DECIDED, TYPE_CLIENT, NONE, NONE, NONE, taskKind, taskName, NONE, action,
               accepted ? OUTCOME_SUCCESS : OUTCOME_FAILURE,
               (errorType == null || errorType.isEmpty()) ? NONE : errorType).increment();
     }
@@ -322,7 +389,7 @@ public final class WorkflowMetrics {
      */
     private static io.ballerina.runtime.observability.metrics.Counter event(MetricRegistry registry,
             String event, String type, String workflowType, String activityType, String dataName,
-            String taskKind, String taskName, String action, String outcome, String errorType) {
+            String taskKind, String taskName, String toolName, String action, String outcome, String errorType) {
         Set<Tag> tags = identityTags(type);
         tags.add(Tag.of(TAG_EVENT, event));
         tags.add(Tag.of(TAG_WORKFLOW_TYPE, workflowType));
@@ -330,6 +397,7 @@ public final class WorkflowMetrics {
         tags.add(Tag.of(TAG_DATA_NAME, dataName));
         tags.add(Tag.of(TAG_TASK_KIND, taskKind));
         tags.add(Tag.of(TAG_TASK_NAME, taskName));
+        tags.add(Tag.of(TAG_TOOL_NAME, toolName));
         tags.add(Tag.of(TAG_ACTION, action));
         tags.add(Tag.of(TAG_OUTCOME, outcome));
         tags.add(Tag.of(TAG_ERROR_TYPE, errorType));

@@ -27,6 +27,8 @@
 //
 // ================================================================================
 
+import ballerina/ai;
+import ballerina/jballerina.java;
 import ballerina/workflow;
 
 # Input for the observability workflow.
@@ -88,3 +90,67 @@ function observabilityReviewFlow(workflow:Context ctx, ObservabilityInput input)
             retryPolicy = {userRoles: "OBS_REVIEWER"});
     return recovered;
 }
+
+# Lookup tool the observability agent calls; runs as a durable activity.
+#
+# + item - Item to look up
+# + return - Availability text
+@workflow:Activity
+function obsAgentLookup(string item) returns string {
+    return item + " is available";
+}
+
+// Scripted so one run walks every kind of agent step: a sleep, an event wait that
+// times out, an activity tool, a human task, then the final answer. The step to take
+// next is read off how many tool results the conversation already holds.
+isolated client class ObsAgentMockModelProvider {
+    *ai:ModelProvider;
+
+    isolated remote function chat(ai:ChatMessage[]|ai:ChatUserMessage messages,
+            ai:ChatCompletionFunctions[] tools = [], string? stop = ())
+            returns ai:ChatAssistantMessage|ai:Error {
+        int toolResults = 0;
+        if messages is ai:ChatMessage[] {
+            foreach ai:ChatMessage message in messages {
+                if message is ai:ChatFunctionMessage {
+                    toolResults += 1;
+                }
+            }
+        }
+        if toolResults == 0 {
+            return {role: ai:ASSISTANT, toolCalls: [{name: "sleep", arguments: {"seconds": 1}, id: "obs-1"}]};
+        }
+        if toolResults == 1 {
+            return {role: ai:ASSISTANT, toolCalls: [{name: "awaitEvent_obsGreenLight", arguments: {}, id: "obs-2"}]};
+        }
+        if toolResults == 2 {
+            return {role: ai:ASSISTANT, toolCalls: [{name: "obsAgentLookup", arguments: {"item": "laptop"}, id: "obs-3"}]};
+        }
+        if toolResults == 3 {
+            return {role: ai:ASSISTANT, toolCalls: [{name: "obsSignoff", arguments: {"summary": "laptop"}, id: "obs-4"}]};
+        }
+        return {role: ai:ASSISTANT, content: "obs agent done"};
+    }
+
+    isolated remote function generate(ai:Prompt prompt, typedesc<anydata> td = <>)
+            returns td|ai:Error = @java:Method {
+        'class: "io.ballerina.lib.workflow.test.TestNatives",
+        name: "mockGenerate"
+    } external;
+}
+
+final ObsAgentMockModelProvider obsAgentMockModel = new;
+
+# Walks every kind of agent step, so each step's telemetry can be observed in one run.
+final workflow:DurableAgent observabilityAgent = check new ({
+    systemPrompt: {role: "", instructions: "Exercise every step once."},
+    model: obsAgentMockModel,
+    activities: [obsAgentLookup],
+    events: {
+        obsGreenLight: {request: string, response: string, cardinality: workflow:SINGLE_EVENT}
+    },
+    humanTasks: {
+        obsSignoff: {userRoles: "OBS_APPROVER", title: "Sign off the observability agent"}
+    },
+    eventTimeout: {seconds: 2}
+});

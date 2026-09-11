@@ -18,6 +18,7 @@
 
 package io.ballerina.lib.workflow.observability;
 
+import io.ballerina.lib.workflow.worker.WorkflowWorkerNative;
 import io.ballerina.runtime.api.creators.ValueCreator;
 import io.ballerina.runtime.api.utils.StringUtils;
 import io.ballerina.runtime.api.values.BArray;
@@ -62,12 +63,50 @@ public final class ObservabilityTestNatives {
         WorkflowMetrics.recordDataSent(registry, "exercisedEvent", new RuntimeException("gone"));
         WorkflowMetrics.recordTaskDecision(registry, "HUMAN_TASK", "exercised.approve", "complete", true, "");
         WorkflowMetrics.recordTaskDecision(registry, "HUMAN_TASK", "none", "complete", false, "error");
+        WorkflowMetrics.recordControl(registry, WorkflowMetrics.EVENT_SUSPENDED, null);
+        WorkflowMetrics.recordControl(registry, WorkflowMetrics.EVENT_TERMINATED, "WorkflowNotFound");
+        for (AgentStep step : exercisedAgentSteps()) {
+            WorkflowMetrics.recordAgentStep(registry, step);
+        }
 
         return StringUtils.fromStringArray(new String[] {
                 WorkflowMetrics.errorTypeOf(null),
                 WorkflowMetrics.errorTypeOf(typedFailure),
                 WorkflowMetrics.errorTypeOf(new IllegalStateException("attempt failed"))
         });
+    }
+
+    /**
+     * Describes every agent step shape as {@code sample|event|outcome|error_type|task_kind|action}, so a
+     * test can pin the vocabulary the registry tags and the samples share.
+     *
+     * @return one description per exercised step, in order
+     */
+    public static BArray describeAgentSteps() {
+        AgentStep[] steps = exercisedAgentSteps();
+        String[] described = new String[steps.length];
+        for (int i = 0; i < steps.length; i++) {
+            AgentStep step = steps[i];
+            described[i] = String.join("|", step.sampleName(), step.event(), step.failed() ? "failure" : "success",
+                                       step.errorType(), step.taskKind(), step.action(), step.toolName(),
+                                       step.dataName(), step.taskName());
+        }
+        return StringUtils.fromStringArray(described);
+    }
+
+    private static AgentStep[] exercisedAgentSteps() {
+        return new AgentStep[] {
+                AgentStep.modelCall("exercisedAgent", "llmChat", 800, null),
+                AgentStep.toolCall("exercisedAgent", "checkStock", "checkStock", 40, null),
+                AgentStep.toolCall("exercisedAgent", "executeAgentTool", "quote", 40, "error"),
+                AgentStep.taskAwaited("exercisedAgent", "signoff", "exercisedAgent.signoff", 90000,
+                                      WorkflowWorkerNative.HUMANTASK_REJECTED_FAILURE_TYPE),
+                AgentStep.eventReceived("exercisedAgent", "chat", 2000, null),
+                AgentStep.eventReceived("exercisedAgent", "approval", 2000, AgentStep.ERROR_EVENT_TIMEOUT),
+                AgentStep.slept("exercisedAgent", false, 1000),
+                AgentStep.slept("exercisedAgent", true, 250),
+                AgentStep.toolReviewed("exercisedAgent", "chargeCard", "exercisedAgent.chargeCard", "proceed", 5000),
+        };
     }
 
     /**

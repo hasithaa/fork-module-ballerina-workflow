@@ -23,6 +23,8 @@ import com.google.protobuf.ByteString;
 import com.google.protobuf.Timestamp;
 import com.google.protobuf.util.JsonFormat;
 import io.ballerina.lib.workflow.ModuleUtils;
+import io.ballerina.lib.workflow.observability.WorkflowMetrics;
+import io.ballerina.lib.workflow.observability.WorkflowSampleLog;
 import io.ballerina.lib.workflow.runtime.WorkflowRuntime;
 import io.ballerina.lib.workflow.utils.CorrelationExtractor;
 import io.ballerina.lib.workflow.utils.EventExtractor;
@@ -370,13 +372,28 @@ public final class ManagementNative {
             boolean delivered = WorkflowRuntime.getInstance().sendSignalToWorkflow(workflowId.getValue(),
                                                                                    "__wf_suspend", null);
             if (!delivered) {
+                recordControl(WorkflowMetrics.EVENT_SUSPENDED, workflowId.getValue(), ERR_TYPE_NOT_FOUND);
                 return ErrorCreator.createError(StringUtils.fromString(
                         "Failed to suspend workflow: workflow not found: " + workflowId.getValue()));
             }
+            recordControl(WorkflowMetrics.EVENT_SUSPENDED, workflowId.getValue(), null);
             return null;
         } catch (Exception e) {
+            recordControl(WorkflowMetrics.EVENT_SUSPENDED, workflowId.getValue(), WorkflowMetrics.errorTypeOf(e));
             return ErrorCreator.createError(StringUtils.fromString("Failed to suspend workflow: " + e.getMessage()));
         }
+    }
+
+    /** The {@code error_type} of a control operation that found no such instance. */
+    private static final String ERR_TYPE_NOT_FOUND = "WorkflowNotFound";
+
+    /**
+     * Records a control operation — suspend, resume, terminate, cancel — as one event and one sample,
+     * accepted ({@code errorType == null}) or refused.
+     */
+    private static void recordControl(String event, String workflowId, String errorType) {
+        WorkflowMetrics.recordControl(event, errorType);
+        WorkflowSampleLog.control(event, workflowId, errorType != null);
     }
 
     /**
@@ -397,8 +414,10 @@ public final class ManagementNative {
                     runId.getValue()).build();
             WorkflowStub stub = client.newUntypedWorkflowStub(exec, Optional.empty());
             stub.signal("__wf_suspend");
+            recordControl(WorkflowMetrics.EVENT_SUSPENDED, workflowId.getValue(), null);
             return null;
         } catch (Exception e) {
+            recordControl(WorkflowMetrics.EVENT_SUSPENDED, workflowId.getValue(), WorkflowMetrics.errorTypeOf(e));
             return ErrorCreator.createError(StringUtils.fromString("Failed to suspend workflow: " + e.getMessage()));
         }
     }
@@ -414,11 +433,14 @@ public final class ManagementNative {
             boolean delivered = WorkflowRuntime.getInstance().sendSignalToWorkflow(workflowId.getValue(), "__wf_resume",
                                                                                    null);
             if (!delivered) {
+                recordControl(WorkflowMetrics.EVENT_RESUMED, workflowId.getValue(), ERR_TYPE_NOT_FOUND);
                 return ErrorCreator.createError(StringUtils.fromString(
                         "Failed to resume workflow: workflow not found: " + workflowId.getValue()));
             }
+            recordControl(WorkflowMetrics.EVENT_RESUMED, workflowId.getValue(), null);
             return null;
         } catch (Exception e) {
+            recordControl(WorkflowMetrics.EVENT_RESUMED, workflowId.getValue(), WorkflowMetrics.errorTypeOf(e));
             return ErrorCreator.createError(StringUtils.fromString("Failed to resume workflow: " + e.getMessage()));
         }
     }
@@ -441,8 +463,10 @@ public final class ManagementNative {
                     runId.getValue()).build();
             WorkflowStub stub = client.newUntypedWorkflowStub(exec, Optional.empty());
             stub.signal("__wf_resume");
+            recordControl(WorkflowMetrics.EVENT_RESUMED, workflowId.getValue(), null);
             return null;
         } catch (Exception e) {
+            recordControl(WorkflowMetrics.EVENT_RESUMED, workflowId.getValue(), WorkflowMetrics.errorTypeOf(e));
             return ErrorCreator.createError(StringUtils.fromString("Failed to resume workflow: " + e.getMessage()));
         }
     }
@@ -1621,8 +1645,10 @@ public final class ManagementNative {
             WorkflowStub stub = rid != null ? client.newUntypedWorkflowStub(wfId, Optional.of(rid), Optional.empty()) :
                                 client.newUntypedWorkflowStub(wfId);
             stub.terminate(reasonStr);
+            recordControl(WorkflowMetrics.EVENT_TERMINATED, wfId, null);
             return null;
         } catch (Exception e) {
+            recordControl(WorkflowMetrics.EVENT_TERMINATED, workflowId.getValue(), WorkflowMetrics.errorTypeOf(e));
             return ErrorCreator.createError(StringUtils.fromString("Failed to terminate workflow: " + e.getMessage()));
         }
     }
@@ -1645,8 +1671,10 @@ public final class ManagementNative {
             WorkflowStub stub = rid != null ? client.newUntypedWorkflowStub(wfId, Optional.of(rid), Optional.empty()) :
                                 client.newUntypedWorkflowStub(wfId);
             stub.cancel();
+            recordControl(WorkflowMetrics.EVENT_CANCELLED, wfId, null);
             return null;
         } catch (Exception e) {
+            recordControl(WorkflowMetrics.EVENT_CANCELLED, workflowId.getValue(), WorkflowMetrics.errorTypeOf(e));
             return ErrorCreator.createError(StringUtils.fromString("Failed to cancel workflow: " + e.getMessage()));
         }
     }

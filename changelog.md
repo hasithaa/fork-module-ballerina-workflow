@@ -23,12 +23,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
     `type`, `remote_url`, `task_queue`, `host`), and outcomes use `outcome =
     success|failure` with `error_type` on failures. `workflow_duration_seconds` and
     `workflow_activity_duration_seconds` publish p50–p99 over a five-minute window.
-    Durable agent LLM turns and tool dispatches are covered as activity executions;
-    agent runner, human-task and review-activity child workflows as workflow events.
+    Agent runner, human-task and review-activity child workflows count as workflow events.
     A task child's events carry its `task_kind` and declared `task_name`, so its
     lifecycle doubles as the task's: created (`started`), decided-and-closed (`closed`,
     with `error_type` naming a rejection or expiry), and time-to-decision
-    (`workflow_duration_seconds` filtered by task).
+    (`workflow_duration_seconds` filtered by task). The management control operations
+    are counted too — `suspended`, `resumed`, `terminated`, `cancelled`, accepted or
+    refused.
+  - **Durable agent steps are metrics.** Each step of an agent's loop is one event on the
+    agent's workflow type, recorded replay-safely when it completes: `agent_model_called`
+    (thinking — `activity_type` names `llmChat`/`generate`/`generateResult`),
+    `agent_tool_called` (by the new `tool_name` label and the activity it ran),
+    `agent_task_awaited` (a human task the agent created, from creation to its decision;
+    `error_type` names a rejection or expiry), `agent_event_received` (an event wait —
+    `outcome="failure"` with `error_type="TIMEOUT"` or `"MAX_EVENT_WAITS"` when it did
+    not arrive), `agent_slept` (`action` = `completed`/`interrupted`) and
+    `agent_tool_reviewed` (a person's decision on a gated tool). Each step's duration, on
+    the engine's clock, lands in `workflow_agent_step_duration_seconds` with the same
+    percentiles, and each publishes an `agent.*` log sample with the same fields.
   - **Every decision a person makes on a task is recorded.** Completing or rejecting a
     human task and deciding a review activity — through the root module, `management`, the
     REST service or `executeCommand` — each write a `ballerina/log` audit entry (task, parent
@@ -53,7 +65,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
     where that content must not leave the workflow store.
   - **One structured log record per workflow event, for log-based metrics.** Under
     `logger = "workflow-metrics"`: `workflow.started`, `workflow.closed` (outcome, duration),
-    `activity.executed` (attempt, outcome, duration), `data.sent`, `task.decided` — the
+    `activity.executed` (attempt, outcome, duration), `data.sent`, `task.decided`, the
+    control operations (`workflow.suspended`, …) and the agent steps (`agent.*`) — the
     workflow-domain counterpart of what `ballerinax/metrics.logs` publishes per HTTP request,
     so a platform that builds metrics from logs can index workflow metrics too. Structural
     fields only, with the same `outcome` vocabulary as the registry metrics.

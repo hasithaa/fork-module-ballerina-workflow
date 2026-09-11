@@ -237,6 +237,94 @@ function testReviewActivityDecisionTelemetry() returns error? {
     }
 }
 
+@test:Config {
+    groups: ["integration", "observability"]
+}
+function testWorkflowControlMetricsEmission() returns error? {
+    if !observe:isMetricsEnabled() {
+        return;
+    }
+    string workflowId = check workflow:run(observabilityFlow, {name: "control"});
+    runtime:sleep(1);
+    check management:suspendWorkflow(workflowId);
+    check management:resumeWorkflow(workflowId);
+    check workflow:sendData(observabilityFlow, workflowId, "obsApproval", true);
+    anydata result = check workflow:getWorkflowResult(workflowId, 60);
+    test:assertEquals(result, "obs:control", "The workflow should complete after the suspend/resume cycle");
+
+    string doomed = check workflow:run(observabilityFlow, {name: "terminate"});
+    runtime:sleep(1);
+    check management:terminateWorkflow(doomed, "", reason = "observability test");
+
+    error? missing = management:suspendWorkflow("obs-no-such-workflow");
+    test:assertTrue(missing is error, "Suspending an unknown instance must be refused");
+
+    // Control operations are client-side events: the instance's type is unknown there, so
+    // workflow_type holds the sentinel; a refused operation is a failure with its error type.
+    check assertMetricAtLeast("workflow_events_total",
+            {'type: "client", event: "suspended", workflow_type: "none", outcome: "success"}, 1.0);
+    check assertMetricAtLeast("workflow_events_total",
+            {'type: "client", event: "resumed", outcome: "success"}, 1.0);
+    check assertMetricAtLeast("workflow_events_total",
+            {'type: "client", event: "terminated", outcome: "success"}, 1.0);
+    check assertMetricAtLeast("workflow_events_total",
+            {'type: "client", event: "suspended", outcome: "failure"}, 1.0);
+}
+
+@test:Config {
+    groups: ["integration", "observability"]
+}
+function testDurableAgentStepMetrics() returns error? {
+    if !observe:isMetricsEnabled() {
+        return;
+    }
+    // One run walks a sleep, an event wait that times out, an activity tool, a human task
+    // and the model calls between them; the steps are recorded on the agent's own
+    // workflow type as it makes progress, so the task is decided before asserting.
+    string agentId = check observabilityAgent.run("observe every step");
+    management:HumanTaskGroup[] groups = check waitForPendingHumanTask(agentId, 30);
+    check workflow:completeHumanTask(groups[0].taskIds[0], {approved: true},
+            callerRoles = ["OBS_APPROVER"], userId = "alice");
+    string result = check observabilityAgent.waitForResult(agentId);
+    test:assertEquals(result, "obs agent done", "The scripted agent should finish after the sign-off");
+
+    // Thinking: one model call per loop iteration (five here).
+    check assertMetricAtLeast("workflow_events_total",
+            {'type: "worker", event: "agent_model_called", workflow_type: "workflow-observabilityAgent",
+                activity_type: "llmChat", outcome: "success"}, 5.0);
+    // The activity tool, under the name the model called it by.
+    check assertMetricAtLeast("workflow_events_total",
+            {event: "agent_tool_called", workflow_type: "workflow-observabilityAgent",
+                tool_name: "obsAgentLookup", activity_type: "obsAgentLookup", outcome: "success"}, 1.0);
+    // The sleep ran its full second.
+    check assertMetricAtLeast("workflow_events_total",
+            {event: "agent_slept", workflow_type: "workflow-observabilityAgent", action: "completed",
+                outcome: "success"}, 1.0);
+    // Nobody sent obsGreenLight, so the wait timed out — a failure naming the timeout.
+    check assertMetricAtLeast("workflow_events_total",
+            {event: "agent_event_received", workflow_type: "workflow-observabilityAgent",
+                data_name: "obsGreenLight", outcome: "failure", error_type: "TIMEOUT"}, 1.0);
+    // The human task the agent created, from creation to alice's sign-off.
+    check assertMetricAtLeast("workflow_events_total",
+            {event: "agent_task_awaited", workflow_type: "workflow-observabilityAgent", task_kind: "HUMAN_TASK",
+                task_name: "observabilityAgent.obsSignoff", tool_name: "obsSignoff", outcome: "success"}, 1.0);
+    // The task child's own lifecycle is recorded too, under the same task name.
+    check assertMetricAtLeast("workflow_events_total",
+            {event: "started", task_kind: "HUMAN_TASK", task_name: "observabilityAgent.obsSignoff"}, 1.0);
+
+    // Every step has a duration summary; the task's is its creation-to-completion time.
+    test:assertTrue(findMetricValue("workflow_agent_step_duration_seconds",
+            {event: "agent_task_awaited", task_name: "observabilityAgent.obsSignoff", outcome: "success"}) !is (),
+            "the agent's wait on its human task should be summarized");
+    float? slept = findMetricValue("workflow_agent_step_duration_seconds",
+            {event: "agent_slept", workflow_type: "workflow-observabilityAgent"});
+    test:assertTrue(slept is float && slept >= 1.0,
+            "the sleep step's duration should cover the second it slept, got " + slept.toString());
+    test:assertTrue(findMetricValue("workflow_agent_step_duration_seconds",
+            {event: "agent_model_called", activity_type: "llmChat"}) !is (),
+            "model calls should be summarized");
+}
+
 // ================================================================================
 // HELPERS
 // ================================================================================

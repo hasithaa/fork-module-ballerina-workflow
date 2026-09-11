@@ -131,6 +131,47 @@ public final class WorkflowSampleLog {
         record("data.sent", f);
     }
 
+    /**
+     * A management control operation — suspend, resume, terminate, cancel — was attempted against an
+     * instance, accepted or refused.
+     *
+     * @param event      the control event name, as on the registry counter
+     * @param workflowId the target instance
+     * @param failed     whether the operation was refused
+     */
+    public static void control(String event, String workflowId, boolean failed) {
+        Map<String, Object> f = new LinkedHashMap<>();
+        f.put("workflow_id", workflowId);
+        f.put("outcome", failed ? "failure" : "success");
+        record("workflow." + event, f);
+    }
+
+    /**
+     * One step of a durable agent's loop completed — fresh progress only; callers gate on replay. The
+     * fields mirror the registry tags, with the sentinel {@code none} where a field does not apply, so a
+     * log-derived agent dashboard groups exactly as a Prometheus one does.
+     *
+     * @param step       the completed step
+     * @param workflowId the agent's instance id
+     * @param runId      the run id
+     */
+    public static void agentStep(AgentStep step, String workflowId, String runId) {
+        Map<String, Object> f = new LinkedHashMap<>();
+        f.put("workflow_type", step.workflowType());
+        f.put("workflow_id", workflowId);
+        f.put("run_id", runId);
+        f.put("activity_type", step.activityType());
+        f.put("tool_name", step.toolName());
+        f.put("data_name", step.dataName());
+        f.put("task_kind", step.taskKind());
+        f.put("task_name", step.taskName());
+        f.put("action", step.action());
+        f.put("outcome", step.failed() ? "failure" : "success");
+        f.put("error_type", step.errorType());
+        f.put("duration_seconds", step.durationMillis() / 1000.0);
+        record(step.sampleName(), f);
+    }
+
     private static void record(String sample, Map<String, Object> fields) {
         if (!ObservabilityNative.areMetricSamplesPublished()) {
             return;

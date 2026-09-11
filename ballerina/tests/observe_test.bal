@@ -183,6 +183,26 @@ function testMetricRecordersThroughTheirSeams() {
 @test:Config {
     groups: ["observe"]
 }
+function testAgentStepsShareOneVocabulary() {
+    // Each agent step is one event value, one sample name derived from it, and an outcome
+    // read off the error type — with `none` wherever a dimension does not apply.
+    string[] steps = describeAgentSteps();
+    test:assertEquals(steps, [
+        "agent.model_called|agent_model_called|success|none|none|none|none|none|none",
+        "agent.tool_called|agent_tool_called|success|none|none|none|checkStock|none|none",
+        "agent.tool_called|agent_tool_called|failure|error|none|none|quote|none|none",
+        "agent.task_awaited|agent_task_awaited|failure|HUMANTASK_REJECTED|HUMAN_TASK|none|signoff|none|exercisedAgent.signoff",
+        "agent.event_received|agent_event_received|success|none|none|none|none|chat|none",
+        "agent.event_received|agent_event_received|failure|TIMEOUT|none|none|none|approval|none",
+        "agent.slept|agent_slept|success|none|none|completed|none|none|none",
+        "agent.slept|agent_slept|success|none|none|interrupted|none|none|none",
+        "agent.tool_reviewed|agent_tool_reviewed|success|none|REVIEW_ACTIVITY|proceed|chargeCard|none|exercisedAgent.chargeCard"
+    ], "sample|event|outcome|error_type|task_kind|action|tool_name|data_name|task_name");
+}
+
+@test:Config {
+    groups: ["observe"]
+}
 function testTaskDimensionsDeriveFromWorkflowTypes() {
     test:assertEquals(deriveTaskDimensions("humantask-expenseFlow.approve"),
             ["HUMAN_TASK", "expenseFlow.approve"],
@@ -203,6 +223,11 @@ isolated function deriveTaskDimensions(string workflowType) returns string[] = @
 isolated function exerciseMetricRecorders() returns string[] = @java:Method {
     'class: "io.ballerina.lib.workflow.observability.ObservabilityTestNatives",
     name: "exerciseMetricRecorders"
+} external;
+
+isolated function describeAgentSteps() returns string[] = @java:Method {
+    'class: "io.ballerina.lib.workflow.observability.ObservabilityTestNatives",
+    name: "describeAgentSteps"
 } external;
 
 isolated function exerciseBoundedDataNames(int count) returns string[] = @java:Method {
