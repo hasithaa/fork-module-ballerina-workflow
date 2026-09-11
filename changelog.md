@@ -38,7 +38,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
     when the REST gateway resolved it from a credential its auth layer validated (a JWT
     claim, a basic-auth username), `asserted` when the application supplied it or a trusted
     gateway forwarded it — carried on `management:Identity.identitySource` through
-    `executeCommand`. None of this is switchable.
+    `executeCommand`. The audit entry is unconditional — written whether or not any
+    observability is enabled; the span, the counter and the metric sample follow their
+    respective switches (tracing, metrics, `publishMetricSamples`).
   - **Content is recorded too, and can be switched off.** `[ballerina.workflow.observe]`
     gains `captureHumanTaskContent` — what the person was shown (the task's input, or the
     reviewed activity's arguments) and what they submitted join the decision's span and

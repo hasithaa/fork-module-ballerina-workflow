@@ -144,10 +144,11 @@ function testHumanTaskDecisionTelemetry() returns error? {
     if observe:isMetricsEnabled() {
         check assertMetricAtLeast("workflow_events_total",
                 {event: "task_decided", task_kind: "HUMAN_TASK", action: "complete", outcome: "success"}, 1.0);
-        // A refused decision is a failure event, and it names the refusing error's type.
+        // A refused decision is a failure event carrying the refusing error's type; it never
+        // resolved the task, so the task_name dimension holds the `none` sentinel.
         check assertMetricAtLeast("workflow_events_total",
                 {event: "task_decided", task_kind: "HUMAN_TASK", action: "complete",
-                    task_name: "unknown", outcome: "failure"}, 1.0);
+                    task_name: "none", outcome: "failure", error_type: "error"}, 1.0);
     }
     if observe:isTracingEnabled() {
         mock:Span accepted = check findDecisionSpan("complete_human_task", "workflow.human_task.id", taskId, "alice");

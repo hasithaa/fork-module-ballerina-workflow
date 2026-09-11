@@ -11,9 +11,12 @@ Add first-class observability — distributed tracing spans and runtime metrics 
 The integration lives entirely in the module's durable-engine wrapper layer and plugs into
 Ballerina's standard observability pipeline (`observabilityIncluded = true`, Prometheus /
 Jaeger / New Relic extensions), so users get workflow telemetry with the same switches
-they already use for HTTP services. No business data (inputs, payloads, results) is ever
-recorded — only structural identifiers such as workflow types, instance IDs, and declared
-event names.
+they already use for HTTP services. Metrics and metric samples carry only structural
+identifiers — workflow types, instance IDs, declared event names — never business data.
+Task and activity **content** (what a person was shown and submitted, an activity's
+arguments and result) is recorded on decision spans, audit entries and the activity
+content log by the content-capture switches, which default to **on** and can be turned
+off per deployment (see "Content capture" below).
 
 ## Motivation
 
@@ -268,10 +271,13 @@ observation hooks and is left for a future iteration.
 
 ## Testing
 
-- **Unit tests** (`ballerina/tests/observe_test.bal`): the module test build runs without
-  `observabilityIncluded`, so these assert the default path every existing user takes —
-  all span operations are safe no-ops when tracing is disabled — plus
-  `workflowTypeNameOf` name derivation.
+- **Unit tests** (`ballerina/tests/observe_test.bal`): the module test run is
+  observability-enabled (`--observability-included`, Prometheus reporter, mock tracer),
+  so the whole IN_MEMORY suite executes the real recording paths, and the observe tests
+  assert span tags (identity tags included), the `workflow_events_total` surface driven
+  end-to-end by an agent turn, decision audits across input shapes, content bounding, and
+  `workflowTypeNameOf`. The disabled no-op paths stay covered by the integration
+  auth-variant runs, whose regenerated config has no `[ballerina.observe]` section.
 - **Integration tests** (`integration-tests/tests/observability_test.bal`): the
   integration package builds with `observabilityIncluded = true` and runs with metrics
   enabled (Prometheus reporter) and the distribution's mock tracer against a real engine
@@ -281,7 +287,8 @@ observation hooks and is left for a future iteration.
   and the `start_workflow`/`send_data`/`get_workflow_result` spans tagged with the
   instance ID (`testWorkflowSpanEmission`). `testHumanTaskDecisionTelemetry` refuses a
   decision from the wrong role and then accepts one, and asserts both are counted
-  (`outcome = denied` and `accepted`) and both leave a span naming the decider, their
+  (`outcome = "failure"` with the refusing `error_type` and `task_name = "none"`, and
+  `outcome = "success"`) and both leave a span naming the decider, their
   roles and the action — with the task's input and the submitted result on the span exactly
   when `captureHumanTaskContent` is on. `testReviewActivityDecisionTelemetry` does the same
   for a `proceed-with-input` review decision, including the reviewed activity's arguments.

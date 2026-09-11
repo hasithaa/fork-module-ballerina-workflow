@@ -189,7 +189,11 @@ task ballerinaTest {
                     "Check the Temporal dev server and the bal test output above.")
             }
         } else {
-            logger.warn("Test results file not found: ${testResultFile}")
+            // No report means the run never produced a verified outcome — that is a
+            // failure, not a warning, or CI could pass on a crashed test run.
+            throw new GradleException(
+                "Integration test results file was not produced: ${testResultFile.absolutePath}. " +
+                "The test run may have crashed before writing its report.")
         }
     }
 }

@@ -76,7 +76,11 @@ ballerina {
     packageOrganization = packageOrg
     module = packageName
     langVersion = ballerinaLangVersion
-    testCoverageParam = "--code-coverage --coverage-format=xml --includes=io.ballerina.lib.workflow.*:ballerina.workflow*"
+    // --observability-included so the unit tests run the real recording paths (spans,
+    // counters, samples), not just their disabled-mode guards; tests/Config.toml turns
+    // metrics and tracing on with the Prometheus reporter and the mock tracer.
+    testCoverageParam = "--code-coverage --coverage-format=xml --observability-included " +
+            "--includes=io.ballerina.lib.workflow.*:ballerina.workflow*"
 }
 
 publishing {

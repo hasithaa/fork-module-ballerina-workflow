@@ -119,11 +119,15 @@ public final class WorkflowMetrics {
             return;
         }
         try {
-            event(EVENT_STARTED, TYPE_WORKER, workflowType, NONE, NONE, NONE, NONE, NONE,
-                  OUTCOME_SUCCESS, NONE).increment();
+            recordWorkflowStarted(registry(), workflowType);
         } catch (Exception e) {
             LOGGER.debug("Failed to record workflow started metric", e);
         }
+    }
+
+    static void recordWorkflowStarted(MetricRegistry registry, String workflowType) {
+        event(registry, EVENT_STARTED, TYPE_WORKER, workflowType, NONE, NONE, NONE, NONE, NONE,
+              OUTCOME_SUCCESS, NONE).increment();
     }
 
     /**
@@ -140,20 +144,25 @@ public final class WorkflowMetrics {
             return;
         }
         try {
-            boolean failed = failure != null;
-            event(EVENT_CLOSED, TYPE_WORKER, workflowType, NONE, NONE, NONE, NONE, NONE,
-                  failed ? OUTCOME_FAILURE : OUTCOME_SUCCESS, errorTypeOf(failure)).increment();
-            if (durationMillis >= 0) {
-                Set<Tag> tags = identityTags(TYPE_WORKER);
-                tags.add(Tag.of(TAG_WORKFLOW_TYPE, workflowType));
-                tags.add(Tag.of(TAG_OUTCOME, failed ? OUTCOME_FAILURE : OUTCOME_SUCCESS));
-                registry().gauge(new MetricId("workflow_duration_seconds",
-                                              "Workflow execution duration from run start to completion", tags),
-                                 DURATION_STATS)
-                        .setValue(durationMillis / 1000.0);
-            }
+            recordWorkflowClosed(registry(), workflowType, durationMillis, failure);
         } catch (Exception e) {
             LOGGER.debug("Failed to record workflow closed metric", e);
+        }
+    }
+
+    static void recordWorkflowClosed(MetricRegistry registry, String workflowType, long durationMillis,
+                                     Throwable failure) {
+        boolean failed = failure != null;
+        event(registry, EVENT_CLOSED, TYPE_WORKER, workflowType, NONE, NONE, NONE, NONE, NONE,
+              failed ? OUTCOME_FAILURE : OUTCOME_SUCCESS, errorTypeOf(failure)).increment();
+        if (durationMillis >= 0) {
+            Set<Tag> tags = identityTags(TYPE_WORKER);
+            tags.add(Tag.of(TAG_WORKFLOW_TYPE, workflowType));
+            tags.add(Tag.of(TAG_OUTCOME, failed ? OUTCOME_FAILURE : OUTCOME_SUCCESS));
+            registry.gauge(new MetricId("workflow_duration_seconds",
+                                        "Workflow execution duration from run start to completion", tags),
+                           DURATION_STATS)
+                    .setValue(durationMillis / 1000.0);
         }
     }
 
@@ -172,21 +181,26 @@ public final class WorkflowMetrics {
             return;
         }
         try {
-            boolean failed = failure != null;
-            event(EVENT_ACTIVITY, TYPE_WORKER, workflowType, activityType, NONE, NONE, NONE, NONE,
-                  failed ? OUTCOME_FAILURE : OUTCOME_SUCCESS, errorTypeOf(failure)).increment();
-            if (durationMillis >= 0) {
-                Set<Tag> tags = identityTags(TYPE_WORKER);
-                tags.add(Tag.of(TAG_WORKFLOW_TYPE, workflowType));
-                tags.add(Tag.of(TAG_ACTIVITY_TYPE, activityType));
-                tags.add(Tag.of(TAG_OUTCOME, failed ? OUTCOME_FAILURE : OUTCOME_SUCCESS));
-                registry().gauge(new MetricId("workflow_activity_duration_seconds",
-                                              "Workflow activity execution duration", tags),
-                                 DURATION_STATS)
-                        .setValue(durationMillis / 1000.0);
-            }
+            recordActivityExecution(registry(), activityType, workflowType, durationMillis, failure);
         } catch (Exception e) {
             LOGGER.debug("Failed to record activity execution metric", e);
+        }
+    }
+
+    static void recordActivityExecution(MetricRegistry registry, String activityType, String workflowType,
+                                        long durationMillis, Throwable failure) {
+        boolean failed = failure != null;
+        event(registry, EVENT_ACTIVITY, TYPE_WORKER, workflowType, activityType, NONE, NONE, NONE, NONE,
+              failed ? OUTCOME_FAILURE : OUTCOME_SUCCESS, errorTypeOf(failure)).increment();
+        if (durationMillis >= 0) {
+            Set<Tag> tags = identityTags(TYPE_WORKER);
+            tags.add(Tag.of(TAG_WORKFLOW_TYPE, workflowType));
+            tags.add(Tag.of(TAG_ACTIVITY_TYPE, activityType));
+            tags.add(Tag.of(TAG_OUTCOME, failed ? OUTCOME_FAILURE : OUTCOME_SUCCESS));
+            registry.gauge(new MetricId("workflow_activity_duration_seconds",
+                                        "Workflow activity execution duration", tags),
+                           DURATION_STATS)
+                    .setValue(durationMillis / 1000.0);
         }
     }
 
@@ -203,12 +217,16 @@ public final class WorkflowMetrics {
             return;
         }
         try {
-            boolean failed = failure != null;
-            event(EVENT_DATA_SENT, TYPE_CLIENT, NONE, NONE, boundedDataName(dataName), NONE, NONE, NONE,
-                  failed ? OUTCOME_FAILURE : OUTCOME_SUCCESS, errorTypeOf(failure)).increment();
+            recordDataSent(registry(), dataName, failure);
         } catch (Exception e) {
             LOGGER.debug("Failed to record data event metric", e);
         }
+    }
+
+    static void recordDataSent(MetricRegistry registry, String dataName, Throwable failure) {
+        boolean failed = failure != null;
+        event(registry, EVENT_DATA_SENT, TYPE_CLIENT, NONE, NONE, boundedDataName(dataName), NONE, NONE, NONE,
+              failed ? OUTCOME_FAILURE : OUTCOME_SUCCESS, errorTypeOf(failure)).increment();
     }
 
     /**
@@ -229,12 +247,17 @@ public final class WorkflowMetrics {
             return;
         }
         try {
-            event(EVENT_TASK_DECIDED, TYPE_CLIENT, NONE, NONE, NONE, taskKind, taskName, action,
-                  accepted ? OUTCOME_SUCCESS : OUTCOME_FAILURE,
-                  (errorType == null || errorType.isEmpty()) ? NONE : errorType).increment();
+            recordTaskDecision(registry(), taskKind, taskName, action, accepted, errorType);
         } catch (Exception e) {
             LOGGER.debug("Failed to record task decision metric", e);
         }
+    }
+
+    static void recordTaskDecision(MetricRegistry registry, String taskKind, String taskName, String action,
+                                   boolean accepted, String errorType) {
+        event(registry, EVENT_TASK_DECIDED, TYPE_CLIENT, NONE, NONE, NONE, taskKind, taskName, action,
+              accepted ? OUTCOME_SUCCESS : OUTCOME_FAILURE,
+              (errorType == null || errorType.isEmpty()) ? NONE : errorType).increment();
     }
 
     /**
@@ -257,9 +280,9 @@ public final class WorkflowMetrics {
     /**
      * The counter cell for one lifecycle event, with the full uniform label set.
      */
-    private static io.ballerina.runtime.observability.metrics.Counter event(String event, String type,
-            String workflowType, String activityType, String dataName, String taskKind, String taskName,
-            String action, String outcome, String errorType) {
+    private static io.ballerina.runtime.observability.metrics.Counter event(MetricRegistry registry,
+            String event, String type, String workflowType, String activityType, String dataName,
+            String taskKind, String taskName, String action, String outcome, String errorType) {
         Set<Tag> tags = identityTags(type);
         tags.add(Tag.of(TAG_EVENT, event));
         tags.add(Tag.of(TAG_WORKFLOW_TYPE, workflowType));
@@ -270,7 +293,7 @@ public final class WorkflowMetrics {
         tags.add(Tag.of(TAG_ACTION, action));
         tags.add(Tag.of(TAG_OUTCOME, outcome));
         tags.add(Tag.of(TAG_ERROR_TYPE, errorType));
-        return registry().counter(new MetricId(EVENTS_METRIC, EVENTS_DESC, tags));
+        return registry.counter(new MetricId(EVENTS_METRIC, EVENTS_DESC, tags));
     }
 
     /**
@@ -314,19 +337,28 @@ public final class WorkflowMetrics {
 
     /**
      * The tag value for one delivery: the name itself while the distinct-name budget lasts,
-     * {@value #OTHER_DATA_NAME} afterwards. The check-then-add race can overshoot the cap by
-     * a few concurrent senders; the bound this exists for is "not one series per request",
-     * and that holds either way.
+     * {@value #OTHER_DATA_NAME} afterwards. Admission is atomic — the lock-free fast path
+     * serves already-admitted names, and a synchronized check-then-add admits new ones, so
+     * concurrent senders can never push the registry past the budget. The sample log reuses
+     * this so log-derived {@code data_name} dimensions stay within the same budget.
+     *
+     * @param dataName the delivered event name
+     * @return the bounded tag value for the delivery
      */
-    private static String boundedDataName(String dataName) {
+    static String boundedDataName(String dataName) {
         if (SEEN_DATA_NAMES.contains(dataName)) {
             return dataName;
         }
-        if (SEEN_DATA_NAMES.size() >= MAX_DATA_NAME_SERIES) {
-            return OTHER_DATA_NAME;
+        synchronized (SEEN_DATA_NAMES) {
+            if (SEEN_DATA_NAMES.contains(dataName)) {
+                return dataName;
+            }
+            if (SEEN_DATA_NAMES.size() >= MAX_DATA_NAME_SERIES) {
+                return OTHER_DATA_NAME;
+            }
+            SEEN_DATA_NAMES.add(dataName);
+            return dataName;
         }
-        SEEN_DATA_NAMES.add(dataName);
-        return dataName;
     }
 
     private static boolean isMetricsEnabled() {

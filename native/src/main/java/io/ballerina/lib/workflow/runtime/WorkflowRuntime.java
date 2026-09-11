@@ -227,7 +227,7 @@ public final class WorkflowRuntime {
             }
 
             WorkflowMetrics.recordDataSent(signalName, null);
-            WorkflowSampleLog.dataSent(signalName, workflowId);
+            WorkflowSampleLog.dataSent(signalName, workflowId, false);
             LOGGER.debug("Sent signal directly to workflow: id={}, signalName={}", workflowId, signalName);
             return true;
 
@@ -235,10 +235,12 @@ public final class WorkflowRuntime {
             // The workflow completed or was terminated before this signal was delivered.
             // Returns false so the caller can decide whether to surface this as an error.
             WorkflowMetrics.recordDataSent(signalName, e);
+            WorkflowSampleLog.dataSent(signalName, workflowId, true);
             LOGGER.debug("Signal '{}' dropped: workflow {} is no longer running", signalName, workflowId);
             return false;
         } catch (Exception e) {
             WorkflowMetrics.recordDataSent(signalName, e);
+            WorkflowSampleLog.dataSent(signalName, workflowId, true);
             LOGGER.error("Failed to send signal to workflow {}: {}", workflowId, e.getMessage(), e);
             throw new RuntimeException("Failed to send signal: " + e.getMessage(), e);
         }

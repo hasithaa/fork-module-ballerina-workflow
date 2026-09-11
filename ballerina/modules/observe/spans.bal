@@ -102,7 +102,9 @@ const int MAX_CONTENT_CHARS = 8192;
 
 const string DECISION_ACCEPTED = "accepted";
 const string DECISION_DENIED = "denied";
-const string UNKNOWN_TASK_NAME = "unknown";
+// A refusal that never resolved the task has no name for it; the uniform label
+// contract uses the `none` sentinel for a dimension with no value.
+const string UNKNOWN_TASK_NAME = "none";
 
 # Represents one decision a person makes on a task — completing or rejecting a human task,
 # or deciding a review activity — as a tracing span that, when closed, also writes the

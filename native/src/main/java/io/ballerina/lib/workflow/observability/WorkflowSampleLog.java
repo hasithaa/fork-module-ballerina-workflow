@@ -106,19 +106,24 @@ public final class WorkflowSampleLog {
     }
 
     /**
-     * A data event was delivered to a running instance. Framework control signals
-     * ({@code __wf_suspend}, {@code __agent_wake}, …) are not data events and publish no sample.
+     * A data event delivery was attempted against a running instance, accepted or not — a
+     * log-derived total must count failed deliveries like the registry counter does. The
+     * name shares the registry's distinct-name budget so a log-derived {@code data_name}
+     * dimension stays bounded too. Framework control signals ({@code __wf_suspend},
+     * {@code __agent_wake}, …) are not data events and publish no sample.
      *
      * @param dataName   the declared event name
      * @param workflowId the target instance
+     * @param failed     whether the delivery failed
      */
-    public static void dataSent(String dataName, String workflowId) {
+    public static void dataSent(String dataName, String workflowId, boolean failed) {
         if (dataName.startsWith("__")) {
             return;
         }
         Map<String, Object> f = new LinkedHashMap<>();
-        f.put("data_name", dataName);
+        f.put("data_name", WorkflowMetrics.boundedDataName(dataName));
         f.put("workflow_id", workflowId);
+        f.put("outcome", failed ? "failure" : "success");
         record("data.sent", f);
     }
 
