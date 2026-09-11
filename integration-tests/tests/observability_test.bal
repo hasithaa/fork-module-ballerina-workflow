@@ -142,6 +142,17 @@ function testHumanTaskDecisionTelemetry() returns error? {
     test:assertEquals(result, "obs:approved", "The approved task should complete the workflow");
 
     if observe:isMetricsEnabled() {
+        // The task's child workflow doubles as its lifecycle: created, decided-and-closed,
+        // and how long the decision took — all under its kind and declared name.
+        check assertMetricAtLeast("workflow_events_total",
+                {event: "started", task_kind: "HUMAN_TASK",
+                    task_name: "observabilityApprovalFlow.obsApprove"}, 1.0);
+        check assertMetricAtLeast("workflow_events_total",
+                {event: "closed", task_kind: "HUMAN_TASK",
+                    task_name: "observabilityApprovalFlow.obsApprove", outcome: "success"}, 1.0);
+        test:assertTrue(findMetricValue("workflow_duration_seconds",
+                {task_kind: "HUMAN_TASK", task_name: "observabilityApprovalFlow.obsApprove"}) !is (),
+                "time-to-decision is the task child workflow's duration summary");
         check assertMetricAtLeast("workflow_events_total",
                 {event: "task_decided", task_kind: "HUMAN_TASK", action: "complete", outcome: "success"}, 1.0);
         // A refused decision is a failure event carrying the refusing error's type; it never
@@ -200,6 +211,9 @@ function testReviewActivityDecisionTelemetry() returns error? {
         check assertMetricAtLeast("workflow_events_total",
                 {event: "task_decided", task_kind: "REVIEW_ACTIVITY", action: "proceed-with-input",
                     outcome: "success"}, 1.0);
+        check assertMetricAtLeast("workflow_events_total",
+                {event: "closed", task_kind: "REVIEW_ACTIVITY",
+                    task_name: "observabilityReviewFlow.obsRecoverableStep", outcome: "success"}, 1.0);
     }
     if observe:isTracingEnabled() {
         mock:Span span = check findDecisionSpan("complete_review_activity", "workflow.review_activity.id",

@@ -49,6 +49,10 @@ public final class ObservabilityTestNatives {
 
         WorkflowMetrics.recordWorkflowStarted(registry, "workflow-exercised");
         WorkflowMetrics.recordWorkflowClosed(registry, "workflow-exercised", 1200, null);
+        WorkflowMetrics.recordWorkflowStarted(registry, "humantask-exercisedFlow.approve");
+        WorkflowMetrics.recordWorkflowClosed(registry, "humantask-exercisedFlow.approve", 3600, null);
+        WorkflowMetrics.recordWorkflowClosed(registry, "reviewactivity-exercisedFlow.step", 60,
+                                             ApplicationFailure.newFailure("rejected", "HUMANTASK_REJECTED"));
         ApplicationFailure typedFailure = ApplicationFailure.newFailure("boom", "ExercisedFailure");
         WorkflowMetrics.recordWorkflowClosed(registry, "workflow-exercised", -1, typedFailure);
         WorkflowMetrics.recordActivityExecution(registry, "exercisedStep", "workflow-exercised", 5, null);
@@ -63,6 +67,20 @@ public final class ObservabilityTestNatives {
                 WorkflowMetrics.errorTypeOf(null),
                 WorkflowMetrics.errorTypeOf(typedFailure),
                 WorkflowMetrics.errorTypeOf(new IllegalStateException("attempt failed"))
+        });
+    }
+
+    /**
+     * Reports the task dimensions a workflow type resolves to.
+     *
+     * @param workflowType the workflow type name
+     * @return the task kind and task name tag values
+     */
+    public static BArray deriveTaskDimensions(BString workflowType) {
+        String type = workflowType.getValue();
+        return StringUtils.fromStringArray(new String[] {
+                WorkflowMetrics.taskKindOf(type),
+                WorkflowMetrics.taskNameOf(type)
         });
     }
 

@@ -101,7 +101,8 @@ tag-filtered aggregations neither drop nor double-count rows:
 | `workflow_type` | the registered workflow type, else `none` |
 | `activity_type` | the activity's plain name on `activity_executed`, else `none` |
 | `data_name` | the declared event name on `data_sent` (bounded to 64 distinct series; framework control signals such as `__wf_suspend` are not data events and are not counted), else `none` |
-| `task_kind`, `task_name`, `action` | the decision's dimensions on `task_decided`, else `none` |
+| `task_kind`, `task_name` | the task's kind and declared name — on `task_decided`, and on the `started`/`closed` events of human-task and review-activity child workflows, whose lifecycle doubles as the task's (created, decided-and-closed, time to decision); else `none` |
+| `action` | what was decided, on `task_decided`; else `none` |
 | `outcome` | `success`, `failure` |
 | `error_type` | the failure's application error type (else its class name); `none` on success |
 
@@ -119,12 +120,17 @@ Logical metrics are derived, never published as separate names:
 | Activity attempts | `workflow_events_total{event="activity_executed"}` |
 | Data events delivered | `workflow_events_total{event="data_sent"}` |
 | Task decisions (accepted / refused) | `workflow_events_total{event="task_decided", outcome=…}` |
+| Human tasks created | `workflow_events_total{event="started", task_kind="HUMAN_TASK"}` |
+| Human tasks decided, by outcome | `workflow_events_total{event="closed", task_kind="HUMAN_TASK", outcome=…}` — rejections close with `error_type="HUMANTASK_REJECTED"`, expiries with `error_type="HUMANTASK_TIMEOUT"` |
+| Time to decision | `workflow_duration_seconds{task_kind="HUMAN_TASK", task_name=…}` |
+| Review activities created / decided | the same three, with `task_kind="REVIEW_ACTIVITY"` |
 
 **Durations** stay their own summaries, as the standard keeps `file_databinding_duration`:
 `workflow_duration_seconds` (run start to close, on the engine's deterministic clock) and
 `workflow_activity_duration_seconds` (wall clock per attempt), each tagged with the identity
-tags, the type dimension, and `outcome`, publishing p50/p75/p90/p95/p99 over a five-minute
-sliding window.
+tags, the type dimension, and `outcome` — `workflow_duration_seconds` also carries
+`task_kind`/`task_name`, so a human task's summary is its time-to-decision — publishing
+p50/p75/p90/p95/p99 over a five-minute sliding window.
 
 Tag cardinality is bounded by construction: workflow types, activity types, declared event
 names and task names are compile-time sets, `error_type` is a closed set of failure types,

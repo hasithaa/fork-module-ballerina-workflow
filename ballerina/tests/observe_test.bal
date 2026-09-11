@@ -180,6 +180,26 @@ function testMetricRecordersThroughTheirSeams() {
             "names within the budget keep their own series");
 }
 
+@test:Config {
+    groups: ["observe"]
+}
+function testTaskDimensionsDeriveFromWorkflowTypes() {
+    test:assertEquals(deriveTaskDimensions("humantask-expenseFlow.approve"),
+            ["HUMAN_TASK", "expenseFlow.approve"],
+            "a human task child's lifecycle events carry its kind and declared name");
+    test:assertEquals(deriveTaskDimensions("reviewactivity-orderFlow.chargeCard"),
+            ["REVIEW_ACTIVITY", "orderFlow.chargeCard"]);
+    test:assertEquals(deriveTaskDimensions("retrytask"), ["REVIEW_ACTIVITY", "none"],
+            "the legacy shared review type keeps its kind, but carries no per-task name");
+    test:assertEquals(deriveTaskDimensions("workflow-orderFlow"), ["none", "none"],
+            "an ordinary workflow carries the sentinel in both task dimensions");
+}
+
+isolated function deriveTaskDimensions(string workflowType) returns string[] = @java:Method {
+    'class: "io.ballerina.lib.workflow.observability.ObservabilityTestNatives",
+    name: "deriveTaskDimensions"
+} external;
+
 isolated function exerciseMetricRecorders() returns string[] = @java:Method {
     'class: "io.ballerina.lib.workflow.observability.ObservabilityTestNatives",
     name: "exerciseMetricRecorders"

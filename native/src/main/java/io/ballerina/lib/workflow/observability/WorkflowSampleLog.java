@@ -62,6 +62,8 @@ public final class WorkflowSampleLog {
     public static void workflowStarted(String workflowType, String workflowId, String runId) {
         Map<String, Object> f = new LinkedHashMap<>();
         f.put("workflow_type", workflowType);
+        f.put("task_kind", WorkflowMetrics.taskKindOf(workflowType));
+        f.put("task_name", WorkflowMetrics.taskNameOf(workflowType));
         f.put("workflow_id", workflowId);
         f.put("run_id", runId);
         record("workflow.started", f);
@@ -80,6 +82,8 @@ public final class WorkflowSampleLog {
                                       boolean failed) {
         Map<String, Object> f = new LinkedHashMap<>();
         f.put("workflow_type", workflowType);
+        f.put("task_kind", WorkflowMetrics.taskKindOf(workflowType));
+        f.put("task_name", WorkflowMetrics.taskNameOf(workflowType));
         f.put("workflow_id", workflowId);
         f.put("run_id", runId);
         f.put("outcome", failed ? "failure" : "success");

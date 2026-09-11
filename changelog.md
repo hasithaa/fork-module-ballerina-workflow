@@ -24,8 +24,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
     success|failure` with `error_type` on failures. `workflow_duration_seconds` and
     `workflow_activity_duration_seconds` publish p50–p99 over a five-minute window.
     Durable agent LLM turns and tool dispatches are covered as activity executions;
-    agent runner, human-task and review-activity child workflows as workflow events,
-    each distinguishable by type tags.
+    agent runner, human-task and review-activity child workflows as workflow events.
+    A task child's events carry its `task_kind` and declared `task_name`, so its
+    lifecycle doubles as the task's: created (`started`), decided-and-closed (`closed`,
+    with `error_type` naming a rejection or expiry), and time-to-decision
+    (`workflow_duration_seconds` filtered by task).
   - **Every decision a person makes on a task is recorded.** Completing or rejecting a
     human task and deciding a review activity — through the root module, `management`, the
     REST service or `executeCommand` — each write a `ballerina/log` audit entry (task, parent

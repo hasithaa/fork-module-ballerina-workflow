@@ -126,8 +126,8 @@ public final class WorkflowMetrics {
     }
 
     static void recordWorkflowStarted(MetricRegistry registry, String workflowType) {
-        event(registry, EVENT_STARTED, TYPE_WORKER, workflowType, NONE, NONE, NONE, NONE, NONE,
-              OUTCOME_SUCCESS, NONE).increment();
+        event(registry, EVENT_STARTED, TYPE_WORKER, workflowType, NONE, NONE, taskKindOf(workflowType),
+              taskNameOf(workflowType), NONE, OUTCOME_SUCCESS, NONE).increment();
     }
 
     /**
@@ -153,17 +153,57 @@ public final class WorkflowMetrics {
     static void recordWorkflowClosed(MetricRegistry registry, String workflowType, long durationMillis,
                                      Throwable failure) {
         boolean failed = failure != null;
-        event(registry, EVENT_CLOSED, TYPE_WORKER, workflowType, NONE, NONE, NONE, NONE, NONE,
+        String taskKind = taskKindOf(workflowType);
+        String taskName = taskNameOf(workflowType);
+        event(registry, EVENT_CLOSED, TYPE_WORKER, workflowType, NONE, NONE, taskKind, taskName, NONE,
               failed ? OUTCOME_FAILURE : OUTCOME_SUCCESS, errorTypeOf(failure)).increment();
         if (durationMillis >= 0) {
             Set<Tag> tags = identityTags(TYPE_WORKER);
             tags.add(Tag.of(TAG_WORKFLOW_TYPE, workflowType));
+            tags.add(Tag.of(TAG_TASK_KIND, taskKind));
+            tags.add(Tag.of(TAG_TASK_NAME, taskName));
             tags.add(Tag.of(TAG_OUTCOME, failed ? OUTCOME_FAILURE : OUTCOME_SUCCESS));
             registry.gauge(new MetricId("workflow_duration_seconds",
                                         "Workflow execution duration from run start to completion", tags),
                            DURATION_STATS)
                     .setValue(durationMillis / 1000.0);
         }
+    }
+
+    /**
+     * The task kind a workflow type represents: human tasks and review activities run as
+     * child workflows with typed prefixes, so their lifecycle events double as task
+     * lifecycle events — created, decided-and-closed, and how long a decision took.
+     *
+     * @param workflowType the workflow type name
+     * @return {@code HUMAN_TASK}, {@code REVIEW_ACTIVITY}, or {@value NONE}
+     */
+    static String taskKindOf(String workflowType) {
+        if (workflowType.startsWith(WorkflowWorkerNative.HUMANTASK_TYPE_PREFIX)) {
+            return "HUMAN_TASK";
+        }
+        if (workflowType.startsWith(WorkflowWorkerNative.REVIEW_ACTIVITY_TYPE_PREFIX)
+                || WorkflowWorkerNative.LEGACY_RETRYTASK_WORKFLOW_TYPE.equals(workflowType)) {
+            return "REVIEW_ACTIVITY";
+        }
+        return NONE;
+    }
+
+    /**
+     * The declared task name a task workflow type carries — the type without its kind
+     * prefix (e.g. {@code expenseFlow.approve}) — or {@value NONE} for a non-task type.
+     *
+     * @param workflowType the workflow type name
+     * @return the declared task name, or {@value NONE}
+     */
+    static String taskNameOf(String workflowType) {
+        if (workflowType.startsWith(WorkflowWorkerNative.HUMANTASK_TYPE_PREFIX)) {
+            return workflowType.substring(WorkflowWorkerNative.HUMANTASK_TYPE_PREFIX.length());
+        }
+        if (workflowType.startsWith(WorkflowWorkerNative.REVIEW_ACTIVITY_TYPE_PREFIX)) {
+            return workflowType.substring(WorkflowWorkerNative.REVIEW_ACTIVITY_TYPE_PREFIX.length());
+        }
+        return NONE;
     }
 
     /**
